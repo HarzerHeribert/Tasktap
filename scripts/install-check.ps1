@@ -98,31 +98,34 @@ PROFILE
 function StandIn-Elevated { ELEVATED }
 function StandIn-CimInstance { param($ClassName) [pscustomobject]@{ Architecture = ARCH } }
 function StandIn-ItemProperty { [CmdletBinding()] param([string]$LiteralPath)
-  if (Test-Path -LiteralPath 'REGISTRY') { [pscustomobject]@{ InstallLocation = (Get-Content -Raw -LiteralPath 'REGISTRY') } } }
+  if ([IO.File]::Exists('REGISTRY')) { [pscustomobject]@{ InstallLocation = [IO.File]::ReadAllText('REGISTRY') } } }
 function Snapshot {
   $skip = 'LASTEXITCODE', 'Error', 'StackTrace', '?', '^', '$', '_', 'PSItem', 'args', 'input', 'MyInvocation', 'PSBoundParameters',
     'PSCmdlet', 'foreach', 'this', 'Matches', 'before', 'after', 'code'
-  $names = (Get-Variable -Scope Global | Where-Object { $skip -notcontains $_.Name } | ForEach-Object { $_.Name } | Sort-Object) -join ','
-  "$names|$((Get-Location).Path)|$ErrorActionPreference|$ProgressPreference|$([Net.ServicePointManager]::SecurityProtocol)|$($PSDefaultParameterValues.Count)"
+  [string[]]$names = @(Microsoft.PowerShell.Utility\Get-Variable -Scope Global).Where({ $skip -notcontains $_.Name }).ForEach({ $_.Name })
+  [Array]::Sort($names)
+  "$($names -join ',')|$((Microsoft.PowerShell.Management\Get-Location).Path)|$ErrorActionPreference|$ProgressPreference|$([Net.ServicePointManager]::SecurityProtocol)|$($PSDefaultParameterValues.Count)"
 }
 $before = Snapshot
-Get-Content -Raw -LiteralPath 'SUBJECT' | Invoke-Expression
-$code = if (Test-Path -LiteralPath variable:global:LASTEXITCODE) { $global:LASTEXITCODE } else { 0 }
+Microsoft.PowerShell.Utility\Invoke-Expression ([IO.File]::ReadAllText('SUBJECT'))
+$code = if (Microsoft.PowerShell.Management\Test-Path -LiteralPath variable:global:LASTEXITCODE) { $global:LASTEXITCODE } else { 0 }
 $after = Snapshot
-if ($after -ne $before) { Write-Host "SESSION CHANGED: before $before"; Write-Host "SESSION CHANGED: after  $after" }
+if ($after -ne $before) { [Console]::Out.WriteLine("SESSION CHANGED: before $before"); [Console]::Out.WriteLine("SESSION CHANGED: after  $after") }
 exit $code
 '@
-  # A profile that would change the line if the line let it: everything it names stands in for a command the script uses.
+  # A profile that would change the line if the line let it: a function or an alias for every command the script names
+  # (and whoami), a default that would break Start-Process, and the strictest strict mode.
   $hostile = @'
-function Shadowed { Write-Host "SHADOWED $($MyInvocation.InvocationName)"; throw 'shadowed' }
-function whoami { Shadowed }
-function Get-ItemProperty { Shadowed }
-function Get-CimInstance { Shadowed }
-function Invoke-WebRequest { Shadowed }
-Set-Alias -Name Get-Process -Value Shadowed
-Set-Alias -Name Start-Process -Value Shadowed
+function Shadowed { [Console]::Out.WriteLine("SHADOWED $($MyInvocation.InvocationName)"); throw 'shadowed' }
+foreach ($name in 'whoami', 'Get-ItemProperty', 'Get-CimInstance', 'Invoke-WebRequest', 'Get-Content', 'Test-Path', 'Copy-Item', 'New-Item',
+    'Remove-Item', 'Join-Path', 'Write-Host', 'Out-Null', 'Set-StrictMode') {
+  Microsoft.PowerShell.Management\Set-Item -Path "function:global:$name" -Value { Shadowed }
+}
+foreach ($name in 'Get-Process', 'Start-Process', 'Where-Object', 'ForEach-Object') {
+  Microsoft.PowerShell.Utility\Set-Alias -Name $name -Value Shadowed -Scope Global
+}
 $PSDefaultParameterValues['Start-Process:WorkingDirectory'] = 'Z:\no-such-folder'
-Set-StrictMode -Version Latest
+Microsoft.PowerShell.Core\Set-StrictMode -Version Latest
 '@
 
   # Runs the line in <shell> with <case>'s stand-ins and these variables for it alone; returns its exit code and words.

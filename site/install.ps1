@@ -10,8 +10,8 @@
 #
 #   $env:TASKTAP_INSTALL_FROM = '<https address or folder>'  where the release's files are (default: the newest release)
 #   $env:TASKTAP_INSTALL_NO_START = '1'                      do not start Tasktap afterwards
-# It runs in your own PowerShell, so nothing from your profile may change it: what it asks of Windows is asked of .NET
-# or of cmdlets named with their module, and strict mode and parameter defaults are its own. scripts/install-check.ps1
+# It runs in your own PowerShell, so nothing from your profile may change it: everything it calls is .NET or a cmdlet
+# named with its module, and strict mode and parameter defaults are its own. scripts/install-check.ps1
 # stands in for what describes the computer in a copy of this script.
 & {
   Microsoft.PowerShell.Core\Set-StrictMode -Off
@@ -21,7 +21,7 @@
   $name = 'Tasktap_x64-setup.exe'
   $from = 'https://github.com/HarzerHeribert/Tasktap/releases/latest/download'
   if ($env:TASKTAP_INSTALL_FROM) { $from = $env:TASKTAP_INSTALL_FROM.TrimEnd('/', '\') }
-  $tmp = Join-Path ([IO.Path]::GetTempPath()) ('tasktap-install-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+  $tmp = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'tasktap-install-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
   $protocols = [Net.ServicePointManager]::SecurityProtocol
   try {
     if ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -33,43 +33,45 @@
     if ($arch -eq 12) { throw 'Tasktap for Windows is built for x64 processors only for now, and this computer has an ARM64 processor; there is no build for it yet.' }
     if ($arch -ne 9) { throw "Tasktap for Windows is built for x64 processors only, and this computer's processor is not one (Win32_Processor.Architecture $arch)." }
     $session = (Microsoft.PowerShell.Management\Get-Process -Id $PID).SessionId
-    if (Microsoft.PowerShell.Management\Get-Process -Name 'tasktap-app' -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session }) {
+    if (Microsoft.PowerShell.Management\Get-Process -Name 'tasktap-app' -ErrorAction SilentlyContinue | Microsoft.PowerShell.Core\Where-Object { $_.SessionId -eq $session }) {
       throw 'Tasktap is running; quit it first (its icon by the clock, Quit), or update it from Settings > About.'
     }
     $web = $from -like 'https://*'
     if (-not $web -and -not [IO.Path]::IsPathRooted($from)) { throw 'TASKTAP_INSTALL_FROM must be an https:// address or a folder.' }
     if ($PSVersionTable.PSVersion.Major -lt 6) { [Net.ServicePointManager]::SecurityProtocol = $protocols -bor [Net.SecurityProtocolType]::Tls12 }
-    New-Item -ItemType Directory -Path $tmp | Out-Null
+    $null = [IO.Directory]::CreateDirectory($tmp)
 
-    Write-Host "Downloading Tasktap's installer ($name) and the release's SHA256SUMS from $from"
+    Microsoft.PowerShell.Utility\Write-Host "Downloading Tasktap's installer ($name) and the release's SHA256SUMS from $from"
     foreach ($file in 'SHA256SUMS', $name) {
+      $into = [IO.Path]::Combine($tmp, $file)
       if (-not $web) {
-        $path = Join-Path $from $file
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "this release does not have $file (there is no $path)." }
-        Copy-Item -LiteralPath $path -Destination $tmp
+        $path = [IO.Path]::Combine($from, $file)
+        if (-not [IO.File]::Exists($path)) { throw "this release does not have $file (there is no $path)." }
+        [IO.File]::Copy($path, $into)
         continue
       }
-      try { Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri "$from/$file" -OutFile (Join-Path $tmp $file) -UseBasicParsing }
+      try { Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri "$from/$file" -OutFile $into -UseBasicParsing }
       catch {
         if ([int]$_.Exception.Response.StatusCode -eq 404) { throw "this release does not have $file ($from/$file answers 404); it may be older than this line." }
         throw "$file could not be downloaded from $($from): $($_.Exception.Message)"
       }
     }
-    $want = foreach ($line in Get-Content -LiteralPath (Join-Path $tmp 'SHA256SUMS')) {
+    $want = foreach ($line in [IO.File]::ReadAllLines([IO.Path]::Combine($tmp, 'SHA256SUMS'))) {
       $field = $line.Trim() -split '\s+\*?', 2
       if ($field.Count -eq 2 -and $field[1] -eq $name) { $field[0] }
     }
-    $stream = [IO.File]::OpenRead((Join-Path $tmp $name))
-    try { $have = -join ([Security.Cryptography.SHA256]::Create().ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) }
+    $setupPath = [IO.Path]::Combine($tmp, $name)
+    $stream = [IO.File]::OpenRead($setupPath)
+    try { $have = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
     finally { $stream.Dispose() }
     if (-not $want -or $have -ne $want) { throw "the installer's SHA-256 is not the one SHA256SUMS lists, so it was not run; try again later." }
-    Write-Host "Checked: the installer's SHA-256 is the one the release lists ($have)."
-    Write-Host ('Tasktap for Windows is not code-signed. What vouches for this installer is that its SHA-256 is the one ' +
+    Microsoft.PowerShell.Utility\Write-Host "Checked: the installer's SHA-256 is the one the release lists ($have)."
+    Microsoft.PowerShell.Utility\Write-Host ('Tasktap for Windows is not code-signed. What vouches for this installer is that its SHA-256 is the one ' +
       "the release lists, both fetched over HTTPS from GitHub. Where Windows' Smart App Control is on, it may refuse " +
       'the installer or the installed app, since neither has a signature, and nothing can be done about that from a script.')
 
-    Write-Host 'Installing Tasktap for you alone; the installer also puts a shortcut on the desktop and in the Start menu.'
-    try { $setup = Microsoft.PowerShell.Management\Start-Process -FilePath (Join-Path $tmp $name) -ArgumentList '/S' -PassThru }
+    Microsoft.PowerShell.Utility\Write-Host 'Installing Tasktap for you alone; the installer also puts a shortcut on the desktop and in the Start menu.'
+    try { $setup = Microsoft.PowerShell.Management\Start-Process -FilePath $setupPath -ArgumentList '/S' -PassThru }
     catch { throw "Windows did not let the installer run ($($_.Exception.Message)); where Smart App Control is on, it refuses a program without a signature." }
     # Waiting for the installer alone: what it starts and leaves running is not waited for.
     $null = $setup.Handle
@@ -78,20 +80,20 @@
     $entry = Microsoft.PowerShell.Management\Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Tasktap' -ErrorAction SilentlyContinue
     $dir = "$($entry.InstallLocation)".Trim().Trim('"')
     if (-not $dir) { throw 'the installer finished, but it recorded no place where it put Tasktap.' }
-    $exe = Join-Path $dir 'tasktap-app.exe'
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "the installer finished, but $exe is not there." }
+    $exe = [IO.Path]::Combine($dir, 'tasktap-app.exe')
+    if (-not [IO.File]::Exists($exe)) { throw "the installer finished, but $exe is not there." }
 
-    Write-Host "Installed: $exe. To remove it: Settings > Apps > Installed apps > Tasktap > Uninstall."
-    if ($env:TASKTAP_INSTALL_NO_START -eq '1') { Write-Host 'Start Tasktap from the Start menu or the desktop.' }
+    Microsoft.PowerShell.Utility\Write-Host "Installed: $exe. To remove it: Settings > Apps > Installed apps > Tasktap > Uninstall."
+    if ($env:TASKTAP_INSTALL_NO_START -eq '1') { Microsoft.PowerShell.Utility\Write-Host 'Start Tasktap from the Start menu or the desktop.' }
     else {
       Microsoft.PowerShell.Management\Start-Process -FilePath $exe
-      Write-Host 'Tasktap is starting. Next time, start it from the Start menu or the desktop.'
+      Microsoft.PowerShell.Utility\Write-Host 'Tasktap is starting. Next time, start it from the Start menu or the desktop.'
     }
   } catch {
-    Write-Host "Tasktap was not installed: $($_.Exception.Message)"
+    Microsoft.PowerShell.Utility\Write-Host "Tasktap was not installed: $($_.Exception.Message)"
     $global:LASTEXITCODE = 1
   } finally {
     [Net.ServicePointManager]::SecurityProtocol = $protocols
-    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    try { [IO.Directory]::Delete($tmp, $true) } catch { }
   }
 }

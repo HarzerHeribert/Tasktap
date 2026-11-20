@@ -85,8 +85,10 @@ fi
 # Stand-ins for what describes this Mac, one folder for each kind of Mac.
 shim() { mkdir -p "$work/$1"; printf '#!/bin/sh\n%s\n' "$3" > "$work/$1/$2"; chmod +x "$work/$1/$2"; }
 arm='[ "$*" = "-n hw.optional.arm64" ] && { echo 1; exit 0; }; exec /usr/sbin/sysctl "$@"'
-for kind in mac intel running realpgrep race guarded; do shim "$kind" sysctl "$arm"; done
-for kind in mac intel race guarded; do shim "$kind" pgrep 'exit 1'; done
+for kind in mac intel running realpgrep race guarded gnustat; do shim "$kind" sysctl "$arm"; done
+for kind in mac intel race guarded gnustat; do shim "$kind" pgrep 'exit 1'; done
+# Homebrew's coreutils first on PATH: its stat reads -f as "the file system", and answers nothing a BSD stat would.
+shim gnustat stat 'echo "stat: cannot read file system information for %u: No such file or directory" >&2; exit 1'
 shim intel sysctl '[ "$*" = "-n hw.optional.arm64" ] && exit 1; exec /usr/sbin/sysctl "$@"'
 shim running pgrep 'echo 4242'
 # A second install putting a Tasktap.app in place just after this one moved the old copy away.
@@ -229,13 +231,14 @@ else
   refused 'with only "Tasktap Review.app" running, the real pgrep finds none, so a wrong SHA-256' realpgrep "$work/wrong" "$copy" 'SHA-256 is not the one'
   { kill "$p" && wait "$p"; } 2>/dev/null || true
 fi
+refused 'a folder of another'\''s (root'\''s /System), at once,' mac "$work/empty" "$copy" 'System belongs to root and is not yours to change; update Tasktap from Settings > About, or ask an administrator' TASKTAP_INSTALL_TO=/System
 chmod 555 "$work/to"
-refused 'a folder that is not the person'\''s, at once,' mac "$work/empty" "$copy" 'is not yours to change; update Tasktap from Settings > About, or ask an administrator'
+refused 'a folder of the person'\''s that is read-only for them, at once,' mac "$work/empty" "$copy" 'is read-only for you; give yourself write access'
 reset
-old_app "$work/to/Tasktap.app"; chmod 555 "$work/to/Tasktap.app"
+old_app "$work/to/Tasktap.app"; chflags uchg "$work/to/Tasktap.app"
 run mac "$work/empty" "$copy"
-holds 'a Tasktap.app that is not the person'\''s is refused at once, and kept' \
-  '[ "$code" != 0 ] && said "Tasktap.app belongs to .* is not yours to change" && [ -e "$work/to/Tasktap.app/Contents/old" ]'
+holds 'a Tasktap.app of the person'\''s that is locked is refused at once, saying so, and kept' \
+  '[ "$code" != 0 ] && said "Tasktap.app is locked; unlock it in Finder" && [ -e "$work/to/Tasktap.app/Contents/old" ]'
 reset
 mkdir "$work/to/.tasktap-install.lock"
 run mac "$work/wrong" "$copy"
@@ -292,13 +295,30 @@ else fail "a final move that fails: $(ls -A "$work/to")"; echo "$out"; fi
 reset
 old_app "$work/to/Tasktap.app"
 run race "$work/good" "$stood"
-holds 'a Tasktap.app that appears while this one is put in place is refused, and left as it is' \
-  '[ "$code" != 0 ] && said "another Tasktap.app appeared" && [ -e "$work/to/Tasktap.app/Contents/other" ] && [ ! -e "$work/to/Tasktap.app/Tasktap.app" ]'
+kept=("$work"/to/.tasktap-install.*/previous.app/Contents/old)
+if [ "$code" != 0 ] && said "another Tasktap.app appeared" && said "before is kept in $work/to/.tasktap-install" && [ -e "${kept[0]}" ] &&
+  [ -e "$work/to/Tasktap.app/Contents/other" ] && [ ! -e "$work/to/Tasktap.app/Tasktap.app" ]; then
+  rm -rf "$work"/to/.tasktap-install.*
+  holds 'a Tasktap.app that appears while this one is put in place is refused and left as it is, and the old copy is kept, saying where' true
+else fail "a Tasktap.app that appears meanwhile: $(ls -A "$work/to")"; echo "$out"; fi
 reset
 old_app "$work/to/Tasktap.app"
 run mac "$work/good" "$stood"
 holds 'with Apple'\''s verdicts stood in, the copy there before is replaced, and nothing is started' \
   '[ "$code" = 0 ] && said "^Installed: " && [ -x "$work/to/Tasktap.app/Contents/MacOS/tasktap-app" ] && [ ! -e "$work/to/Tasktap.app/Contents/old" ]'
+reset
+old_app "$work/to/Tasktap.app"
+run gnustat "$work/good" "$stood"
+holds 'with a GNU stat first on PATH, the copy there before is replaced and nothing of it is left' \
+  '[ "$code" = 0 ] && [ -x "$work/to/Tasktap.app/Contents/MacOS/tasktap-app" ] && [ ! -e "$work/to/Tasktap.app/Contents/old" ]'
+reset
+old_app "$work/to/Tasktap.app"; touch "$apple/lock-copy"
+run gnustat "$work/good" "$stood"
+chflags -R nouchg "$work/to"
+if [ "$code" != 0 ] && [ -e "$work/to/Tasktap.app/Contents/old" ]; then
+  rm -rf "$work"/to/.tasktap-install.*
+  holds 'with a GNU stat first on PATH, a final move that fails still puts the old copy back' true
+else fail "a final move that fails, with a GNU stat: $(ls -A "$work/to")"; echo "$out"; fi
 reset
 old_app "$work/Applications/Tasktap.app"; old_app "$work/home/Applications/Tasktap.app"
 run mac "$work/empty" "$stood" TASKTAP_INSTALL_TO=

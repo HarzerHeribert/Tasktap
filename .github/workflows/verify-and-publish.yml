@@ -1,10 +1,6 @@
 name: Verify and publish Tasktap
 on:
   pull_request:
-  # Publishing a release publishes the site from main, whose Get it offers that release (deploy), and tries the Mac's
-  # install line on it (mac-line).
-  release:
-    types: [published]
   push:
     branches: [main, 'rebuild*']
   workflow_dispatch:
@@ -32,7 +28,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'release' && 'main' || '' }}
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
       - name: Format
@@ -87,7 +82,6 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
-          ref: ${{ github.event_name == 'release' && 'main' || '' }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -153,7 +147,6 @@ jobs:
 
   host:
     name: Host on macOS (lint, release build)
-    if: github.event_name != 'release'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -195,7 +188,6 @@ jobs:
   # of its 2700 s (run 44698235184), and the smoke builds what it runs itself.
   smoke:
     name: Smoke on macOS (the real app on the fixture agent)
-    if: github.event_name != 'release'
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -251,7 +243,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'release' && 'main' || '' }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -274,16 +265,18 @@ jobs:
           path: ${{ runner.temp }}/site-shots
           if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v4
-        if: github.event_name == 'release' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
           path: build/pages
 
-  # Only when every check passed, the install lines' included (interface, core); from main, on a push to it or when a
-  # release is published.
+  # Only when every check passed, the install lines' included (interface, core); from main, on a push to it or by hand
+  # (Run workflow on main). The order at a release: publish the release, then merge into main.
   deploy:
     name: Publish GitHub Pages
     needs: [site, interface, core]
-    if: github.event_name == 'release' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    outputs:
+      published: ${{ steps.ready.outputs.publish }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -298,11 +291,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'release' && 'main' || '' }}
       # The site offers the newest release's files by fixed names, which only a release made by release.yml has, and
       # the Mac's line, which installs nothing while it names no team. Until both hold, the site that is up stays up and
-      # this job says why, in green; it publishes on the next push to main, or when a release is published. A range of
-      # one byte, since a signed asset address may refuse HEAD.
+      # this job says why, in green; it publishes on the next push to main, or when run by hand. A range of one byte,
+      # since a signed asset address may refuse HEAD.
       - name: The newest release has what the site offers, and the Mac line names Tasktap's team
         id: ready
         run: |
@@ -324,20 +316,21 @@ jobs:
         id: publish
         uses: actions/deploy-pages@v4
 
-  # The Mac's line as a person runs it (the shipped script from main, nothing substituted) on the release just published,
-  # into a folder of the run's own, the app not started: the only place its downloads and Apple's real verdicts are tried
-  # end to end. The Windows line is not tried here: GitHub's Windows runners are elevated, where it refuses by design; a
-  # Windows machine with an ordinary account tries it (scripts/install-check.ps1 says what it runs).
+  # Once the site is published, the Mac's line as a person runs it (the shipped script, nothing substituted) on the newest
+  # published release, into a folder of the run's own, the app not started: the only place its downloads and Apple's
+  # real verdicts are tried end to end. Red when it cannot install. The Windows line is not tried here: GitHub's Windows
+  # runners are elevated, where it refuses by design; a Windows machine with an ordinary account tries it
+  # (scripts/install-check.ps1 says what it runs).
   mac-line:
-    name: The Mac line installs the published release
-    if: github.event_name == 'release'
+    name: The Mac line installs the newest release
+    needs: [deploy]
+    if: needs.deploy.outputs.published == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: main
       - name: The Mac line, into a folder of this run's
         run: |
           to="$RUNNER_TEMP/apps"

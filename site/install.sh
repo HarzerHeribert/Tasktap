@@ -26,10 +26,16 @@ say() { printf '%s\n' "$*"; }
 refuse() { printf 'Tasktap was not installed: %s\n' "$*" >&2; exit 1; }
 
 # A folder .tasktap-install.* in the place of the app is a replacement under way, or one cut short: the copy it moved
-# away goes back where none stands now, and the folder goes. Only a real folder of this person's is touched.
+# away goes back where none stands now and the folder goes; where another Tasktap.app stands, the folder stays and this
+# says where the old copy is. Only a real folder of this person's is touched. (Only a replacement that succeeded removes
+# the old copy, and not here.)
 tidy() {
-  [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -f %u "$1")" = "$(/usr/bin/id -u)" ] || return 0
-  if [ -d "$1/previous.app" ] && [ ! -e "$dir/Tasktap.app" ]; then
+  [ -d "$1" ] && [ ! -L "$1" ] && [ "$(/usr/bin/stat -f %u "$1")" = "$(/usr/bin/id -u)" ] || return 0
+  if [ -d "$1/previous.app" ]; then
+    if [ -e "$dir/Tasktap.app" ]; then
+      say "The Tasktap.app that was in $dir before is kept in $1/previous.app; keep it, or move the folder to the Trash."
+      return 0
+    fi
     mv "$1/previous.app" "$dir/Tasktap.app" || { say "The Tasktap.app that was in $dir is in $1/previous.app; move it back."; return 0; }
   fi
   rm -rf "$1" || say "The folder $1 could not be removed; move it to the Trash."
@@ -98,9 +104,14 @@ main() {
   elif [ -e "$apps/Tasktap.app" ] || [ -w "$apps" ]; then dir="$apps"
   else dir="$HOME/Applications"; fi
   for mine in "$dir" "$dir/Tasktap.app"; do
-    if [ -e "$mine" ] && [ ! -w "$mine" ]; then
-      refuse "$mine belongs to $(stat -f %Su "$mine") and is not yours to change; update Tasktap from Settings > About, or ask an administrator of this Mac to replace it."
+    [ -e "$mine" ] && [ ! -w "$mine" ] || continue
+    if [ "$(/usr/bin/stat -f %u "$mine")" != "$(/usr/bin/id -u)" ]; then
+      refuse "$mine belongs to $(/usr/bin/stat -f %Su "$mine") and is not yours to change; update Tasktap from Settings > About, or ask an administrator of this Mac to replace it."
     fi
+    case "$(/usr/bin/stat -f %Sf "$mine")" in
+      *uchg*) refuse "$mine is locked; unlock it in Finder (Get Info, Locked), then run the line again." ;;
+    esac
+    refuse "$mine is read-only for you; give yourself write access to it in Finder (Get Info, Sharing & Permissions), then run the line again."
   done
   mkdir -p "$dir" || refuse "the folder $dir could not be made."
   if [ -n "$(find "$dir/.tasktap-install.lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then rmdir "$dir/.tasktap-install.lock" || true; fi
@@ -149,7 +160,7 @@ main() {
   fi
   [ ! -e "$dir/Tasktap.app" ] || refuse "another Tasktap.app appeared in $dir while this one was being put there; run the line again."
   mv "$stage/Tasktap.app" "$dir/Tasktap.app" || refuse "Tasktap.app could not be put into $dir."
-  tidy "$stage"
+  rm -rf "$stage" || say "The folder $stage, with the Tasktap.app that was there before, could not be removed; move it to the Trash."
   stage=""
 
   say "Installed: $dir/Tasktap.app. To remove it, quit Tasktap and move it to the Trash."

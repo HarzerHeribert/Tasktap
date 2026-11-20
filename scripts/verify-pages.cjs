@@ -181,7 +181,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.equal(await page.locator('.steps [aria-current]').textContent(), 'Needs you', 'it stays where it is');
     assert.equal(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length), 0, 'no animation runs');
     assert.equal(await page.locator('.light').getAttribute('data-moves'), 'false');
-    await page.getByRole('button', { name: 'Result', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await frame.locator('.result .qp').waitFor();
     assert.match(await frame.locator('.result').innerText(), /Keep/);
     await still.close();
@@ -224,7 +224,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     const notch = live.frameLocator('.notch iframe');
     await live.locator('.stage.live').waitFor();
     // It plays: the thought is typed into the app's own capture line.
-    await live.locator('.steps [aria-current]').filter({ hasText: 'Put in' }).waitFor();
+    await live.locator('.steps [aria-current]').filter({ hasText: 'Say it' }).waitFor();
     await live.waitForFunction(() => document.querySelector('.notch iframe').contentDocument.querySelector('#capture-input')?.value.length > 4);
     assert.notEqual(await live.evaluate(() => document.activeElement?.tagName), 'IFRAME', 'the notch never takes the keyboard');
     // Paused, it holds where it is.

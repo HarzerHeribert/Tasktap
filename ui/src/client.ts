@@ -64,6 +64,7 @@ export type HostCalls = {
    *  so and the old key goes on working. The reply, and the reply to a call with no `key`, is the key registered
    *  now, or null when none is. */
   'host.capture_key': { args: { key?: Shortcut | null }; result: { key: Shortcut | null } };
+  'host.answer_key': { args: { which?: 'question' | 'yes' | 'no'; key?: Shortcut | null }; result: { question: Shortcut | null; yes: Shortcut | null; no: Shortcut | null } };
   /** What a preview's frame is given (host/src/frames.rs): `base`, the address of this machine a file's whole path
    *  is added to for a frame to load it; and with `listens`, a local web address, whether anything answers there
    *  now. Refused, in a sentence, by a host that cannot hold a frame to this machine. */
@@ -71,9 +72,12 @@ export type HostCalls = {
   /** New versions (host/src/update.rs): where things stand; with `look`, a look begins (About is shown); with
    *  `install`, the version found is downloaded and installed, which the person asked for. The host says every change
    *  as the `ui` event `update`. */
-  'host.update': { args: { look?: boolean; install?: boolean }; result: HostUpdate };
+  'host.update': { args: { look?: boolean; now?: boolean; install?: boolean }; result: HostUpdate };
+  'host.login': { args: { on?: boolean; open?: boolean }; result: HostLogin };
 };
 /** What the host knows of new versions: `off` in a build that does not update itself. */
+/** Whether Tasktap opens when the computer starts, as the system says (host/src/login.rs); or why this copy cannot. */
+export type HostLogin = { state: 'off' | 'on' | 'approve' } | { state: 'unavailable'; why: 'review' | 'check' | 'unsigned' | 'uninstalled' };
 export type HostUpdate =
   | { state: 'off' | 'unknown' | 'looking' }
   | { state: 'current'; version: string }

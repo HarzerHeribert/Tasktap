@@ -1135,7 +1135,7 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
         ((true, true, false, false, "Space"), None),
         ((false, true, true, false, "Space"), None),
         ((false, true, false, false, "Space"), None),
-        ((false, false, false, true, "KeyK"), None),
+        ((false, false, false, true, "KeyE"), None),
         ((true, false, true, false, "F5"), None),
         ((true, false, false, false, "Digit1"), None),
         ((true, true, true, true, "Slash"), None),
@@ -1192,10 +1192,16 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
         ),
         // With one more modifier it is another combination.
         ((true, false, false, true, "Space"), None),
-        // The keys that answer a waiting question.
-        ((true, true, false, false, "KeyY"), Some(Shortcut::ANSWERS)),
-        ((true, true, false, false, "KeyN"), Some(Shortcut::ANSWERS)),
-        ((true, true, false, false, "KeyJ"), Some(Shortcut::ANSWERS)),
+        // What Tasktap's own field for a thought keeps: its lists of agents
+        // and of places, on a Mac and on Windows.
+        ((false, false, false, true, "KeyJ"), Some(Shortcut::OWN)),
+        ((false, false, false, true, "KeyK"), Some(Shortcut::OWN)),
+        ((true, false, true, false, "KeyJ"), Some(Shortcut::OWN)),
+        ((true, false, true, false, "KeyK"), Some(Shortcut::OWN)),
+        ((false, true, false, true, "KeyJ"), None),
+        // The keys that answer a waiting question are keys like any other:
+        // that no two of Tasktap's keys are one is `clash`.
+        ((true, true, false, false, "KeyY"), None),
         ((true, true, true, false, "KeyJ"), None),
     ];
     for ((control, alt, shift, meta, code), why) in rule {
@@ -1443,4 +1449,91 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
     // `route.terms` is a device's call with no arguments.
     assert_eq!(call::RouteTerms::NAME.as_str(), "route.terms");
     assert_eq!(call::RouteTerms::NAME.access(), Access::Device);
+}
+
+#[test]
+fn the_answer_keys_are_each_systems_own_and_no_two_of_tasktaps_keys_are_one() {
+    let key = |control: bool, alt: bool, shift: bool, code: &str| Shortcut {
+        control,
+        alt,
+        shift,
+        meta: false,
+        code: code.into(),
+    };
+    // Control-Option on a Mac, as in 1.2; Alt-Shift elsewhere, never Control-Alt, which is AltGr there.
+    for (which, code) in [
+        (AnswerKey::Question, "KeyJ"),
+        (AnswerKey::Yes, "KeyY"),
+        (AnswerKey::No, "KeyN"),
+    ] {
+        assert_eq!(Shortcut::answer(true, which), key(true, true, false, code));
+        assert_eq!(Shortcut::answer(false, which), key(false, true, true, code));
+        for mac in [true, false] {
+            assert_eq!(Shortcut::answer(mac, which).refused(), None, "{which:?}");
+            assert_eq!(
+                Shortcut::usual(which.pref(), mac),
+                Some(Shortcut::answer(mac, which))
+            );
+        }
+        assert_eq!(AnswerKey::of(which.pref()), Some(which));
+    }
+    assert_eq!(
+        Shortcut::usual(PrefKey::CaptureKey, false),
+        Some(Shortcut::capture(false))
+    );
+    assert_eq!(Shortcut::usual(PrefKey::TalkKey, true), None);
+    // As stored, or each system's own.
+    let mine = key(true, false, true, "KeyK");
+    for mac in [true, false] {
+        let stored = |id: PrefKey| (id == PrefKey::YesKey).then(|| mine.clone());
+        let used = keys_in_use(mac, stored);
+        assert_eq!(
+            used,
+            vec![
+                (PrefKey::CaptureKey, Shortcut::capture(mac)),
+                (
+                    PrefKey::QuestionKey,
+                    Shortcut::answer(mac, AnswerKey::Question)
+                ),
+                (PrefKey::YesKey, mine.clone()),
+                (PrefKey::NoKey, Shortcut::answer(mac, AnswerKey::No)),
+            ]
+        );
+        // The capture key may be none of the answer keys, an answer key neither the capture key nor another answer
+        // key, the talk key none of the answer keys; a key may stay itself, and the talk key and the capture key
+        // are apart as before.
+        let no = Shortcut::answer(mac, AnswerKey::No);
+        assert_eq!(
+            clash(PrefKey::CaptureKey, &no, &used),
+            Some(Shortcut::ANSWERS)
+        );
+        assert_eq!(
+            clash(PrefKey::CaptureKey, &mine, &used),
+            Some(Shortcut::ANSWERS)
+        );
+        assert_eq!(
+            clash(PrefKey::QuestionKey, &Shortcut::capture(mac), &used),
+            Some(Shortcut::CAPTURES)
+        );
+        assert_eq!(
+            clash(PrefKey::QuestionKey, &no, &used),
+            Some(Shortcut::ANSWERS)
+        );
+        assert_eq!(clash(PrefKey::TalkKey, &no, &used), Some(Shortcut::ANSWERS));
+        assert_eq!(
+            clash(PrefKey::TalkKey, &Shortcut::capture(mac), &used),
+            None
+        );
+        assert_eq!(clash(PrefKey::NoKey, &no, &used), None);
+        assert_eq!(clash(PrefKey::YesKey, &mine, &used), None);
+        // The old answer key, given up by a change, is free for another.
+        assert_eq!(
+            clash(
+                PrefKey::NoKey,
+                &Shortcut::answer(mac, AnswerKey::Yes),
+                &used
+            ),
+            None
+        );
+    }
 }

@@ -17,7 +17,7 @@ import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
 import { Brand, I, Key, Mark, plural } from '../ui.tsx';
-import { ANSWER, COMMANDS, commands, hit, keyName, recorder, tip, watchLayout } from '../keys.ts';
+import { COMMANDS, commands, hit, keyName, recorder, tip, watchLayout } from '../keys.ts';
 import { mac, shownPath, titled } from '../system.ts';
 import { Caps, MenuButton, heard as captionSaid, openMenu } from './chrome.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
@@ -32,7 +32,7 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, agentName, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
+  LOOSE, agentName, answerKey, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
   open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
@@ -245,13 +245,15 @@ function AsksLine() {
   const router = q.source === 'router';
   const who = router ? 'Where should this go?' : `${agentName(s?.agent ?? t?.agent)} asks`;
   const more = openQuestions().length - 1;
+  // The key the person recorded for it, named as their keyboard prints it.
+  const key = keyName(answerKey('question'));
   return (
-    <button type="button" class="asks-line" title={tip(router ? 'Show the question on Home' : 'Show the question under its terminal', keyName(ANSWER))} onClick={() => toQuestion(q.id)}>
+    <button type="button" class="asks-line" title={tip(router ? 'Show the question on Home' : 'Show the question under its terminal', key)} onClick={() => toQuestion(q.id)}>
       <Mark s="asks" label="" />
       <b>{who}</b>
       <span class="what">{router ? title(t) : q.prompt}</span>
       {more > 0 && <span class="more">{plural(more, 'more waits', 'more wait')}</span>}
-      <span data-keys="window"><Key k={keyName(ANSWER)} cap /></span>
+      <span data-keys="window"><Key k={key} cap /></span>
     </button>
   );
 }

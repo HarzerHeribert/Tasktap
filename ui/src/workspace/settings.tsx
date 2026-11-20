@@ -10,8 +10,9 @@ import { getVersion } from '@tauri-apps/api/app';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } from '../../../core/proto/protocol.ts';
+import type { HostLogin } from '../client.ts';
 import { routing } from '../capture.tsx';
-import { TALK, hit, keyName, recorder } from '../keys.ts';
+import { type Answering, TALK, answerUsual, hit, keyName, recorder } from '../keys.ts';
 import { talkKey } from '../page.ts';
 import { CALM, HERE, KEPT, KEYS_KEPT, MICROPHONE, mac } from '../system.ts';
 import { setVoice } from '../motion/engine.ts';
@@ -24,11 +25,11 @@ import { I, Key } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { AgentsPane } from './agents.tsx';
 import { ProjectsPane } from './projects.tsx';
-import { ASKS, UpdateRow, update } from './update.tsx';
+import { ASKS, UpdateRow, checks, update } from './update.tsx';
 import { SetupRow } from './setup.tsx';
 import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
-import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
+import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, sentence, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Thoughts'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
@@ -69,6 +70,53 @@ const RETURN = mac ? 'Return' : 'Enter';
 let capture: Shortcut | null | undefined;
 const askCapture = () => call('host.capture_key', {}).then((r) => ((capture = r.key), redraw()), () => {});
 const setCapture = (key: Shortcut | null) => call('host.capture_key', { key }).then((r) => ((capture = r.key), redraw()));
+/** Whether Tasktap opens when the computer starts, as the host reads it from the system each time (login.rs): the
+ *  system's own login item on a Mac, the person's Run entry on Windows; never a guess kept here. Null: a host without
+ *  the call. */
+let login: HostLogin | null | undefined;
+const askLogin = () => call('host.login', {}).then((r) => ((login = r ?? null), redraw()), () => {});
+const LOGIN = 'Open Tasktap when the computer starts';
+/** Why a copy cannot be opened at login, in the person's words. */
+const NOT_HERE: Record<Extract<HostLogin, { state: 'unavailable' }>['why'], string> = {
+  review: 'This copy is Tasktap Review, which never opens by itself; your own Tasktap can.',
+  check: 'This copy runs for a check, so it never opens by itself.',
+  unsigned: 'Only a signed Tasktap app can open when you log in, and this copy is not one; the Tasktap you install can.',
+  uninstalled: 'Only the Tasktap its installer put in place can open when you sign in, and this copy is not that one.',
+};
+/** The row: a switch, read back from the system after every change; on a Mac, macOS may first ask the person to allow
+ *  it in Login Items, which the row opens. What the system refuses is said under it. */
+function LoginRow() {
+  const [said, say] = useState('');
+  if (!login) return null;
+  const set = (on: boolean) => void call('host.login', { on }).then((r) => ((login = r), say(''), redraw()), (e: unknown) => say(sentence(e instanceof Error ? e.message : String(e))));
+  const err = said && <p class="hint err" role="alert">{said}</p>;
+  if (login.state === 'unavailable') return <Row name={LOGIN} hint={NOT_HERE[login.why]}><span class="v">Not for this copy</span>{err}</Row>;
+  const toggle = <Switch on={login.state !== 'off'} name={LOGIN} set={set} />;
+  if (login.state === 'approve') {
+    return (
+      <Row name={LOGIN} hint="macOS opens Tasktap when you log in once you allow it under Login Items in System Settings.">
+        {toggle}<span class="v">Waiting for you to allow it</span>
+        <button type="button" class="btn" onClick={() => void call('host.login', { open: true }).then((r) => ((login = r), redraw()), fail)}>Open Login Items</button>{err}
+      </Row>
+    );
+  }
+  const only = mac ? 'only the notch' : tab?.display === 'off' ? 'only its icon' : 'only its tab and icon';
+  const hint = mac ? `When you log in, Tasktap opens without a window, ${only}, so its keys work at once; System Settings lists it under Login Items.`
+    : `When you sign in, Tasktap opens without a window, ${only}, so its keys work at once; Windows lists it under Startup apps.`;
+  return <Row name={LOGIN} hint={hint}>{toggle}{err}</Row>;
+}
+
+/** The keys that answer a waiting question from any app, as the host has them (keys.rs): the person's, or this
+ *  system's own, registered only while a question waits. Asked for when the section is shown, and told by every change
+ *  made here. */
+let answers: Record<Answering, Shortcut | null> | undefined;
+const askAnswers = () => call('host.answer_key', {}).then((r) => ((answers = r), redraw()), () => {});
+const setAnswer = (which: Answering) => (key: Shortcut | null) => call('host.answer_key', { which, key }).then((r) => ((answers = r), redraw()));
+const ANSWER_ROWS: [Answering, string, string][] = [
+  ['question', 'Key to go to an agent’s question, from any app', 'While an agent waits for you, it shows the question from any app, with the keyboard on its answers; Tasktap takes the key only then.'],
+  ['yes', 'Key to answer Yes, from any app', 'While an agent asks yes or no, it answers Yes from any app; Tasktap takes the key only while a question waits.'],
+  ['no', 'Key to answer No, from any app', 'While an agent asks something, it answers No from any app; Tasktap takes the key only while a question waits.'],
+];
 /** Windows: where the tab at the top of the screen hangs, as the host has it, and the displays there are. Kept by
  *  the host: a display belongs to this machine. Undefined on a Mac, whose notch is where its camera is. */
 let tab: { display: string; displays: { name: string; primary: boolean; width: number; height: number }[] } | undefined;
@@ -113,13 +161,14 @@ async function toggleTrial() {
   redraw();
 }
 
-/** How a thought gets in and what happens to it once it is sent: the key from any app first, then where the tab
- *  hangs (Windows), what Return does, how long a sent thought waits, and when finished ones are deleted. */
+/** How a thought gets in and what happens to it once it is sent: the key from any app first, whether Tasktap opens when
+ *  the computer starts (the key does nothing until it runs), the keys that answer a question from any app, then where
+ *  the tab hangs (Windows), what Return does, how long a sent thought waits, and when finished ones are deleted. */
 function ThoughtsPane() {
   const hold = records.prefs.get('hold');
   const sends = pref('return_sends'), days = pref('keep_days'), stored = pref('capture_key');
   // (One effect, as before the tab: the sections are called inside Settings, so their hooks are its own, in order.)
-  useEffect(() => void (askCapture(), mac || askTab()), []);
+  useEffect(() => void (askCapture(), askLogin(), askAnswers(), mac || askTab()), []);
   const places: [string, string][] = !tab ? [] : [['main', 'Main display'], ['pointer', 'Where you last opened it'],
     ...(tab.displays.length > 1 || !['main', 'pointer', 'off'].includes(tab.display)
       ? [...new Set([...tab.displays.map((d) => d.name), ...(['main', 'pointer', 'off'].includes(tab.display) ? [] : [tab.display])])].map((name): [string, string] => [name, displayName(name)])
@@ -138,6 +187,12 @@ function ThoughtsPane() {
             : tab?.display === 'off' ? 'Press it in any app and Tasktap’s window comes forward with a field for your thought.' : 'Press it in any app and the tab at the top of the screen opens for your thought.'}>
         {capture !== undefined && <Recorder name={KEY} value={capture} own={!!stored} usual={USUAL} set={setCapture} />}
       </Row>
+      <LoginRow />
+      {answers && ANSWER_ROWS.map(([which, name, hint]) => (
+        <Row key={which} name={name} hint={hint}>
+          <Recorder name={name} value={answers![which]} own={!!pref(`${which}_key`)} usual={answerUsual(which)} set={setAnswer(which)} />
+        </Row>
+      ))}
       {tab && (
         <Row name={TAB} hint={tab.display === 'off' ? 'No tab: the key brings Tasktap’s window forward, and its icon stays in the notification area.'
           : tab.display === 'main' ? 'The tab hangs at the top of the main display, and the key opens it on the display the pointer is on.'
@@ -276,8 +331,9 @@ function AboutPane() {
   // The agents that find a thought's project now, in the person's order.
   const readers = placing(by, tools) !== 'on' ? [] : by!.agents.filter((p) => p.on && tools.some((t) => t.agent === p.agent && t.model === p.model));
   const names = readers.map((p) => agentName(p.agent));
-  // A build made here never asks for a new version; until the host has said, this one may.
-  const asks = update.now.state !== 'off';
+  // A build made here never asks for a new version, nor one whose switch the person turned off; until the host has
+  // said, this one may.
+  const asks = update.now.state !== 'off' && checks();
   const kept = `${KEYS_KEPT[0]!.toLowerCase()}${KEYS_KEPT.slice(1)}`;
   return (
     <>

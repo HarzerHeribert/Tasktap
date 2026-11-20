@@ -57,12 +57,15 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // What every `put` asked for, in order (settings-rows-check.cjs).
+  const puts = [];
   // The sizes terminals were opened at and asked to take, in order (terminal-size-check.cjs).
   const sizes = [];
   // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
   const refused = (k) => (!/^(Key[A-Z]|Digit\d|F\d+|Space|Enter|Tab|Escape|Backspace|Delete|Arrow\w+|Minus|Equal|Comma|Period|Slash)$/.test(k.code) ? 'That is not a key a shortcut can end in'
     : !(k.control || k.alt || k.meta) ? 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key'
-      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself' : null);
+      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself'
+        : ['KeyJ', 'KeyK'].includes(k.code) && !k.alt && ((k.meta && !k.control && !k.shift) || (k.control && k.shift && !k.meta)) ? 'Tasktap uses that combination where you write a thought' : null);
   // What a dictation was heard as: it failed, its words are for a field, or it is its thought.
   const heardAs = (d, said) => {
     const row = (x, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [x.id] } : { put: [{ ...x, rev }] }) }] });
@@ -77,6 +80,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   const answer = (call) => {
     const { id, name, args } = call;
     calls.push(name);
+    if (name === 'put') puts.push(args);
     if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
@@ -263,6 +267,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       const next = { ...row, ...Object.fromEntries(Object.entries(args.patch).filter(([, v]) => v !== null && v !== undefined)), rev: ++rev };
       push({ t: 'change', rev, sets: [{ c: args.c, put: [next] }] });
       if (args.c === 'looks' && next.on && !row.on) look(next);
+      // Where its agent works: the card's workspace follows, as in the core (records.rs `PutTarget::Cards`).
+      const ws = args.c === 'cards' && args.patch.isolate && (records.projects || []).find((p) => p.id === row.project_id || p.folder === row.folder);
+      if (ws) push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ ...ws, rev, isolate: args.patch.isolate }] }] });
       return reply(id, { rev });
     }
     if (name === 'delete' && (args.c === 'cards' || args.c === 'looks')) return push({ t: 'change', rev: ++rev, sets: [{ c: args.c, del: [args.id] }] }), reply(id, { rev });
@@ -335,9 +342,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   };
   // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
   const opened = [];
-  // The capture key: the one registered (`capture`, the system's own unless the scene says another, or none), which a
+  // The capture key: the one registered (`capture`, this system's own unless the scene says another, or none), which a
   // call changes unless the rule refuses the key or the scene says another app holds it (`taken`, by its code).
-  const usual = { control: true, alt: true, shift: false, meta: false, code: 'Space' };
+  const usual = /Windows/.test(navigator.userAgent) ? { control: false, alt: true, shift: true, meta: false, code: 'Space' } : { control: true, alt: true, shift: false, meta: false, code: 'Space' };
   let capture = records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
   const hostValue = (name, a) => {
     if (name === 'host.capture_key') {
@@ -350,6 +357,35 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
       return { key };
     }
+    // Opening at login, as the scene says the system has it (`login`; none: a host without the call). Every call is kept
+    // (`logins`); a change is the system's at once, or, with `approve`, waits for the person to allow it.
+    if (name === 'host.login') {
+      window.__fake.logins.push(a);
+      if (records.login && a.on !== undefined) {
+        if (records.login.state === 'unavailable') throw 'macOS can open only a signed Tasktap app when you log in';
+        records.login = { state: a.on ? (records.approve ? 'approve' : 'on') : 'off' };
+      }
+      return records.login ?? null;
+    }
+    // The keys that answer a waiting question: each the scene's preference or this system's own, which a call
+    // changes unless the rule refuses it, the scene says another app holds it (`taken`), or Tasktap's other keys have it.
+    if (name === 'host.answer_key') {
+      const ids = { question: 'question_key', yes: 'yes_key', no: 'no_key' };
+      const win = /Windows/.test(navigator.userAgent);
+      const own = (w) => ({ control: !win, alt: true, shift: win, meta: false, code: { question: 'KeyJ', yes: 'KeyY', no: 'KeyN' }[w] });
+      const now = () => Object.fromEntries(Object.entries(ids).map(([w, id]) => [w, ((records.prefs || []).find((p) => p.id === id) || { value: own(w) }).value]));
+      if (!a.which) return now();
+      const key = a.key || own(a.which), same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
+      const why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app')
+        || (same(key, capture) && 'Tasktap puts a thought in with that combination')
+        || (Object.entries(now()).some(([w, k]) => w !== a.which && same(key, k)) && 'Tasktap answers a question with that combination');
+      if (why) throw why;
+      const id = ids[a.which];
+      rev++;
+      records.prefs = (records.prefs || []).filter((p) => p.id !== id).concat(a.key ? [{ id, value: key, rev }] : []);
+      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id, value: key, rev }] } : { del: [id] }) }] });
+      return now();
+    }
     // A preview's frame: where it loads a file from (`frames`, a server of the check's own), whether a local address
     // is answered (`listens`), or the host's refusal (`noframes`).
     if (name === 'host.frame') {
@@ -360,7 +396,12 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (name === 'host.pick') return (window.__fake.picked.push(a), records.pick ?? null);
     // Windows' tab and the updater, as a scene says them (none: a host without the call).
     if (name === 'host.tab') return records.tab ?? null;
-    if (name === 'host.update') return records.update ?? null;
+    // What the page asked of the updater is kept (`updates`); the person's own check (`now`) finds what `checked` says.
+    if (name === 'host.update') {
+      window.__fake.updates.push(a);
+      if (a.look && a.now && records.checked) records.update = records.checked;
+      return records.update ?? null;
+    }
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
     if (real && !a.probe) opened.push({ ...a, real });
@@ -378,7 +419,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, sizes, close, opened, picked: [] };
+  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [], updates: [], logins: [] };
   // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
   // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
   const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),

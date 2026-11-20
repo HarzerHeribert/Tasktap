@@ -36,6 +36,8 @@ objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 # The mouse-moved monitors take a block; already in the tree through objc2-app-kit.
 block2 = "0.6"
+# The login records, to know a start at login (src/login.rs); in the tree already.
+libc = "0.2"
 # The one notification Tasktap sends, a question over a full-screen app (src/notify.rs); in the tree already.
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 

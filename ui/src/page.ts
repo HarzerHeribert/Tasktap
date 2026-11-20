@@ -3,7 +3,7 @@
 import { type AgentHealth, PREF_DEFAULTS, type PlaceTool, type Question, type RouteTerms, type SpeechTerms, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
 import { tauriBridge } from './bridge.ts';
 import { Client, Records, type Where } from './client.ts';
-import { TALK } from './keys.ts';
+import { type Answering, TALK, answerUsual } from './keys.ts';
 
 export const client = new Client(tauriBridge());
 export const records = new Records();
@@ -12,6 +12,9 @@ export const call: typeof client.call = (name, args) => client.call(name, args);
 export const pref = <K extends keyof typeof PREF_DEFAULTS>(k: K) => (records.prefs.get(k)?.value ?? PREF_DEFAULTS[k]) as (typeof PREF_DEFAULTS)[K];
 /** The key held to talk: the `talk_key` preference, else the system's usual one (keys.ts TALK). */
 export const talkKey = () => pref('talk_key') ?? TALK;
+const ANSWER_PREFS = { question: 'question_key', yes: 'yes_key', no: 'no_key' } as const;
+/** A key that answers a waiting question from any app: its preference, else this system's own (keys.ts). */
+export const answerKey = (which: Answering) => pref(ANSWER_PREFS[which]) ?? answerUsual(which);
 
 let redrawn = () => {};
 export const redraw = () => redrawn();

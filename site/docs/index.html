@@ -65,13 +65,14 @@
         <h2 id="questions-h">Questions</h2>
         <p>While agents work, the folded notch shows counts: working, needing you, finished. When an agent needs an answer, the notch opens by itself and shows the question in full.</p>
         <p>Choices are on <kbd>1</kbd> to <kbd>9</kbd>. A yes or no is also on <kbd>Y</kbd> and <kbd>N</kbd>. <kbd>T</kbd> opens a reply in your own words. With several waiting the notch says which one you see, “2 of 3”, and <kbd>→</kbd> shows the next.</p>
+        <p>From any app, <kbd>⌃</kbd><kbd>⌥</kbd><kbd>J</kbd> goes to a waiting question, and <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Y</kbd> and <kbd>⌃</kbd><kbd>⌥</kbd><kbd>N</kbd> answer yes or no without leaving what you are in; on Windows they are Alt+Shift+J, Y and N. Tasktap takes them only while a question waits, and Settings › Thoughts records others. They are keys by their place: on a German keyboard the second is the key that says Z.</p>
         <p>The same question stands first on Home and under its terminal in the workspace, so you answer it wherever you are. Some questions can only be answered in the agent’s own terminal; the card then leads there. Which agent asks where is listed under <a href="#agents">Agents</a>.</p>
       </section>
 
       <section id="results" aria-labelledby="results-h">
         <h2 id="results-h">Results, Keep and Discard</h2>
         <p>A finished thought comes back as a result: a summary, and its changes when it ran in its own copy of the project.</p>
-        <p>In a git project that already has work running, a new thought gets its own copy (a git worktree) and its own branch, so two runs cannot overwrite each other. Keep adds its commits to your branch by a fast-forward, the same one you would run yourself; if your branch has moved on meanwhile, by a merge commit, and if the two conflict Keep changes nothing and names the files. Discard removes the copy. Review changes shows the diff first. In the notch they are on <kbd>↩</kbd>, <kbd>D</kbd> and, to open the session, <kbd>O</kbd>.</p>
+        <p>In a git project that already has work running, a new thought gets its own copy (a git worktree) and its own branch, so two runs cannot overwrite each other. Settings › Projects, in a project’s details at Where its agent works, can give every thought its own copy, or none. Keep adds its commits to your branch by a fast-forward, the same one you would run yourself; if your branch has moved on meanwhile, by a merge commit, and if the two conflict Keep changes nothing and names the files. Discard removes the copy. Review changes shows the diff first. In the notch they are on <kbd>↩</kbd>, <kbd>D</kbd> and, to open the session, <kbd>O</kbd>.</p>
         <p>Tasktap never deletes or rewrites anything outside its own folder and its own branches. If something unexpected happens it stops and reports the real state. Folders without git run in place.</p>
       </section>
 
@@ -115,7 +116,7 @@
       <section id="windows" aria-labelledby="windows-h">
         <h2 id="windows-h">On Windows</h2>
         <p>Windows is being built, and can be built from source. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings › Thoughts, at Display that shows Tasktap’s tab, chooses its display, or None turns it off.</p>
-        <p>Keys follow one rule: Ctrl stands where the Mac has <kbd>⌘</kbd>, and with a letter Shift is held too, so Ctrl and a letter alone stay the terminal’s. New terminal is Ctrl+Shift+T, and Find Ctrl+Shift+F. The capture key is Alt+Shift+Space; hold to talk is Ctrl+Space.</p>
+        <p>Keys follow one rule: Ctrl stands where the Mac has <kbd>⌘</kbd>, and with a letter Shift is held too, so Ctrl and a letter alone stay the terminal’s. New terminal is Ctrl+Shift+T, and Find Ctrl+Shift+F. The capture key is Alt+Shift+Space, and the keys that answer a question from any program Alt+Shift+J, Y and N, since many keyboards read Ctrl+Alt as AltGr; hold to talk is Ctrl+Space.</p>
         <p>So far Claude Code, Codex and the agents you add run on Windows. Speech there goes through a speech service. Nothing is signed yet, so Windows asks before a copy built elsewhere runs.</p>
       </section>
 
@@ -123,13 +124,13 @@
         <h2 id="settings-h">Settings</h2>
         <p><kbd>⌘</kbd><kbd>,</kbd> opens Settings, its sections at its left in this order, on <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>7</kbd>. Each row says what you decide, and one sentence under it what changes for you.</p>
         <dl class="rows">
-          <div><dt>Thoughts</dt><dd>Key to put a thought in, from any app. On Windows, the display that shows Tasktap’s tab. Return key when writing a thought: sends the thought, or starts a new line. Wait before an agent starts a thought: no wait, 3, 5 or 10 seconds, at least, since finding the project can take longer; <kbd>⌘</kbd><kbd>Z</kbd> takes it back meanwhile. Delete finished thoughts after: never, 30 days, 90 days or a year, with their answers and the terminal’s history.</dd></div>
+          <div><dt>Thoughts</dt><dd>Key to put a thought in, from any app. Open Tasktap when the computer starts: it then opens with no window, only the notch (on Windows its tab and icon), so the keys work from the start; System Settings lists it under Login Items, Windows under Startup apps, and you can remove it there too. A copy you built yourself cannot be opened that way, and says so. The keys to go to an agent’s question and to answer Yes or No, from any app, which Tasktap takes only while a question waits. On Windows, the display that shows Tasktap’s tab. Return key when writing a thought: sends the thought, or starts a new line. Wait before an agent starts a thought: no wait, 3, 5 or 10 seconds, at least, since finding the project can take longer; <kbd>⌘</kbd><kbd>Z</kbd> takes it back meanwhile. Delete finished thoughts after: never, 30 days, 90 days or a year, with their answers and the terminal’s history.</dd></div>
           <div><dt>Agents</dt><dd>Which agents are installed and signed in, which one runs new thoughts, what an agent may do only once you let it, and the ones you add. Check which agents are signed in.</dd></div>
-          <div><dt>Projects</dt><dd>Finding the project for a thought: only thoughts that name their project, or your agents in the order you set, with one agreement for all of them. Where Tasktap finds your projects, and every project it knows.</dd></div>
+          <div><dt>Projects</dt><dd>Finding the project for a thought: only thoughts that name their project, or your agents in the order you set, with one agreement for all of them. Where Tasktap finds your projects, and every project it knows; opened, where its agent works: on its own copy when another agent is working there, always on its own copy, or in the project itself, where two agents at once can overwrite each other’s changes. A folder without Git always runs in itself.</dd></div>
           <div><dt>Voice</dt><dd>Where your speech becomes text: on the Mac, or at a speech service with your key. The languages you speak. Key to hold while you talk.</dd></div>
           <div><dt>Appearance</dt><dd>Text size. Effects, the form of the chrome (Slats, Glyphs or Resonator), its colour, and Lumen, the coloured light behind it.</dd></div>
           <div><dt>Terminal</dt><dd>Font, text size and space between lines in terminals. Bold text in brighter colours, and text that is hard to read adjusted.</dd></div>
-          <div><dt>About</dt><dd>The version and new versions. What Tasktap keeps and what it sends, the check for a new version at GitHub among it, and the licences of what it ships with.</dd></div>
+          <div><dt>About</dt><dd>The version, and Check for new versions: on, Tasktap asks GitHub when About opens and at the first thought of a day; off, it asks only when you press Check now. A new version is installed only when you say. What Tasktap keeps and what it sends, the check for a new version at GitHub among it while it is on, and the licences of what it ships with.</dd></div>
         </dl>
       </section>
 

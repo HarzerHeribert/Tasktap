@@ -106,6 +106,9 @@ pub enum PrefPatch {
     /// Refused by the core with the sentence of [`Shortcut::refused`].
     CaptureKey(Option<Shortcut>),
     TalkKey(Option<Shortcut>),
+    QuestionKey(Option<Shortcut>),
+    YesKey(Option<Shortcut>),
+    NoKey(Option<Shortcut>),
     KeepDays(#[serde(deserialize_with = "kept")] u16),
     TerminalBoldBright(bool),
     TerminalContrast(bool),
@@ -117,6 +120,7 @@ pub enum PrefPatch {
         Vec<crate::records::OwnAgent>,
     ),
     SetupHidden(bool),
+    UpdateChecks(bool),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
@@ -171,6 +175,9 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::ReturnSends(v) => PrefValue::ReturnSends(v),
             PrefPatch::CaptureKey(v) => PrefValue::CaptureKey(v),
             PrefPatch::TalkKey(v) => PrefValue::TalkKey(v),
+            PrefPatch::QuestionKey(v) => PrefValue::QuestionKey(v),
+            PrefPatch::YesKey(v) => PrefValue::YesKey(v),
+            PrefPatch::NoKey(v) => PrefValue::NoKey(v),
             PrefPatch::KeepDays(v) => PrefValue::KeepDays(v),
             PrefPatch::TerminalBoldBright(v) => PrefValue::TerminalBoldBright(v),
             PrefPatch::TerminalContrast(v) => PrefValue::TerminalContrast(v),
@@ -178,6 +185,7 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::AgentOptions(v) => PrefValue::AgentOptions(v),
             PrefPatch::OwnAgents(v) => PrefValue::OwnAgents(v),
             PrefPatch::SetupHidden(v) => PrefValue::SetupHidden(v),
+            PrefPatch::UpdateChecks(v) => PrefValue::UpdateChecks(v),
         }
     }
 }
@@ -216,6 +224,9 @@ pub struct CardPatch {
     pub hidden: Option<bool>,
     /// This copy is the project, not another of its copies.
     pub main: Option<bool>,
+    /// Where its agent works: kept on the card, and given to its workspace
+    /// too, now or when it is made.
+    pub isolate: Option<Isolate>,
 }
 
 /// What the person changes of a look.

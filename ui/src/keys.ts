@@ -164,9 +164,13 @@ export function keyName(s: Shortcut, onMac = mac): string {
   const key = printedAs(s.code) ?? NAMES[s.code] ?? s.code.replace(/^(Key|Digit)/, '');
   return onMac ? signs(s) + key : [...words(s), PRINTED[key] ?? key].join('+');
 }
-/** The key that goes to a waiting question from any app (host/src/main.rs ANSWER_KEYS: Control-Option-J on both
- *  systems), by its place. */
-export const ANSWER: Shortcut = { control: true, alt: true, shift: false, meta: false, code: 'KeyJ' };
+/** The three keys that answer a waiting question from any app (host/src/keys.rs): one goes to the question, one says
+ *  yes, one says no. */
+export type Answering = 'question' | 'yes' | 'no';
+/** Such a key while the person has chosen none (core/proto `Shortcut::answer`), by its place: J, Y and N with
+ *  Control-Option on a Mac; with Alt-Shift on Windows, where Control-Alt is AltGr and would type. */
+export const answerUsual = (which: Answering, onMac = mac): Shortcut =>
+  ({ control: onMac, alt: true, shift: !onMac, meta: false, code: { question: 'KeyJ', yes: 'KeyY', no: 'KeyN' }[which] });
 /** What a key press is as a shortcut, and the modifiers alone while only they are held. */
 export const pressed = (e: KeyboardEvent): Shortcut => ({ control: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey, code: e.code });
 export const heldNow = (e: KeyboardEvent, onMac = mac) => (onMac ? signs(pressed(e)) : words(pressed(e)).join('+'));

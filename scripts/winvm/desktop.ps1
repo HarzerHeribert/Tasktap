@@ -1116,7 +1116,7 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
     End-Own 'row9-app.txt'
 }
 
-$rows['14'] = 'Starts the app with the core that has the fixture agent, the agent on the PATH of its terminals, and a folder as a workspace. Opens Notepad in front, presses Alt-Shift-Space, types a thought into the tab with the keyboard and presses Return: the thought must be captured, placed in the folder and started, with the fixture agent in a terminal of the workspace, and the tab must fold by itself and leave Notepad the keyboard. Has the agent ask: the tab must open on the question by itself and take the keyboard from nobody. Presses Ctrl+Alt+Y over Notepad: the agent must be answered while Notepad stays in front. Ends the turn and looks for the result''s marks in the window, on the tab and on the icon; puts the pointer on the tab, which must show the result and count it as read. Pictures of the tab with a thought running, a question, and a result.', {
+$rows['14'] = 'Starts the app with the core that has the fixture agent, the agent on the PATH of its terminals, and a folder as a workspace. Opens Notepad in front, presses Alt-Shift-Space, types a thought into the tab with the keyboard and presses Return: the thought must be captured, placed in the folder and started, with the fixture agent in a terminal of the workspace, and the tab must fold by itself and leave Notepad the keyboard. Has the agent ask: the tab must open on the question by itself and take the keyboard from nobody. Presses Alt+Shift+Y, the Yes key on Windows, over Notepad: the agent must be answered while Notepad stays in front. Ends the turn and looks for the result''s marks in the window, on the tab and on the icon; puts the pointer on the tab, which must show the result and count it as read. Pictures of the tab with a thought running, a question, and a result.', {
     $fixtures = "$checkout\host\binaries\fixtures"
     New-Item -ItemType Directory -Force "$tmp\data14", "$tmp\project14", "$tmp\agents" | Out-Null
     Copy-Item "$fixtures\tasktap.exe" "$tmp\agents\fixture-agent.exe"
@@ -1175,9 +1175,9 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     Say 'LOOK' 14 'the tab collapsed while a question waits: who asks and what, and the light behind it' (Tab-Picture $tab 'row14-tab-asks')
     # Answered from another program, as the global shortcut is for.
     $other = Front $notepad.Handle
-    if ($other) { [Tasktap.Desk]::Chord([byte[]](0x11, 0x12, 0x59)) }
+    if ($other) { [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x59)) }
     $answered = Soon '__ws.text()' 'answer:yes' 25
-    Check 14 'Ctrl+Alt+Y pressed over Notepad answers the agent, and Notepad stays in front' ($other -and "$answered" -match 'answer:yes' -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle) "Notepad in front before: $other, after: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle); the terminal: $(("$answered".Trim() -split "`n" | Select-Object -Last 2) -join ' | ')"
+    Check 14 'Alt+Shift+Y pressed over Notepad answers the agent, and Notepad stays in front' ($other -and "$answered" -match 'answer:yes' -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle) "Notepad in front before: $other, after: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle); the terminal: $(("$answered".Trim() -split "`n" | Select-Object -Last 2) -join ' | ')"
     $folded = $false
     for ($i = 0; $i -lt 30 -and -not $folded; $i++) { Start-Sleep -Milliseconds 100; $folded = [bool](Notch).collapsed }
     Check 14 'answered, the tab folds by itself' $folded "collapsed: $folded"

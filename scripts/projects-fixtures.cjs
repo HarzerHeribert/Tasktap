@@ -59,7 +59,7 @@ function card(n, now, [name, about, at, agents, days], o = {}) {
     about_from: about ? (o.from ?? (n % 3 === 1 ? 'package.json' : 'README.md')) : null,
     why: o.why ?? [...(agents.length ? ['agent'] : []), ...(git ? ['git'] : []), ...(about && n % 3 === 1 ? ['package'] : [])],
     agents, repo: git ? `root ${hex(n * 7919, 40)}` : null, copy_of: o.copy_of ?? null, inside: o.inside ?? null, project_id: o.project_id ?? null,
-    used: days == null ? null : now - days * DAY - (n % 5) * 47 * MIN, looks: o.looks ?? [], hidden: !!o.hidden, main: !!o.main, available: o.available ?? true,
+    used: days == null ? null : now - days * DAY - (n % 5) * 47 * MIN, looks: o.looks ?? [], hidden: !!o.hidden, main: !!o.main, available: o.available ?? true, isolate: o.isolate ?? 'busy',
   };
 }
 const look = (n, now, o) => ({ id: lid(n), rev: 1, kind: o.agent ? 'agent' : 'folder', agent: o.agent ?? null, folder: o.folder ?? null, on: o.on ?? true,

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ANSWER, accelerator, commands, hit, holds, keyName, learnLayout, links, local, ours, spell } from './keys.ts';
+import { accelerator, answerUsual, commands, hit, holds, keyName, learnLayout, links, local, ours, spell } from './keys.ts';
 import { plain, shownPath } from './system.ts';
 
 // Stand-ins for the layout map a web view gives (what each key prints, by its place): a German keyboard's and a US one.
@@ -23,11 +23,16 @@ test("a key bound by its place is named as the person's keyboard prints it, and 
       assert.equal(keyName(alt(code), true), onMac, code);
       assert.equal(keyName(alt(code), false), onWindows, code);
     }
-    assert.equal(keyName(ANSWER, true), '⌃⌥J');
-    assert.equal(spell(keyName(ANSWER, false), false), 'Ctrl+Alt+J');
+    // The keys that answer from any app, by their places: on a German keyboard the place of a US Y says Z.
+    assert.equal(keyName(answerUsual('question', true), true), '⌃⌥J');
+    assert.equal(keyName(answerUsual('yes', true), true), '⌃⌥Z');
+    assert.equal(keyName(answerUsual('no', false), false), 'Alt+Shift+N');
+    assert.equal(keyName(answerUsual('yes', false), false), 'Alt+Shift+Z');
+    assert.equal(spell(keyName(answerUsual('question', false), false), false), 'Alt+Shift+J');
     // The same layout again changes nothing; a US one changes the names back.
     assert.equal(learnLayout(new Map(Object.entries(DE))), false);
     assert.equal(learnLayout(US), true);
+    assert.equal(keyName(answerUsual('yes', true), true), '⌃⌥Y');
     for (const [code, said] of [['KeyZ', '⌥Z'], ['Minus', '⌥-'], ['BracketLeft', '⌥['], ['Semicolon', '⌥;'], ['Quote', "⌥'"], ['Backquote', '⌥`']] as const) assert.equal(keyName(alt(code), true), said);
     // Whatever it is called, a recorded key is the key in that place.
     learnLayout(DE);

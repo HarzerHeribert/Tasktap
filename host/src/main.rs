@@ -15,6 +15,8 @@ mod edge;
 mod frames;
 mod geometry;
 mod keys;
+// Opening Tasktap when the computer starts: the system's own login item, or Run entry on Windows.
+mod login;
 #[cfg_attr(windows, path = "windows.rs")]
 mod native;
 mod notch;
@@ -47,7 +49,7 @@ use tauri::webview::{PermissionKind, PermissionResponse};
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 #[cfg(target_os = "macos")]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
 struct Host {
     core: Arc<Core>,
@@ -57,13 +59,6 @@ struct Host {
     /// The question `glance` names, which affirm and deny act on.
     question: Mutex<Option<QuestionId>>,
 }
-
-/// Control-Option and a key, as in 1.2: J, Y and N answer while a question waits. The capture key is
-/// a preference (keys.rs), by default Space with the same two on a Mac.
-fn keys(code: Code) -> Shortcut {
-    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), code)
-}
-const ANSWER_KEYS: [Code; 3] = [Code::KeyY, Code::KeyN, Code::KeyJ];
 
 /// Which app this is. A build with the `review` feature (only `scripts/build-review.sh` sets it, with
 /// `tauri.review.conf.json` for the bundle's name and identifier) is Tasktap Review: the same app, to try beside the
@@ -211,6 +206,10 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
         "host.capture_key" => keys::call(app, args),
+        // The keys that answer a waiting question from any app: the ones in use, or one changed (keys.rs).
+        "host.answer_key" => keys::answer_call(app, args),
+        // Whether Tasktap opens when the computer starts, as the system says; or set (login.rs).
+        "host.login" => login::call(args),
         // Where Tasktap shows itself; with `shows`, what the workspace window shows now (presence.rs).
         "host.where" => Ok(presence::call(app, args)),
         // New versions: what is known, a look (About is shown), or the install the person asked for (update.rs).
@@ -283,8 +282,8 @@ fn heard(app: &AppHandle, heard: core::Heard) {
     }
 }
 
-/// The answer shortcuts exist only while a question waits, so they take no keys from other
-/// apps the rest of the time. On Windows the icon in the notification area follows the counts.
+/// The answer keys are registered only while a question waits, so they take no keys from other
+/// apps the rest of the time (keys.rs). On Windows the icon in the notification area follows the counts.
 fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
     #[cfg(windows)]
     tray::set(Some([g.working, g.needs_you, g.done, g.failed]));
@@ -292,16 +291,10 @@ fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
     let host = app.state::<Host>();
     let before = std::mem::replace(&mut *host.question.lock().unwrap(), question);
     presence::question(app, asks(app));
-    // A review build takes none of them: they are the person's own app's, and its questions are answered in its window.
-    if REVIEW || before.is_some() == question.is_some() {
-        return;
+    // A review build has none of them until the person records one: this system's own are the person's own app's.
+    if before.is_some() != question.is_some() {
+        keys::asking(app, question.is_some());
     }
-    let answer = ANSWER_KEYS.map(keys);
-    let done = match question {
-        Some(_) => app.global_shortcut().register_multiple(answer),
-        None => app.global_shortcut().unregister_multiple(answer),
-    };
-    log(json!({"event": "answer-keys", "on": question.is_some(), "ok": done.is_ok()}));
 }
 
 /// A thought from anywhere: what the capture key does, also from the icon in the notification area (Windows).
@@ -334,12 +327,14 @@ fn pressed(app: &AppHandle, key: presence::Key) {
 
 fn shortcut(app: &AppHandle, shortcut: &Shortcut) {
     let capture_key = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system);
-    match shortcut.key {
-        _ if capture_key.as_ref() == Some(shortcut) => pressed(app, presence::Key::Capture),
-        Code::KeyJ => pressed(app, presence::Key::Answer),
-        Code::KeyY => pressed(app, presence::Key::Yes),
-        Code::KeyN => pressed(app, presence::Key::No),
-        _ => {}
+    if capture_key.as_ref() == Some(shortcut) {
+        return pressed(app, presence::Key::Capture);
+    }
+    match keys::answering(shortcut) {
+        Some(tasktap_proto::AnswerKey::Question) => pressed(app, presence::Key::Answer),
+        Some(tasktap_proto::AnswerKey::Yes) => pressed(app, presence::Key::Yes),
+        Some(tasktap_proto::AnswerKey::No) => pressed(app, presence::Key::No),
+        None => {}
     }
 }
 
@@ -579,10 +574,15 @@ fn main() {
             },
             // The capture key is registered once the core's records say which it is, and again
             // whenever they change. A key the system refuses leaves the app running without it,
-            // so that the person can choose another in Settings.
-            |key| {
+            // so that the person can choose another in Settings. The updater asks GitHub by itself
+            // only while the person lets it.
+            |prefs| {
                 let app = APP.wait();
-                let _ = app.run_on_main_thread(move || keys::prefer(app, key));
+                update::allow(prefs.checks);
+                let _ = app.run_on_main_thread(move || {
+                    keys::prefer(app, prefs.capture);
+                    keys::answers(app, prefs.answers);
+                });
             },
             |told| {
                 let app = APP.wait();
@@ -712,7 +712,15 @@ fn main() {
                     }
                 });
             }
-            workspace::show(app.handle(), None)?;
+            // Opened by the system at login: no window, only the notch (on Windows the tab, made now as the window's
+            // first picture would have made it) and the icon. The capture key and the icon bring the window.
+            if login::started_at_login() {
+                log(json!({"event": "login-start"}));
+                #[cfg(windows)]
+                edge::ready(app.handle());
+            } else {
+                workspace::show(app.handle(), None)?;
+            }
             let (core, link) = starting.join().expect("the core's start panicked")?;
             log(json!({"event": "ready", "data": core.data}));
             app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });

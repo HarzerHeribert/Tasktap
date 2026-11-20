@@ -1,3 +1,7 @@
 /* A form's row (form.tsx Row): its label reads by itself and names what the person decides, so it may take two lines
    of its column; they are balanced, and no word is left alone on the second. */
 .set>.t{text-wrap:balance}
+/* What a choice in a project's details means for the person (projects.tsx Where), under it, as a row's sentence is. */
+.pj-k .says{flex-basis:100%;margin:0;font:var(--f-cap)}
+/* Its choices are long: one under the other, as a list of places. */
+.pj-k .seg{flex-direction:column;align-items:flex-start}

@@ -263,12 +263,13 @@ function dropTarget(project: string, from: string, x: number, y: number): Target
       const left = Math.max(bar.left, Math.min(bar.right, next?.getBoundingClientRect().left ?? end));
       return { pane, before: next?.querySelector<HTMLElement>('.tab')?.dataset.id, box: { left: left - 1, top: bar.top, width: 2, height: bar.height } };
     }
-    // Anywhere on the content shares the pane: the top or bottom half within reach of those edges, else the left or
-    // right half the pointer is in. A pane's only tab has nothing to share its own pane with.
+    // Anywhere on the content shares the pane: the top or bottom half within reach of those edges (on the tab's own
+    // pane the bottom only, so a short pull down from its tabs never puts it on top), else the left or right half the
+    // pointer is in. A pane's only tab has nothing to share its own pane with.
     if (pane === from && L.panes(layout(project)).find((p) => p.id === pane)?.tabs.length === 1) return null;
     const content = { left: r.left, top: bar.bottom, width: r.width, height: r.bottom - bar.bottom };
     const reach = Math.min(72, content.height * 0.23);
-    const edge: L.Edge = y - content.top < reach ? 'top' : r.bottom - y < reach ? 'bottom' : x < r.left + r.width / 2 ? 'left' : 'right';
+    const edge: L.Edge = pane !== from && y - content.top < reach ? 'top' : r.bottom - y < reach ? 'bottom' : x < r.left + r.width / 2 ? 'left' : 'right';
     const box = { ...content };
     if (edge === 'left' || edge === 'right') (box.width /= 2, edge === 'right' && (box.left += box.width));
     else (box.height /= 2, edge === 'bottom' && (box.top += box.height));

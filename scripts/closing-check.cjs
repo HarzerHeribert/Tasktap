@@ -14,8 +14,9 @@
 // (where CI is set a missing WebKit fails; at a desk it says so in a NOTE). It fails when
 // - a tab dropped anywhere on a pane's content does not share that pane: the half it takes (the top or bottom half
 //   within reach of those edges, else the left or right half the pointer is in) is not the one lit while dragging, or
-//   is not where it lands, for its own pane and another's alike; or it joins the other pane's tabs instead; or the
-//   terminal moved does not have the keyboard;
+//   is not where it lands, for its own pane and another's alike, save that on its own pane there is no top half (a
+//   short pull down from the tabs would put it there); or it joins the other pane's tabs instead; or the terminal
+//   moved does not have the keyboard;
 // - a tab dropped on a pane's tab strip does not join its tabs there;
 // - a pane's only tab dragged over its own content offers anything, or changes anything when dropped there.
 // With --pictures DIR it also writes the rows at rest, under the pointer and with focus, and both questions, at 1x
@@ -151,6 +152,21 @@ async function dragging(browser, url, engine, failures) {
     ({ name, lit, before, after }) => {
       check(!lit, `${name}: nothing is lit (${say(lit)})`);
       check(after.layout === before.layout, `${name}: on release nothing changed`);
+    });
+  // 7. Just under its own pane's tabs, right of the middle: no top half there (a short pull down from the tabs never
+  //    puts the tab on top), the right half as anywhere else on its own pane.
+  await attempt('7. bash dragged just under its own pane\'s tabs, right of the middle', { tab: 'b', over: 'b', at: (c) => ({ x: c.left + c.width / 2 + 40, y: c.top + 20 }) },
+    ({ name, c, lit, after, pane }) => {
+      check(near(lit, half(c, 'right')), `${name}: the right half is lit (${say(lit)}; the half is ${say(half(c, 'right'))})`);
+      const a = pane('a'), b = pane('b');
+      check(a && b && a !== b && Math.abs(a.top - b.top) < 2 && b.left > a.left, `${name}: on release bash is on the right of zsh`);
+    });
+  // 8. Just under the other pane's tabs: its top half.
+  await attempt('8. bash dragged just under the other pane\'s tabs', { tab: 'b', over: 'c', at: (c) => ({ x: c.left + c.width / 2 + 40, y: c.top + 20 }) },
+    ({ name, c, lit, after, pane }) => {
+      check(near(lit, half(c, 'top')), `${name}: the top half of that pane is lit (${say(lit)}; the half is ${say(half(c, 'top'))})`);
+      const s = pane('c'), b = pane('b');
+      check(s && b && s !== b && s.tabs.length === 1 && Math.abs(s.left - b.left) < 2 && b.top < s.top, `${name}: on release bash is above sh, not joined as a tab`);
     });
 }
 

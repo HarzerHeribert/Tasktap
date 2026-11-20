@@ -64,7 +64,7 @@ struct Host {
 /// `tauri.review.conf.json` for the bundle's name and identifier) is Tasktap Review: the same app, to try beside the
 /// person's own Tasktap while it runs. It has a data folder of its own, and with it its own core, socket or pipe,
 /// copy of the core and device key; no notch (on Windows no tab until one is chosen in its Settings), since the
-/// person's own is in the same place; and no global keys until the person records a capture key in its Settings.
+/// person's own is in the same place; and no global key at all, recorded or not, which its pages then name none of.
 pub(crate) const REVIEW: bool = cfg!(feature = "review");
 pub(crate) const NAME: &str = if REVIEW { "Tasktap Review" } else { "Tasktap" };
 
@@ -208,6 +208,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         "host.capture_key" => keys::call(app, args),
         // The keys that answer a waiting question from any app: the ones in use, or one changed (keys.rs).
         "host.answer_key" => keys::answer_call(app, args),
+        // The key held to talk: asked of the system as it is recorded, so that one another app holds is refused.
+        "host.talk_key" => keys::talk_call(app, args),
         // Whether Tasktap opens when the computer starts, as the system says; or set (login.rs).
         "host.login" => login::call(args),
         // Where Tasktap shows itself; with `shows`, what the workspace window shows now (presence.rs).
@@ -291,7 +293,7 @@ fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
     let host = app.state::<Host>();
     let before = std::mem::replace(&mut *host.question.lock().unwrap(), question);
     presence::question(app, asks(app));
-    // A review build has none of them until the person records one: this system's own are the person's own app's.
+    // A review build has none of them (keys.rs `TAKES`): they are the person's own Tasktap's.
     if before.is_some() != question.is_some() {
         keys::asking(app, question.is_some());
     }
@@ -579,6 +581,7 @@ fn main() {
             |prefs| {
                 let app = APP.wait();
                 update::allow(prefs.checks);
+                keys::talk(prefs.talk);
                 let _ = app.run_on_main_thread(move || {
                     keys::prefer(app, prefs.capture);
                     keys::answers(app, prefs.answers);

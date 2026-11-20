@@ -770,6 +770,9 @@ fn a_shell_says_what_runs_in_it_and_nothing_when_it_waits_for_a_command() {
     screen.line("kill -9 %1 %2");
     assert!(idle(&runs_until(&mut c, id, idle)));
 
+    // The shell learns what became of its jobs, which dash does only at its
+    // next command: until then it refuses `exit` for a job it thinks stopped.
+    screen.line("wait");
     screen.line("exit");
     screen.ended();
     assert_eq!(runs_of(&mut c, id).unwrap().state, RunState::Ended);
@@ -1522,11 +1525,8 @@ fn a_terminal_may_belong_to_no_project_and_a_closed_project_starts_none() {
     w.sync();
     let t = &w.model.terminals[&loose];
     assert_eq!((t.project_id, t.kind), (None, TerminalKind::Task));
-    // The core's home, which on Mac and Linux the tests give it.
-    let home = match cfg!(windows) {
-        true => std::env::var_os("USERPROFILE").unwrap().into(),
-        false => data.0.join("home"),
-    };
+    // The core's home, which the tests give it (on Windows the profile's).
+    let home = data.0.join("home");
     assert_eq!(Path::new(&t.cwd), home);
     // In a project: its folder, until the project is closed.
     let folder = Folder::new("tt-proj-folder");

@@ -1481,11 +1481,24 @@ fn the_answer_keys_are_each_systems_own_and_no_two_of_tasktaps_keys_are_one() {
         Shortcut::usual(PrefKey::CaptureKey, false),
         Some(Shortcut::capture(false))
     );
-    assert_eq!(Shortcut::usual(PrefKey::TalkKey, true), None);
-    // As stored, or each system's own.
+    // The talk key with none chosen is the pages' own: Option-Space on a Mac, Control-Space elsewhere.
+    assert_eq!(
+        Shortcut::usual(PrefKey::TalkKey, true),
+        Some(key(false, true, false, "Space"))
+    );
+    assert_eq!(
+        Shortcut::usual(PrefKey::TalkKey, false),
+        Some(key(true, false, false, "Space"))
+    );
+    // As stored, or each system's own: all five keys a person records.
     let mine = key(true, false, true, "KeyK");
+    let talk = key(true, false, true, "KeyT");
     for mac in [true, false] {
-        let stored = |id: PrefKey| (id == PrefKey::YesKey).then(|| mine.clone());
+        let stored = |id: PrefKey| match id {
+            PrefKey::YesKey => Some(mine.clone()),
+            PrefKey::TalkKey => Some(talk.clone()),
+            _ => None,
+        };
         let used = keys_in_use(mac, stored);
         assert_eq!(
             used,
@@ -1497,36 +1510,47 @@ fn the_answer_keys_are_each_systems_own_and_no_two_of_tasktaps_keys_are_one() {
                 ),
                 (PrefKey::YesKey, mine.clone()),
                 (PrefKey::NoKey, Shortcut::answer(mac, AnswerKey::No)),
+                (PrefKey::TalkKey, talk.clone()),
             ]
         );
-        // The capture key may be none of the answer keys, an answer key neither the capture key nor another answer
-        // key, the talk key none of the answer keys; a key may stay itself, and the talk key and the capture key
-        // are apart as before.
+        // No two of the five are one, whichever is recorded, and the sentence names the key that has it already.
         let no = Shortcut::answer(mac, AnswerKey::No);
+        let says = |id: PrefKey| Shortcut::taken(id);
+        for id in KEY_PREFS {
+            for (other, k) in &used {
+                let refused = clash(id, k, &used);
+                if *other == id {
+                    assert_eq!(refused, None, "{id:?} may stay itself");
+                } else {
+                    assert_eq!(refused, says(*other), "{id:?} as {other:?}'s key");
+                }
+            }
+        }
         assert_eq!(
             clash(PrefKey::CaptureKey, &no, &used),
-            Some(Shortcut::ANSWERS)
+            Some("Tasktap already uses that combination to answer No")
         );
         assert_eq!(
-            clash(PrefKey::CaptureKey, &mine, &used),
-            Some(Shortcut::ANSWERS)
+            clash(PrefKey::TalkKey, &no, &used),
+            Some("Tasktap already uses that combination to answer No")
         );
         assert_eq!(
-            clash(PrefKey::QuestionKey, &Shortcut::capture(mac), &used),
-            Some(Shortcut::CAPTURES)
+            clash(PrefKey::NoKey, &talk, &used),
+            Some("Tasktap already uses that combination as the key to hold while you talk")
         );
-        assert_eq!(
-            clash(PrefKey::QuestionKey, &no, &used),
-            Some(Shortcut::ANSWERS)
-        );
-        assert_eq!(clash(PrefKey::TalkKey, &no, &used), Some(Shortcut::ANSWERS));
         assert_eq!(
             clash(PrefKey::TalkKey, &Shortcut::capture(mac), &used),
-            None
+            Some("Tasktap already uses that combination to put a thought in")
         );
-        assert_eq!(clash(PrefKey::NoKey, &no, &used), None);
-        assert_eq!(clash(PrefKey::YesKey, &mine, &used), None);
-        // The old answer key, given up by a change, is free for another.
+        assert_eq!(
+            clash(
+                PrefKey::YesKey,
+                &Shortcut::answer(mac, AnswerKey::Question),
+                &used
+            ),
+            Some("Tasktap already uses that combination to go to an agent’s question")
+        );
+        // The old answer key, given up by a change, is free for another; a key no one has is free.
         assert_eq!(
             clash(
                 PrefKey::NoKey,
@@ -1535,5 +1559,10 @@ fn the_answer_keys_are_each_systems_own_and_no_two_of_tasktaps_keys_are_one() {
             ),
             None
         );
+        assert_eq!(
+            clash(PrefKey::TalkKey, &key(true, true, true, "F7"), &used),
+            None
+        );
     }
+    assert_eq!(Shortcut::taken(PrefKey::Hold), None);
 }

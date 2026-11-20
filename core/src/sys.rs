@@ -306,9 +306,12 @@ mod unix {
         let mut pids = processes();
         pids.sort_unstable();
         let mut jobs: Vec<(u32, u32)> = Vec::new();
+        // A process that ended and waits for its parent to read so (a
+        // zombie) runs nothing: a shell that reads its jobs' ends only at its
+        // next prompt, as dash does, leaves them so while it waits.
         for pid in pids
             .into_iter()
-            .filter(|&pid| pid > 1 && getsid(pid) == sid)
+            .filter(|&pid| pid > 1 && getsid(pid) == sid && running(pid))
         {
             let (Ok(group), Ok(pid)) = (u32::try_from(getpgid(pid)), u32::try_from(pid)) else {
                 continue;
@@ -522,6 +525,48 @@ mod unix {
         Vec::new()
     }
 
+    /// Whether process `pid` is there and has not ended: one that ended and
+    /// waits for its parent to read so (a zombie) is not running.
+    #[cfg(target_os = "linux")]
+    pub fn running(pid: i32) -> bool {
+        // `pid (name) state …`: the name may hold anything, its last `)` ends it.
+        let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return false;
+        };
+        let state = (stat.rsplit_once(')')).and_then(|(_, rest)| rest.trim_start().chars().next());
+        !matches!(state, None | Some('Z' | 'X'))
+    }
+
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    pub fn running(pid: i32) -> bool {
+        use std::ffi::{c_int, c_void};
+        // SAFETY: as in `working_folder`.
+        unsafe extern "C" {
+            fn proc_pidinfo(
+                pid: c_int,
+                flavor: c_int,
+                arg: u64,
+                buffer: *mut c_void,
+                size: c_int,
+            ) -> c_int;
+        }
+        // PROC_PIDTBSDINFO: a 136-byte `proc_bsdinfo`, whose second field,
+        // `pbi_status`, is SZOMB (5) for a zombie.
+        const FLAVOR: c_int = 3;
+        const SIZE: usize = 136;
+        let mut info = [0u8; SIZE];
+        // SAFETY: `info` holds SIZE bytes and lives through the call.
+        let got = unsafe { proc_pidinfo(pid, FLAVOR, 0, info.as_mut_ptr().cast(), SIZE as c_int) };
+        let status = u32::from_ne_bytes([info[4], info[5], info[6], info[7]]);
+        usize::try_from(got).is_ok_and(|got| got == SIZE) && status != 5
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    pub fn running(_: i32) -> bool {
+        true
+    }
+
     /// Sends hang-up, or with `kill` the kill signal, to process `pid` alone.
     /// Never to this process, nor to 0 or 1.
     #[allow(unsafe_code)]
@@ -664,6 +709,30 @@ mod unix {
                 _ = int.recv() => {}
             }
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::running;
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        #[test]
+        fn a_process_that_ended_and_was_not_yet_waited_for_is_not_running() {
+            let mut live = Command::new("sleep").arg("30").spawn().unwrap();
+            let mut ended = Command::new("true").spawn().unwrap();
+            let id = |child: &std::process::Child| i32::try_from(child.id()).unwrap();
+            // Until it is waited for below, the one that ended is a zombie.
+            let until = Instant::now() + Duration::from_secs(5);
+            while running(id(&ended)) && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let said = (running(id(&live)), running(id(&ended)));
+            live.kill().unwrap();
+            live.wait().unwrap();
+            ended.wait().unwrap();
+            assert_eq!(said, (true, false), "the one sleeping, the one ended");
+        }
     }
 }
 

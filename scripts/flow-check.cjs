@@ -13,6 +13,11 @@
 // In the app the worst frame may take 33 ms and the worst key 67, so that no frame is missed outright. A frame that
 // came late while the page's own thread was free is the machine's (another program had the processor): it is counted
 // and said, and not held against the page. Headless it runs on the graphics card.
+// Two things of the machine's are read in the app and said first. A Mac that asks for reduced motion (Accessibility,
+// Reduce motion: GitHub's Mac runners have it on) gets the light held still at every level, so the band is held to
+// not moving through the flow. And in a virtual machine (`kern.hv_vmm_present`, as on those runners) its processors
+// and graphics are shared with others, so the times are printed and not held: they are the host's, not the page's.
+// Lost and refused keys, the thought coming to work and the band are held everywhere.
 // usage: node scripts/flow-check.cjs [--app [--debug]] [--levels full,still,off] [--short] [--trace] [--json file]
 //   headless by default: ui/dist on fixture records, the core's changes pushed by a stand-in; --trace adds where the
 //   main thread's time went (script, style, layout, paint) and its long tasks, from Chromium's own timeline.
@@ -70,17 +75,17 @@ function print(name, level, quiet, flow) {
 
 /** The limits follow the rate the page is given frames at: at 60 a second they are 20 and 50 ms for a frame, 30 and
  *  100 ms for a key. */
-function judge(level, quiet, flow, failures) {
+function judge(level, quiet, flow, failures, timed = true) {
   // The worst frame and the worst key are held to what a person would see as a hitch, however fast the frames come.
   // In the app no frame may be missed outright (two frames, 33 ms); headless three, as before.
   const s = stats(flow), frame = stats(quiet).median, hitch = Math.max(frame, 1000 / 60), most = has('--app') ? 2 : 3, key = has('--app') ? 4 : 6;
   if (flow.hidden) failures.push(`${level}: the window was covered, so nothing was measured`);
   if (s.keys < 40) failures.push(`${level}: only ${s.keys} keys reached the Composer`);
   if (!flow.marks.some((m) => /working|done|Started in/.test(m[1]))) failures.push(`${level}: the thought never came to work, so the flow was not measured`);
-  if (s.p95 > frame * 1.2) failures.push(`${level}: the 95th percentile of the frame intervals during the flow is ${r1(s.p95)} ms (${r1(frame * 1.2)} at most, at a frame of ${r1(frame)} ms)`);
-  if (s.worst > hitch * most) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(hitch * most)} at most)`);
-  if (s.kp95 > frame * 1.8) failures.push(`${level}: the 95th percentile of the delay from a key to its frame is ${r1(s.kp95)} ms (${r1(frame * 1.8)} at most)`);
-  if (s.kworst > hitch * key) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(hitch * key)} at most)`);
+  if (timed && s.p95 > frame * 1.2) failures.push(`${level}: the 95th percentile of the frame intervals during the flow is ${r1(s.p95)} ms (${r1(frame * 1.2)} at most, at a frame of ${r1(frame)} ms)`);
+  if (timed && s.worst > hitch * most) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(hitch * most)} at most)`);
+  if (timed && s.kp95 > frame * 1.8) failures.push(`${level}: the 95th percentile of the delay from a key to its frame is ${r1(s.kp95)} ms (${r1(frame * 1.8)} at most)`);
+  if (timed && s.kworst > hitch * key) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(hitch * key)} at most)`);
   if (s.lost) failures.push(`${level}: ${flow.lost} keys were lost and ${flow.caret} moved the caret from the end`);
   if (quiet.refused + flow.refused) failures.push(`${level}: the field refused ${quiet.refused + flow.refused} keys (${flow.refused} of them during the flow)`);
 }
@@ -93,6 +98,16 @@ async function app(levels) {
     await a.prepare();
     out.display = a.seen();
     console.log(out.display.said + ' The built app, passive, on a temporary data folder, with the fixture agent.');
+    out.reduced = (await ws(`String(matchMedia('(prefers-reduced-motion: reduce)').matches)`)) === 'true';
+    out.virtual = process.platform === 'darwin' && (() => {
+      try {
+        return require('node:child_process').execFileSync('sysctl', ['-n', 'kern.hv_vmm_present'], { encoding: 'utf8' }).trim() === '1';
+      } catch {
+        return false;
+      }
+    })();
+    if (out.reduced) console.log('This Mac asks for reduced motion: the light is held still at every level, and so is the band through the flow.');
+    if (out.virtual) console.log('This Mac is a virtual machine: its times are printed and not held, since they are its host\'s, shared with others.');
     for (const level of levels) {
       a.send(`call put {"c":"prefs","id":"motion_ambient","patch":"${LEVELS[level]}"}`);
       // The light as it is in a window in use, which a passive window never is (`breathe` held it so before the
@@ -210,14 +225,20 @@ async function main() {
     console.log(out.trace.long.length ? 'tasks over 50 ms:\n' + out.trace.long.map((t) => `  ${t.ms} ms  ${JSON.stringify(t.parts)}  ${t.names.join(', ')}`).join('\n') : 'no task over 50 ms');
   }
   const failures = [];
-  for (const level of levels) judge(level, out[level].quiet, out[level].flow, failures);
+  for (const level of levels) judge(level, out[level].quiet, out[level].flow, failures, !out.virtual);
   if (out.full?.band) {
     console.log('\n== The band through the flow, effects full');
-    cadence.judge('the band through the flow', cadence.print(out.full.band), failures);
+    const band = cadence.print(out.full.band);
+    if (!out.reduced) cadence.judge('the band through the flow', band, failures);
+    else if (band.moves.some((m) => m.drawn >= 4)) failures.push('the band through the flow: it moved, where this Mac asks for reduced motion');
   }
   console.log('');
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  the capture flow hitches' : 'PASS  typing through a capture, its placing, a session starting, an agent\'s output and a result: frames keep their pace (95th percentile within 1.2 of the frames given, 20 ms at 60 a second, none over 50 ms), keys show within a frame or two (95th percentile within 1.8 frames, 30 ms, none over 100 ms), and none is lost or refused');
+  const pace = out.virtual
+    ? 'in a virtual machine, whose times are its host\'s and not held: no key is lost or refused, and the thought comes to work'
+    : 'frames keep their pace (95th percentile within 1.2 of the frames given, 20 ms at 60 a second, none over 50 ms), keys show within a frame or two (95th percentile within 1.8 frames, 30 ms, none over 100 ms), and none is lost or refused';
+  const band = out.full?.band ? (out.reduced ? '; the band held still, as this Mac asks for reduced motion' : '') : '';
+  console.log(failures.length ? 'FAIL  the capture flow hitches' : `PASS  typing through a capture, its placing, a session starting, an agent's output and a result: ${pace}${band}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 if (require.main === module) main().catch((e) => (console.error(e), process.exit(1)));

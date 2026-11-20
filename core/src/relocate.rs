@@ -87,15 +87,28 @@ pub fn run(from: &Path, to: &Path) -> Result<Moved, Refused> {
         moved.backup = Some(to.join(BACKUP));
     }
     // The places as the records may name them: as given, and canonical (the
-    // copies of projects are named canonically), each with its new name.
+    // copies of projects are named canonically), each with its new name. On
+    // Windows canonical twice: with the `\\?\` the system gives (the copies),
+    // and without it, as the scratch project and the projects are kept,
+    // which differs from a folder given in another case or by a short name.
+    // The folder's own name as it is on disk, which Windows finds in any case;
+    // a link keeps the name it was given, the new folder too.
     let canonical = |p: &Path| -> Option<PathBuf> {
-        Some(fs::canonicalize(p.parent()?).ok()?.join(p.file_name()?))
+        let own = (fs::symlink_metadata(p).ok())
+            .filter(|m| !m.is_symlink())
+            .and_then(|_| fs::canonicalize(p).ok());
+        let name = own.as_deref().and_then(Path::file_name).or(p.file_name())?;
+        Some(fs::canonicalize(p.parent()?).ok()?.join(name))
     };
     let mut pairs = vec![(from.to_path_buf(), to.to_path_buf())];
-    if let (Some(a), Some(b)) = (canonical(from), canonical(to))
-        && a != from
-    {
-        pairs.push((a, b));
+    if let (Some(a), Some(b)) = (canonical(from), canonical(to)) {
+        let plain = |p: &Path| crate::terminal::folder(p.to_path_buf());
+        let (c, d) = (plain(&a), plain(&b));
+        for pair in [(a, b), (c, d)] {
+            if !pairs.iter().any(|(old, _)| *old == pair.0) {
+                pairs.push(pair);
+            }
+        }
     }
     // Windows renames no folder with a file open in it; elsewhere the locks
     // are kept until the folder is in its new place.

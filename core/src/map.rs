@@ -289,10 +289,16 @@ pub fn modified(meta: &std::fs::Metadata) -> u64 {
     at.map_or(0, |d| d.as_millis() as u64)
 }
 
-/// The person's home folder.
+/// The person's home folder: on Windows the profile's (`USERPROFILE`), where
+/// the agents keep their histories and terminals start, whatever `HOME` a
+/// tool of Unix's set there; elsewhere `HOME`.
 pub fn home() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    let home = PathBuf::from(home);
+    let keys: &[&str] = match cfg!(windows) {
+        true => &["USERPROFILE", "HOME"],
+        false => &["HOME"],
+    };
+    let mut set = keys.iter().filter_map(std::env::var_os);
+    let home = PathBuf::from(set.find(|h| !h.is_empty())?);
     Some(std::fs::canonicalize(&home).map_or(home, crate::terminal::folder))
 }
 
@@ -600,20 +606,26 @@ fn on_volume<'a>(folder: &'a Path, volumes: &[(PathBuf, usize)]) -> Option<&'a P
 }
 
 /// On Windows, a drive's `X:\…`, but not the system's folders or the
-/// people's (`X:\Users`).
+/// people's (`X:\Users`). Volumes a check names are folders it made, which
+/// may be anywhere: each counts as on Mac and Linux, its depth too.
 #[cfg(windows)]
 fn on_volume<'a>(folder: &'a Path, volumes: &[(PathBuf, usize)]) -> Option<&'a Path> {
+    let named = volumes.iter().find_map(|(root, depth)| {
+        let below = folder.strip_prefix(root).ok()?;
+        Some((below.components(), *depth))
+    });
+    if let Some((mut parts, depth)) = named {
+        for _ in 0..depth {
+            parts.next()?;
+        }
+        let below = parts.as_path();
+        return (!below.as_os_str().is_empty()).then_some(below);
+    }
     let text = folder.to_string_lossy().to_lowercase().replace('/', "\\");
     let system = ["\\windows", "\\program files", "\\programdata", "\\users"];
     let rest = text.get(2..).unwrap_or_default();
     if system.iter().any(|s| rest.starts_with(s)) {
         return None;
-    }
-    if let Some(below) = volumes
-        .iter()
-        .find_map(|(root, _)| folder.strip_prefix(root).ok())
-    {
-        return (!below.as_os_str().is_empty()).then_some(below);
     }
     let mut parts = folder.components();
     parts.next()?;

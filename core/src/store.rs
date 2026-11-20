@@ -289,7 +289,9 @@ impl Store {
 fn scratch(path: &Path, now: Time) -> Result<Project> {
     let dir = path.with_file_name("scratch");
     std::fs::create_dir_all(&dir).map_err(Error::Io)?;
-    let dir = std::fs::canonicalize(&dir).map_err(Error::Io)?;
+    // As `project.add` keeps a folder: on Windows without the `\\?\` of a
+    // canonical path, which is no folder a person knows or a program takes.
+    let dir = crate::terminal::folder(std::fs::canonicalize(&dir).map_err(Error::Io)?);
     let folder = (dir.to_str())
         .ok_or_else(|| Error::Io(std::io::Error::other("the data folder's path is not text")))?;
     Ok(Project {

@@ -33,7 +33,7 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, agentName, answerKey, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
+  LOOSE, agentName, answerKey, askGlobalKeys, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
   open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
@@ -249,15 +249,17 @@ function AsksLine() {
   const router = q.source === 'router';
   const who = router ? 'Where should this go?' : `${agentName(s?.agent ?? t?.agent)} asks`;
   const more = openQuestions().length - 1;
-  // The key the person recorded for it, named as their keyboard prints it.
-  const key = keyName(answerKey('question'));
+  // The key the person recorded for it, named as their keyboard prints it; none where this copy takes no keys from
+  // other apps (a review build), where it would do nothing.
+  const answer = answerKey('question'), key = answer && keyName(answer);
+  const does = router ? 'Show the question on Home' : 'Show the question under its terminal';
   return (
-    <button type="button" class="asks-line" title={tip(router ? 'Show the question on Home' : 'Show the question under its terminal', key)} onClick={() => toQuestion(q.id)}>
+    <button type="button" class="asks-line" title={key ? tip(does, key) : does} onClick={() => toQuestion(q.id)}>
       <Mark s="asks" label="" />
       <b>{who}</b>
       <span class="what">{router ? title(t) : q.prompt}</span>
       {more > 0 && <span class="more">{plural(more, 'more waits', 'more wait')}</span>}
-      <span data-keys="window"><Key k={key} cap /></span>
+      {key && <span data-keys="window"><Key k={key} cap /></span>}
     </button>
   );
 }
@@ -422,6 +424,7 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   else if (payload.do === 'update') updateSaid(payload as unknown as HostUpdate);
 });
 void askUpdate();
+askGlobalKeys(redraw);
 // Keys bound by their place are named as the person's keyboard prints them (keys.ts).
 watchLayout(() => call('host.layout', {}), redraw);
 void call('host.power', {}).then((low) => ((power.low = !!low), redraw()), () => {});

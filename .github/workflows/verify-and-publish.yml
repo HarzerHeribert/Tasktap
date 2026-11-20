@@ -43,12 +43,33 @@ jobs:
           cargo build --quiet
           ./scripts/conpty.ps1 -Target x86_64 -Into target/debug
       - name: Test
+        if: runner.os != 'Windows'
         run: cargo test --workspace --no-fail-fast
+      # On Windows the whole suite runs as a person's Windows has it, and as the tower runs it
+      # (scripts/winvm/run.ps1): in PowerShell, with no HOME, and with none of the Unix tools Git
+      # brings (cp, mkfifo, sh) on the PATH. Git Bash lent the tests all three, and a test that
+      # needed one passed here and failed there.
+      - name: Test (Windows, without Git Bash's HOME and tools)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item Env:HOME -ErrorAction SilentlyContinue
+          $unix = '\\Git\\(usr\\bin|bin|mingw64\\bin)\\?$'
+          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_ -notmatch $unix }) -join ';'
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) { $env:PATH += ";$env:ProgramFiles\Git\cmd" }
+          $lent = @('cp', 'mkfifo', 'sh') | Where-Object { Get-Command $_ -CommandType Application -ErrorAction SilentlyContinue }
+          if ($lent) { throw "Unix tools still on the PATH: $($lent -join ', ')" }
+          git --version
+          cargo test --workspace --no-fail-fast
 
   interface:
     name: Interface (types, tests, build, pages)
-    runs-on: ubuntu-24.04 # held: the page checks' browser does not install on the newer image yet
-    timeout-minutes: 15
+    # On a Mac: the page checks measure text in the system's face, which is the app's on a Mac (SF) and on
+    # Windows (Segoe UI) and neither on Linux. There system-ui is DejaVu Sans, and Chromium on Linux lends a
+    # pixel of its ascent to its descent at 2x (subpixel positioning), so each label stood 1.5 to 2 px off the
+    # mark that leads it: 37 things out of line on the Linux runner that are in line in the app.
+    runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -75,7 +96,7 @@ jobs:
       - name: Install the headless browser
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx --no-install playwright install --with-deps chromium
+          npx --no-install playwright install chromium
       - name: The page scripts parse
         run: for file in scripts/*.cjs; do node --check "$file"; done
       - name: Every list keeps its columns

@@ -316,13 +316,16 @@ fn a_repeat_has_the_same_id_and_the_next_one_another() {
 
 #[test]
 fn it_runs_with_tasktaps_plugin_and_the_persons_own_approvals() {
+    // Below its folder, joined as this system joins a path.
+    let plugin = Path::new("/data/agents/copilot").join("plugin");
+    let plugin = plugin.to_str().unwrap();
     let new = copilot().launch(&run("Fix the bug", None, None));
     assert_eq!(
         new,
         [
             "copilot",
             "--plugin-dir",
-            "/data/agents/copilot/plugin",
+            plugin,
             "--interactive=Fix the bug"
         ]
     );
@@ -334,7 +337,7 @@ fn it_runs_with_tasktaps_plugin_and_the_persons_own_approvals() {
             "--model",
             "gpt-5.4-mini",
             "--plugin-dir",
-            "/data/agents/copilot/plugin",
+            plugin,
             &format!("--resume={SESSION}"),
             "--interactive=Go on"
         ]
@@ -381,8 +384,13 @@ fn its_plugin_is_kept_in_tasktaps_folder_and_runs_the_hook() {
         };
         assert_eq!(hook["type"], "command");
         let command = hook["bash"].as_str().unwrap();
+        // Quoted as every agent's hook is on this system (`agents::quoted`).
+        let exe = match cfg!(windows) {
+            true => r#""/opt/tasktap/tasktap""#,
+            false => "'/opt/tasktap/tasktap'",
+        };
         assert!(
-            command.starts_with(&format!("'/opt/tasktap/tasktap' hook copilot {name}")),
+            command.starts_with(&format!("{exe} hook copilot {name}")),
             "{command}"
         );
         // Tasktap's hook never denies a tool, whatever happens to it.

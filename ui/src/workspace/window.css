@@ -80,7 +80,9 @@ button.row:active{background:var(--sel)}
 .win.dimmed .bar.bare{border-bottom-color:var(--line)}
 .main:has(>.bare)::before{content:"";position:absolute;z-index:2;inset:var(--bar-h) 0 auto;height:var(--fade);background:linear-gradient(var(--bg),#0000);pointer-events:none}
 .bar .lead{display:flex;justify-content:flex-end;flex:none;width:92px;overflow:hidden}
-.crumb{display:flex;align-items:center;min-width:0}
+/* Where the bar has too little room, the folder's path gives way first: the line that leads to a question, which
+   says what needs the person, keeps its words (a window 1024 points wide took them all). */
+.crumb{display:flex;align-items:center;flex-shrink:100;min-width:0}
 .crumb b{font:var(--f-title)}
 .crumb .path{min-width:0;margin-left:var(--sp3);overflow:hidden;text-overflow:ellipsis;font:var(--f-num);color:var(--fg3)}
 .crumb .back{display:inline-flex;align-items:center;gap:2px;height:var(--ctl-h);margin-left:-8px;padding:0 var(--sp2) 0 4px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}

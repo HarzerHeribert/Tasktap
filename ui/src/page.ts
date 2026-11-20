@@ -13,8 +13,14 @@ export const pref = <K extends keyof typeof PREF_DEFAULTS>(k: K) => (records.pre
 /** The key held to talk: the `talk_key` preference, else the system's usual one (keys.ts TALK). */
 export const talkKey = () => pref('talk_key') ?? TALK;
 const ANSWER_PREFS = { question: 'question_key', yes: 'yes_key', no: 'no_key' } as const;
-/** A key that answers a waiting question from any app: its preference, else this system's own (keys.ts). */
-export const answerKey = (which: Answering) => pref(ANSWER_PREFS[which]) ?? answerUsual(which);
+/** Whether this copy takes keys from other apps, as the host said (host/src/keys.rs `TAKES`): a review build takes
+ *  none, so names none. Until the host says, it does. */
+export const globalKeys = { takes: true };
+/** Asks the host once whether this copy takes keys from other apps; `told` runs when it does not. */
+export const askGlobalKeys = (told: () => void) => void call('host.answer_key', {}).then((r) => r?.takes === false && ((globalKeys.takes = false), told()), () => {});
+/** A key that answers a waiting question from any app: its preference, else this system's own (keys.ts); none in a
+ *  copy that takes no keys from other apps. */
+export const answerKey = (which: Answering) => (globalKeys.takes ? (pref(ANSWER_PREFS[which]) ?? answerUsual(which)) : null);
 
 let redrawn = () => {};
 export const redraw = () => redrawn();

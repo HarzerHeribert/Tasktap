@@ -17,6 +17,9 @@ try {
         & .\scripts\conpty.ps1 -Target $Job.target -Into $beside -Cache "$checkout\core\target\conpty"
     }
     if ($Job.batch) { $env:TASKTAP_TEST_BATCH_AGENTS = '1' }
+    # As a person's Windows has it, and as the Windows runner tests it: an SSH session is given a HOME, which
+    # nothing on Windows sets otherwise (it hid that Goose's own settings were looked for under it).
+    Remove-Item Env:HOME -ErrorAction SilentlyContinue
     # One failing suite must not keep the ones after it from running.
     $cargoArgs = @('test', '--workspace', '--no-fail-fast') + @($Job.args)
     if (-not $Job.repeat) {

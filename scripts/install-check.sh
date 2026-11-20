@@ -9,7 +9,8 @@
 #     them stood in run a copy of the script in which exactly those, and TEAM_ID, are replaced (the check proves the
 #     copies differ in nothing else). The stand-in codesign still checks the signature with the real one; it stands in
 #     only for Apple's chain and the team.
-# As shipped (TEAM_ID empty): refused before any download, and no prefix of the script runs anything.
+# As shipped, TEAM_ID is empty or ten letters and digits, nothing else, and no prefix of the script runs anything; with
+# TEAM_ID emptied (a copy that differs in that line alone), the line is refused before any download.
 # With TEAM_ID set and Apple's tools: an Intel Mac, a running Tasktap (stood in, and a real process in a Tasktap.app
 # found by the real pgrep, while one in "Tasktap Review.app" is not), an address that is not https, a file the release
 # does not have, a wrong SHA-256, an image that is not notarised, one of no team, a folder or app that is not the
@@ -127,12 +128,12 @@ exec /usr/bin/id "\$@"
 EOF
 chmod +x "$apple/spctl" "$apple/codesign" "$apple/id"
 copy="$work/install-team.sh"; notarised="$work/install-notarised.sh"; stood="$work/install-stood-in.sh"
-sed 's/^TEAM_ID=""$/TEAM_ID="TESTTEAM01"/' "$script" > "$copy"
+sed -E 's/^TEAM_ID="[A-Z0-9]*"$/TEAM_ID="TESTTEAM01"/' "$script" > "$copy"
 sed "s|/usr/sbin/spctl|$apple/spctl|g" "$copy" > "$notarised"
 sed -e "s|/usr/sbin/spctl|$apple/spctl|g" -e "s|/usr/bin/codesign|$apple/codesign|g" -e "s|/usr/bin/id|$apple/id|g" \
   -e "s|apps=/Applications\$|apps=$work/Applications|" "$copy" > "$stood"
-other="$(diff "$script" "$stood" | grep '^<' | grep -v -e '/usr/sbin/spctl' -e '/usr/bin/codesign' -e '/usr/bin/id' -e '^< TEAM_ID=""$' -e 'apps=/Applications$' || true)"
-if [ -z "$other" ] && [ "$(diff "$script" "$copy" | grep -c '^<')" = 1 ] && grep -q '^TEAM_ID="TESTTEAM01"$' "$stood" &&
+other="$(diff "$script" "$stood" | grep '^<' | grep -v -e '/usr/sbin/spctl' -e '/usr/bin/codesign' -e '/usr/bin/id' -e '^< TEAM_ID="[A-Z0-9]*"$' -e 'apps=/Applications$' || true)"
+if [ -z "$other" ] && [ -z "$(diff "$script" "$copy" | grep '^<' | grep -v '^< TEAM_ID="[A-Z0-9]*"$' || true)" ] && grep -q '^TEAM_ID="TESTTEAM01"$' "$copy" "$stood" &&
   ! grep -q -e '/usr/sbin/spctl' -e '/usr/bin/codesign' -e '/usr/bin/id' -e 'apps=/Applications$' "$stood"; then
   pass "the test copies differ from the script only in TEAM_ID, the paths of spctl, codesign and id, and /Applications"
 else fail "the test copies: $other"; fi
@@ -194,8 +195,16 @@ refused() { # <what> <kind> <from> <script> <reason> [NAME=value...]: refused fo
   holds "$what is refused, and nothing is installed or left" '[ "$code" != 0 ] && said "Tasktap was not installed: .*$reason" && ! installed'
 }
 
-# As shipped.
-refused 'the line while TEAM_ID is empty, before any download,' mac "$work/empty" "$script" 'does not name the team'
+# As shipped, and with TEAM_ID emptied.
+if [ "$(grep -c '^TEAM_ID=' "$script")" = 1 ] && grep -Eq '^TEAM_ID=("|"[A-Z0-9]{10})"$' "$script"; then
+  pass "the shipped TEAM_ID is empty or ten letters and digits: $(grep '^TEAM_ID=' "$script")"
+else fail "the shipped TEAM_ID line is neither empty nor ten letters and digits: $(grep '^TEAM_ID=' "$script")"; fi
+emptied="$work/install-empty.sh"
+sed -E 's/^TEAM_ID="[A-Z0-9]*"$/TEAM_ID=""/' "$script" > "$emptied"
+if [ -z "$(diff "$script" "$emptied" | grep '^[<>]' | grep -v -e '^< TEAM_ID="[A-Z0-9]*"$' -e '^> TEAM_ID=""$' || true)" ] && grep -q '^TEAM_ID=""$' "$emptied"; then
+  pass "the emptied copy differs from the script in the TEAM_ID line alone"
+else fail "the emptied copy differs in more than TEAM_ID"; fi
+refused 'the line while TEAM_ID is empty, before any download,' mac "$work/empty" "$emptied" 'does not name the team'
 cut=0; ran=""
 size="$(wc -c < "$script")"
 for n in $(awk '{ n += length($0) + 1; print n }' "$script") $(seq $((size - 40)) $((size - 2))); do

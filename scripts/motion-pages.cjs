@@ -22,7 +22,7 @@ function serve(distDir) {
 }
 
 // Runs in the page before its scripts: the Tauri runtime and the core, both fake.
-function fakeRuntime({ label, records: records0, welcome, terms }) {
+function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }) {
   const callbacks = new Map();
   let nextCb = 1;
   const listeners = new Map(); // event -> [{handler, id}]
@@ -64,8 +64,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
   const refused = (k) => (!/^(Key[A-Z]|Digit\d|F\d+|Space|Enter|Tab|Escape|Backspace|Delete|Arrow\w+|Minus|Equal|Comma|Period|Slash)$/.test(k.code) ? 'That is not a key a shortcut can end in'
     : !(k.control || k.alt || k.meta) ? 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key'
-      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself'
-        : ['KeyJ', 'KeyK'].includes(k.code) && !k.alt && ((k.meta && !k.control && !k.shift) || (k.control && k.shift && !k.meta)) ? 'Tasktap uses that combination where you write a thought' : null);
+      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself' : null);
   // What a dictation was heard as: it failed, its words are for a field, or it is its thought.
   const heardAs = (d, said) => {
     const row = (x, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [x.id] } : { put: [{ ...x, rev }] }) }] });
@@ -360,12 +359,30 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
   const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
   const answers = () => ({ question: keyOf('question'), yes: keyOf('yes'), no: keyOf('no'), takes });
+  /** Why `key` cannot be the key `which` beside Tasktap's own window, as the core's `own_key` says it. */
+  const sys = win ? 'windows' : 'mac';
+  const own = (which, key) => {
+    const c = ownKeys.app.find((x) => same(x[sys], key));
+    if (c) return `Tasktap uses ${c.says[sys]} for ${c.name}`;
+    if (which === 'talk') {
+      const f = ownKeys.field.find((x) => same(x[sys], key));
+      return f && `A text field uses ${f.says[sys]} for ${f.name}`;
+    }
+    return null;
+  };
+  /** A key taken from other apps may not be the system's command modifier alone with one key (`every_app`). */
+  const everyApp = (which, key) => {
+    const alone = ['control', 'alt', 'shift', 'meta'].filter((m) => key[m]).length === 1;
+    if (which !== 'talk' && alone && (win ? key.control : key.meta)) return win ? 'Other apps use Ctrl with a single key: hold Alt or Shift as well' : 'Other apps use ⌘ with a single key: hold Control or Option as well';
+    return null;
+  };
   /** Tries `key` as the key `which`, and stores it: the reply's sentence when refused. */
   const record = (which, given) => {
     if (which !== 'talk' && !takes) throw 'Tasktap Review takes no keys from other apps';
     const key = given || (which === 'capture' ? usual : OWN_KEYS[which]);
     const other = Object.keys(PREF).find((w) => w !== which && same(keyOf(w), key));
-    const why = refused(key) || (other && `Tasktap already uses that combination ${DOES[other]}`) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
+    const why = refused(key) || (given && own(which, key)) || (other && `Tasktap already uses that combination ${DOES[other]}`) || (given && everyApp(which, key))
+      || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
     if (why) throw why;
     if (which === 'capture') capture = key;
     const id = PREF[which];
@@ -492,6 +509,13 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
 
 const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'];
 // What the core's `route.terms` and `speech.terms` answer: the instructions are the core's own file.
+/** Tasktap's own window's keys and a text field's, as the core has them (core/proto/src/keys.rs, generated into
+ *  protocol.ts): the fake host refuses them as the core does (`own_key`). */
+const OWN_KEYS = (() => {
+  const ts = fs.readFileSync(path.join(root, 'core/proto/protocol.ts'), 'utf8');
+  const table = (name) => JSON.parse(new RegExp(`export const ${name}: [^=]+= (\\[.*\\]);`).exec(ts)[1]);
+  return { app: table('APP_KEYS'), field: table('FIELD_KEYS') };
+})();
 const TERMS = {
   route: {
     instructions: fs.readFileSync(path.join(root, 'core/src/route/instructions.md'), 'utf8'),
@@ -552,7 +576,7 @@ async function open(browser, { label, records = {}, viewport, dpr = 2, url, vide
   page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });
   // `projects.find`, answered by the core's own code when it is built (`findCore`).
   if (fs.existsSync(FIND)) await page.exposeFunction('__coreFind', (asked) => require('node:child_process').execFileSync(FIND, { input: `${asked}\n` }).toString());
-  await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS }, terms: TERMS });
+  await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS }, terms: TERMS, keys: OWN_KEYS });
   await page.goto(`${url}/${label}.html`);
   if (label === 'notch') await page.evaluate(() => { document.documentElement.style.background = '#3a4048'; });
   await page.waitForTimeout(400); // welcome, sub and first paint

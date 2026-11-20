@@ -1192,12 +1192,9 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
         ),
         // With one more modifier it is another combination.
         ((true, false, false, true, "Space"), None),
-        // What Tasktap's own field for a thought keeps: its lists of agents
-        // and of places, on a Mac and on Windows.
-        ((false, false, false, true, "KeyJ"), Some(Shortcut::OWN)),
-        ((false, false, false, true, "KeyK"), Some(Shortcut::OWN)),
-        ((true, false, true, false, "KeyJ"), Some(Shortcut::OWN)),
-        ((true, false, true, false, "KeyK"), Some(Shortcut::OWN)),
+        // What Tasktap's own window keeps is `own_key`'s, by system: not this rule's.
+        ((false, false, false, true, "KeyJ"), None),
+        ((true, false, true, false, "KeyK"), None),
         ((false, true, false, true, "KeyJ"), None),
         // The keys that answer a waiting question are keys like any other:
         // that no two of Tasktap's keys are one is `clash`.
@@ -1565,4 +1562,126 @@ fn the_answer_keys_are_each_systems_own_and_no_two_of_tasktaps_keys_are_one() {
         );
     }
     assert_eq!(Shortcut::taken(PrefKey::Hold), None);
+}
+
+#[test]
+fn no_recorded_key_is_a_key_of_tasktaps_own_window_nor_one_every_app_has() {
+    let k = |control: bool, alt: bool, shift: bool, meta: bool, code: &str| Shortcut {
+        control,
+        alt,
+        shift,
+        meta,
+        code: code.into(),
+    };
+    for mac in [true, false] {
+        // Every command in the table, as this system has its key, is refused for every key a person records, in a
+        // sentence that names it.
+        let mut seen = Vec::new();
+        for c in APP_KEYS {
+            let key =
+                keys::shortcut(c.key, mac).unwrap_or_else(|| panic!("{} has no place", c.key));
+            assert!(
+                !seen.contains(&key),
+                "{} shares its key on {}",
+                c.key,
+                if mac { "a Mac" } else { "Windows" }
+            );
+            seen.push(key.clone());
+            let says = format!("Tasktap uses {} for {}", keys::spell(c.key, mac), c.name);
+            for id in KEY_PREFS {
+                assert_eq!(
+                    own_key(id, &key, mac).as_deref(),
+                    Some(says.as_str()),
+                    "{id:?} {}",
+                    c.key
+                );
+            }
+        }
+        // A text field's own keys, for the key held to talk; the others take them from other apps only.
+        for f in FIELD_KEYS {
+            let written = if mac { f.mac } else { f.windows };
+            let key = keys::shortcut(written, true).unwrap();
+            if APP_KEYS
+                .iter()
+                .any(|c| keys::shortcut(c.key, mac).as_ref() == Some(&key))
+            {
+                continue;
+            }
+            let says = format!(
+                "A text field uses {} for {}",
+                keys::spell(written, mac),
+                f.name
+            );
+            assert_eq!(
+                own_key(PrefKey::TalkKey, &key, mac),
+                Some(says),
+                "{written}"
+            );
+        }
+        // The system's command modifier alone with one key belongs to every app: refused for a key taken from other
+        // apps, not for the key held to talk; with another modifier, or another modifier alone, it is a key.
+        let alone = k(!mac, false, false, mac, "KeyB");
+        let other_apps = if mac {
+            "Other apps use ⌘ with a single key: hold Control or Option as well"
+        } else {
+            "Other apps use Ctrl with a single key: hold Alt or Shift as well"
+        };
+        for id in [
+            PrefKey::CaptureKey,
+            PrefKey::QuestionKey,
+            PrefKey::YesKey,
+            PrefKey::NoKey,
+        ] {
+            assert_eq!(every_app(id, &alone, mac), Some(other_apps), "{id:?}");
+            assert_eq!(
+                every_app(id, &k(!mac, true, false, mac, "KeyB"), mac),
+                None,
+                "{id:?}"
+            );
+            assert_eq!(
+                every_app(id, &k(!mac, false, true, mac, "KeyB"), mac),
+                None,
+                "{id:?}"
+            );
+            assert_eq!(
+                every_app(id, &k(mac, false, false, !mac, "KeyB"), mac),
+                None,
+                "{id:?}"
+            );
+        }
+        assert_eq!(every_app(PrefKey::TalkKey, &alone, mac), None);
+        // Each key's own default is a key.
+        for id in KEY_PREFS {
+            let usual = Shortcut::usual(id, mac).unwrap();
+            assert_eq!(own_key(id, &usual, mac), None, "{id:?}");
+            assert_eq!(every_app(id, &usual, mac), None, "{id:?}");
+        }
+    }
+    // As the pages write them (ui/src/keys.ts `spell`, whose own test holds the same words).
+    for (key, mac, says) in [
+        ("⌘N", true, "⌘N"),
+        ("⌘N", false, "Ctrl+Shift+N"),
+        ("⇧⌘D", false, "Ctrl+Shift+E"),
+        ("⌘[", false, "Alt+←"),
+        ("⌘↓", false, "Ctrl+End"),
+        ("⌘Z", false, "Ctrl+Z"),
+        ("⌘,", false, "Ctrl+,"),
+        ("⌘1", false, "Ctrl+1"),
+        ("⌘⌫", false, "Ctrl+Backspace"),
+        ("⌘⌫", true, "⌘⌫"),
+        ("⌃⌘S", true, "⌃⌘S"),
+        ("⌃⌘S", false, "Ctrl+Shift+S"),
+    ] {
+        assert_eq!(keys::spell(key, mac), says, "{key}");
+    }
+    let agents = keys::shortcut("⌘J", true).unwrap();
+    assert_eq!(agents, k(false, false, false, true, "KeyJ"));
+    assert_eq!(
+        own_key(PrefKey::CaptureKey, &agents, true).as_deref(),
+        Some("Tasktap uses ⌘J for the list of agents")
+    );
+    assert_eq!(
+        keys::shortcut("⌘J", false).unwrap(),
+        k(true, false, true, false, "KeyJ")
+    );
 }

@@ -102,6 +102,51 @@ fn typescript() -> String {
         Value::Object(defaults)
     )
     .unwrap();
+    // Tasktap's own window's keys (keys.rs), the one table the core and the pages read.
+    let both = |key: &str, mac_key: &str, windows_key: &str| {
+        serde_json::json!({
+            "mac": crate::keys::shortcut(mac_key, true),
+            "windows": crate::keys::shortcut(windows_key, key.is_empty()),
+            "says": {"mac": crate::keys::spell(mac_key, true), "windows": crate::keys::spell(windows_key, false)},
+        })
+    };
+    let app: Vec<Value> = (crate::APP_KEYS.iter())
+        .map(|c| {
+            let mut v =
+                serde_json::json!({"id": c.id, "key": c.key, "name": c.name, "menu": c.menu});
+            v.as_object_mut()
+                .unwrap()
+                .extend(both(c.key, c.key, c.key).as_object().unwrap().clone());
+            v
+        })
+        .collect();
+    let field: Vec<Value> = (crate::FIELD_KEYS.iter())
+        .map(|f| {
+            let mut v = serde_json::json!({"name": f.name});
+            v.as_object_mut()
+                .unwrap()
+                .extend(both("", f.mac, f.windows).as_object().unwrap().clone());
+            v
+        })
+        .collect();
+    let windows: Map<String, Value> = (crate::WINDOWS_KEYS.iter())
+        .map(|(mac, windows)| ((*mac).to_owned(), Value::from(*windows)))
+        .collect();
+    let says = "{ mac: Shortcut; windows: Shortcut; says: { mac: string; windows: string } }";
+    writeln!(
+        out,
+        "/** The keys of Tasktap's own window (core/proto/src/keys.rs): each command's key as the Mac has it, what it \
+         does after \"for\", whether the menu has it, and its key and words on each system. */\n\
+         export const APP_KEYS: ({{ id: string; key: string; name: string; menu: boolean }} & {says})[] = {};\n\
+         /** The keys a text field keeps, which the key held to talk may not be. */\n\
+         export const FIELD_KEYS: ({{ name: string }} & {says})[] = {};\n\
+         /** The few keys Windows has its own way, both in a Mac's signs. */\n\
+         export const WINDOWS_KEYS: Record<string, string> = {};",
+        Value::Array(app),
+        Value::Array(field),
+        Value::Object(windows)
+    )
+    .unwrap();
     out.push('\n');
     for declaration in calls.types.0.values() {
         out.push_str(declaration);

@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { accelerator, answerUsual, commands, hit, holds, keyName, learnLayout, links, local, ours, spell } from './keys.ts';
+import { APP_KEYS } from '../../core/proto/protocol.ts';
+import { COMMANDS, accelerator, answerUsual, commands, hit, holds, keyName, learnLayout, links, local, ours, spell } from './keys.ts';
 import { plain, shownPath } from './system.ts';
 
 // Stand-ins for the layout map a web view gives (what each key prints, by its place): a German keyboard's and a US one.
@@ -142,4 +143,18 @@ test('a path is shown without the prefix of a canonical one', () => {
   assert.equal(plain('C:\\Users\\someone'), 'C:\\Users\\someone');
   assert.equal(shownPath('/Users/someone/projects/cuegrid'), '~/projects/cuegrid');
   assert.equal(shownPath('\\\\?\\C:\\Users\\someone\\project'), 'C:\\Users\\someone\\project');
+});
+
+test('the table of Tasktap\'s own keys says what this file says, on both systems', () => {
+  // The core spells and places each command's key by its own port of `local` and `spell`: the two agree.
+  for (const c of APP_KEYS) {
+    for (const onMac of [true, false]) {
+      const says = onMac ? c.says.mac : c.says.windows, at = onMac ? c.mac : c.windows, l = local(c.key, onMac);
+      assert.equal(spell(c.key, onMac), says, c.key);
+      assert.deepEqual([l.control, l.alt, l.shift, l.meta], [at.control, at.alt, at.shift, at.meta], `${c.key} ${onMac ? 'Mac' : 'Windows'}`);
+    }
+  }
+  // The menu's commands are the table's.
+  assert.deepEqual(Object.keys(COMMANDS), ['new-task', 'new-terminal', 'open-workspace', 'close-tab', 'find', 'sidebar', 'split-right', 'split-down', 'preview', 'reload-preview', 'bigger', 'smaller', 'reset', 'settings', 'back', 'session']);
+  assert.equal(COMMANDS['split-down'], '⇧⌘D');
 });

@@ -25,13 +25,19 @@ use tasktap_proto::{
 };
 
 /// The rule of a shortcut for a key preference `id` set to `key` (none: its
-/// default), and that it is none of Tasktap's other keys as they are now
-/// (`tasktap_proto::clash`), on this system.
+/// default), that it is no key of Tasktap's own window
+/// (`tasktap_proto::own_key`), none of Tasktap's other keys as they are now
+/// (`tasktap_proto::clash`), and for a key taken from other apps none every
+/// app uses (`tasktap_proto::every_app`), on this system.
 fn keyed(tx: &crate::store::Tx, id: PrefKey, key: Option<&Shortcut>) -> Result<(), String> {
     if let Some(why) = key.and_then(Shortcut::refused) {
         return Err(why.into());
     }
     let mac = cfg!(target_os = "macos");
+    // Not a key of Tasktap's own window (`own_key`).
+    if let Some(why) = key.and_then(|k| tasktap_proto::own_key(id, k, mac)) {
+        return Err(why);
+    }
     let Some(wanted) = key.cloned().or_else(|| Shortcut::usual(id, mac)) else {
         return Ok(());
     };
@@ -39,7 +45,8 @@ fn keyed(tx: &crate::store::Tx, id: PrefKey, key: Option<&Shortcut>) -> Result<(
         let row = tx.pref(k).ok().flatten()?;
         row.value.shortcut().flatten().cloned()
     };
-    match tasktap_proto::clash(id, &wanted, &tasktap_proto::keys_in_use(mac, stored)) {
+    let clashes = tasktap_proto::clash(id, &wanted, &tasktap_proto::keys_in_use(mac, stored));
+    match clashes.or_else(|| key.and_then(|k| tasktap_proto::every_app(id, k, mac))) {
         Some(why) => Err(why.into()),
         None => Ok(()),
     }

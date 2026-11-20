@@ -1044,8 +1044,8 @@ until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5
   && js workspace "(document.querySelector('.home .way-more').click(), 1)" >/dev/null \
   && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "Starting in" && echo "$line" | grep -q "your answer" \
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Brief by Fixture agent · fixture-small" && ! echo "$going" | grep -q "Placed by" \
-  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
-  && pass "answered, it is on its way to that folder in one line, where it starts, that the person answered, and Undo; behind its disclosure the brief in full, the person's own words, who wrote the brief and not that anything placed it; the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
+  && until_has workspace "eval (b => b ? b.textContent + ' ' + b.disabled : 'no key')(document.querySelector('.home .cap-row .key'))" 3 "Start false" \
+  && pass "answered, it is on its way to that folder in one line, where it starts, that the person answered, and Undo; behind its disclosure the brief in full, the person's own words, who wrote the brief and not that anything placed it; the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240) / the key: $(js workspace "(b => b ? b.textContent + ' ' + b.disabled : 'no key')(document.querySelector('.home .cap-row .key'))")"
 shot held-brief workspace
 ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value + ' ' + [...__ws.records.thoughts.values()].find(t => t.text.startsWith('so the header thing'))?.phase" 3 "so the header thing, I think it should stay on one line captured" \

@@ -143,8 +143,10 @@ function audit([LISTS, KEY]) {
     seen.add('key caps only where their keys work');
     const scope = k.closest('[data-keys]');
     if (!scope) bad.push(`the cap ${k.textContent.trim()} has nothing that answers its key (in .${(k.parentElement?.className || '').split(' ')[0]})`);
-    // (`field`: a question asked at the Composer, whose keys are its field's while that has the keyboard.)
-    else if (scope.dataset.keys !== 'window' && !(at && (scope.contains(at) || (scope.dataset.keys === 'field' && at.id === 'capture-input' && scope.closest('form')?.contains(at))))) bad.push(`the cap ${k.textContent.trim()} shows where its key does nothing now: the keyboard is not in .${String(scope.className).split(' ')[0] || scope.tagName}`);
+    // (`field`: a question asked at the Composer, whose keys are its field's while that has the keyboard. `composer`:
+    // a sheet that came by itself, whose keys act from Home's Composer, which keeps the keyboard under it.)
+    else if (scope.dataset.keys !== 'window' && !(at && (scope.contains(at) || (scope.dataset.keys === 'field' && at.id === 'capture-input' && scope.closest('form')?.contains(at))
+      || (scope.dataset.keys === 'composer' && at.id === 'capture-input' && !!at.closest('.home'))))) bad.push(`the cap ${k.textContent.trim()} shows where its key does nothing now: the keyboard is not in .${String(scope.className).split(' ')[0] || scope.tagName}`);
   }
   // The composition. The Composer is centred on the lists under it, in one column or two.
   const mid = (el) => box(el).left + box(el).width / 2, cap = document.querySelector('.home .capture.raised .cap'), cols = document.querySelector('.hx .cols');

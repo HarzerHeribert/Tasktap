@@ -1032,8 +1032,9 @@ async function main() {
       // N4: ⌘J on Home wherever the keyboard is: the agent list opens in the Composer; behind a sheet its key is hidden.
       page = await open(browser, { label: 'workspace', records: scene('busy'), url: server.url, dpr: 1 });
       await page.waitForTimeout(500);
-      await page.evaluate(() => document.querySelector('.home .hx .hr button, .home .hx .hr [tabindex], .home .hx button:not(.cap-agent):not(.cap-to)')?.focus());
-      const from = await page.evaluate(() => document.activeElement?.className || document.activeElement?.tagName);
+      // A control of Home outside the Composer (a row's answer, a heading's fold, Setup's line).
+      await page.evaluate(() => [...document.querySelectorAll('.home .hx button, .home .hx [tabindex="0"]')].find((b) => !b.closest('form.capture') && b.offsetParent)?.focus());
+      const from = await page.evaluate(() => (document.activeElement?.closest('form.capture') ? 'the Composer (wrong) ' : '') + (document.activeElement?.textContent.trim().slice(0, 30) || document.activeElement?.tagName));
       await page.keyboard.press('Meta+KeyJ');
       await page.waitForTimeout(300);
       expect(await page.evaluate(() => !!document.querySelector('.home .agent-list') && !!document.activeElement?.closest('.home .capture')),

@@ -158,9 +158,11 @@ jobs:
         # The smoke run expects the Mac's default shell, zsh: it looks for a terminal named after it
         # and for a bracketed paste, which the system's bash does not do. The runner's account
         # uses bash, so the shell is named here, with an empty start file to keep it quiet.
+        # ALIGNED=elsewhere: the Interface job runs the lists' check on this commit on the same Mac image; here
+        # it took 7 of the smoke's 33 minutes, which with the build ran the job into its 45 (run 44679720318).
         run: |
           touch "$HOME/.zshrc"
-          SHELL=/bin/zsh SHOTS="$RUNNER_TEMP/smoke" host/scripts/smoke.sh
+          SHELL=/bin/zsh SHOTS="$RUNNER_TEMP/smoke" ALIGNED=elsewhere host/scripts/smoke.sh
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

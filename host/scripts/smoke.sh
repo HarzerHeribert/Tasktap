@@ -32,50 +32,64 @@ root="$(cd "$host/.." && pwd)"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1${2:+: $2}"; fails=$((fails + 1)); }
+# Each section says how long the one before it took, and the end lists them all, longest first: where a run's time
+# goes, on a runner as at a desk.
+section_name="" section_at=$SECONDS timings=""
+section() {
+  if [ -n "$section_name" ]; then
+    echo "   ($((SECONDS - section_at)) s)"
+    timings="$timings$((SECONDS - section_at)) s  $section_name"$'\n'
+  fi
+  section_name="$1" section_at=$SECONDS
+  [ -z "$1" ] || echo "== $1"
+}
 
-echo "== Building the pages, the cores and the host"
+section "Building the pages, the cores and the host"
 (cd "$root/ui" && npm run --silent build >/dev/null) || { echo "FAIL  ui build"; exit 1; }
 "$host/scripts/build-core.sh" >/dev/null && FIXTURES=1 "$host/scripts/build-core.sh" >/dev/null || { echo "FAIL  core build"; exit 1; }
 "$host/scripts/build-speech.sh" >/dev/null 2>&1 || { echo "FAIL  speech helper build"; exit 1; }
 cargo build --quiet --manifest-path "$host/Cargo.toml" || { echo "FAIL  host build"; exit 1; }
 
-echo "== Lists keep their columns (headless, fixture records)"
-if out="$(node "$root/scripts/align-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "list alignment"; fi
+section "Lists keep their columns (headless, fixture records)"
+# The workflow's Interface job runs this same check on the same commit and the same Mac image (ALIGNED=elsewhere): in
+# the host job it would only take its seven minutes again.
+if [ "${ALIGNED:-}" = elsewhere ]; then echo "NOTE  run by the workflow's Interface job on this commit, on the same Mac image: not again here"
+elif out="$(node "$root/scripts/align-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "list alignment"; fi
 
-echo "== The ambient layer holds steady (headless, two and a half minutes)"
+section "The ambient layer holds steady (headless, two and a half minutes)"
 if out="$(node "$root/scripts/soak-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the ambient layer holds steady"; fi
 
-echo "== The capture flow keeps its pace (the built app with the fixture agent, in a short launch of its own)"
+section "The capture flow keeps its pace (the built app with the fixture agent, in a short launch of its own)"
 out="$(node "$root/scripts/flow-check.cjs" --app --debug --short ${FRONT:+--front} 2>&1)"
 if [ $? = 0 ]; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"
 elif echo "$out" | grep -q "nothing can be measured\|nothing drawn on it can be measured"; then pass "the capture flow was not timed: $(echo "$out" | grep -o 'The [^:]*: nothing[^.]*' | head -1)"
 else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace"; fi
 
-echo "== One type system (headless, every state of both pages)"
+section "One type system (headless, every state of both pages)"
 if out="$(node "$root/scripts/type-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the type scale"; fi
 
-echo "== Settings' words: a label that reads by itself and one sentence of help on every row, none of the words a person does not use (headless)"
+section "Settings' words: a label that reads by itself and one sentence of help on every row, none of the words a person does not use (headless)"
 if out="$(node "$root/scripts/words-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "Settings' words"; fi
 
-echo "== The Composer's field is the person's while a thought is sent (headless, real keys, a core that answers late or refuses)"
+section "The Composer's field is the person's while a thought is sent (headless, real keys, a core that answers late or refuses)"
 if out="$(node "$root/scripts/composer-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the Composer's field"; fi
 
-echo "== Links in terminals (headless, a real pointer and real keys, a host that keeps what it is asked to open)"
+section "Links in terminals (headless, a real pointer and real keys, a host that keeps what it is asked to open)"
 if out="$(node "$root/scripts/links-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "links in terminals"; fi
 if out="$(node "$root/scripts/frame-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "a page in a preview's frame"; fi
 
-echo "== Voice, recorded by the page (headless, a microphone that is a file)"
+section "Voice, recorded by the page (headless, a microphone that is a file)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
 
-echo "== Speech on this Mac, in the page (headless, a microphone that is a file, a helper the check plays)"
+section "Speech on this Mac, in the page (headless, a microphone that is a file, a helper the check plays)"
 if out="$(node "$root/scripts/speech-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the page"; fi
 
-echo "== Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"
+section "Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"
 out="$(node "$root/scripts/speech-app-check.cjs" ${SPEECH_MODEL:+--model "$SPEECH_MODEL"} 2>&1)"
 if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app"; fi
 
 if [ -n "${SPEECH_MODEL:-}" ]; then
-  echo "== Speech on this Mac is written in the language it is said in (the real helper and model; the Mac's voices in files)"
+  section "Speech on this Mac is written in the language it is said in (the real helper and model; the Mac's voices in files)"
   if out="$(node "$root/scripts/speech-language-check.cjs" "$SPEECH_MODEL" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the language of speech on this Mac"; fi
 fi
 
@@ -169,7 +183,7 @@ screen() { echo "eval __ws.text()"; }
 press() { js "$1" "(()=>{const t=document.querySelector('$2');t?.focus();t?.dispatchEvent(new KeyboardEvent('keydown',{key:'$3',bubbles:true,cancelable:true,metaKey:${4:-false}}));return !!t})()"; }
 thought() { echo "eval [...__ws.records.thoughts.values()].find(t=>t.text==='$1')?.$2"; }
 
-echo "== Driving the app on $tmp/data"
+section "Driving the app on $tmp/data"
 launch
 for _ in $(seq 1 100); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 # FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a
@@ -322,7 +336,7 @@ for _ in 1 2 3 4; do send "tabkey workspace"; sleep 0.4; order="$order $(js work
 [ "$order" = " dest-chip cap-agent mic key" ] && pass "Tab from the field reaches the chip, the agent control, the microphone and the key in the app's own web view" || fail "Tab through the Composer's foot" "$order"
 js workspace "(document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), 1)" >/dev/null
 
-echo "== A thought saved for later before a folder is open, then sent to one"
+section "A thought saved for later before a folder is open, then sent to one"
 send capture
 until_has notch "text #sheet" 5 "Save for later" && [ "$(js notch "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No projects yet · saved for later" ] \
   && pass "the capture shortcut opens the field; with no folder yet its place says No projects yet, saved for later, and its key that Return saves for later" \
@@ -352,7 +366,7 @@ until_has workspace "$(thought 'Hello from the smoke' phase)" 10 "working" && pa
 until_has notch "text .tab .wing.l" 10 "1" && pass "the collapsed glance counts it working" || fail "the collapsed glance shows it working"
 shot collapsed-working
 
-echo "== Capture and Undo"
+section "Capture and Undo"
 send capture
 until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "capture opens again"
 until_has notch "eval (r => r?.dataset.s + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.cap-agent[data-agent=fixture]'))" 5 "working true" \
@@ -385,7 +399,7 @@ js workspace "([...document.querySelectorAll('.hr.later')].find(r=>r.textContent
 until_has workspace "eval String([...__ws.records.thoughts.values()].some(t=>t.text==='Drop me'))" 3 "false" \
   && pass "Drop removes a thought saved for later" || fail "drop a saved thought"
 
-echo "== The run, its questions and its result"
+section "The run, its questions and its result"
 send "hover in"
 until_has notch "eval String(!document.querySelector('#sheet').inert && !!document.querySelector('#sheet .rows .row'))" 10 "true" \
   || fail "the notch opens to its rows"
@@ -465,7 +479,7 @@ press workspace ".strip [data-question]" 1 >/dev/null
 until_has workspace "$(screen)" 10 "answer:yes" && [ "$(ask workspace "$(screen)" | grep -c 'answer:yes')" = 2 ] \
   && pass "the strip's key 1, pressed while it has the keyboard, answers the agent" || fail "the strip's keys answer"
 
-echo "== Where Tasktap shows itself: the window or the notch, one place at a time"
+section "Where Tasktap shows itself: the window or the notch, one place at a time"
 # The system never puts a passive run's window in front, so the check says where it is as the system would
 # (`where front|behind`, `where full on|off`); nothing here needs the window drawn, so it stays where it is, behind,
 # and the keyboard stays where it is throughout. `hotkey` is a key from any app as the system tells of it.
@@ -549,7 +563,7 @@ send "key notch Escape"
 until_has notch "eval document.querySelector('.tab .wing.r')?.innerText || 'none'" 5 "none" \
   && pass "a result seen in the notch is marked read and leaves the glance" || fail "seen results are marked read"
 
-echo "== The workspace"
+section "The workspace"
 js workspace "(__ws.command('new-terminal'), 1)" >/dev/null
 until_has workspace "$(screen)" 10 "project" || fail "a new terminal shows its shell"
 shell=$(js workspace "__ws.current().id")
@@ -714,7 +728,7 @@ until_has workspace "eval String((e => !!e && Math.abs(e.term.options.fontSize *
   && until_has workspace "eval String((e => Math.abs(e.term.options.fontSize * 0.60205 - 8) < 0.01 && e.term.options.lineHeight === 1)($other))" 3 "true" \
   && pass "the terminal's size and line height are the core's preferences, taken at once in cells of whole pixels, and deleting them restores Default" || fail "the terminal preferences"
 
-echo "== The sidebar's slide, and scrolling without bars"
+section "The sidebar's slide, and scrolling without bars"
 # Judged from the page's own frames: the content's left edge and the title move the whole way with the sidebar's edge
 # and end where they rest; the terminal beside it keeps its columns until the slide is over and is fitted once.
 judge() { python3 -c '
@@ -776,7 +790,7 @@ until_has workspace "eval $at" 3 "agents Agents" && js workspace "(document.quer
 shot settings-projects workspace
 js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "eval String(__ws.ui.sheet)" 3 "null" && pass "⌘W closes the sheet in front" || fail "⌘W with a sheet open"
-echo "== Settings: what Return does, the two keys on one recorder, how long thoughts are kept, the terminal's switches, text size"
+section "Settings: what Return does, the two keys on one recorder, how long thoughts are kept, the terminal's switches, text size"
 # A key pressed on the recorder in row `$1`, as the keyboard would: `$2` its code, then which modifiers are held.
 setting() { echo "[...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === '$1')"; }
 record() {
@@ -915,7 +929,7 @@ until_has workspace "eval $pill.hidden + ' ' + $pill.textContent" 3 "false ↓ 1
   && until_has workspace "eval String($pill.hidden && (b => b.viewportY === b.baseY)(__ws.engines.get(__ws.current().id).term.buffer.active))" 3 "true" \
   && pass "a terminal scrolled back shows no bar: a pill says how many lines are below, and a click on it returns to the end" || fail "the terminal's scrollback" "$(js workspace "$pill.hidden + ' ' + $pill.textContent")"
 
-echo "== Keep and Discard"
+section "Keep and Discard"
 send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"always\"}}"
 sleep 0.5
 # A run that writes a file and exits: its changes come back pending, with nothing still running.
@@ -1006,7 +1020,7 @@ send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 terminals=$(ask workspace "eval __ws.records.terminals.size")
 
-echo "== Placing by a model: offered, allowed, briefed, undone, asked, and by name when the model fails"
+section "Placing by a model: offered, allowed, briefed, undone, asked, and by name when the model fails"
 # The model is the fixture agent's: asked as a real one is, it runs the steps written for it and prints its answer.
 mkdir -p "$tmp/data/route" "$tmp/other"
 says() { printf '%s\n' "$@" > "$tmp/data/route/ask"; }
@@ -1121,7 +1135,7 @@ until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.val
   && pass "Turn off ends it: the preference holds No, so it is not offered again, and Settings says only thoughts that name their project are placed" || fail "turning placing off"
 js workspace "(__ws.dismiss(), 1)" >/dev/null
 
-echo "== Voice: a speech service chosen, a thought spoken, a failure, and cancel (a tone made in the page; no microphone)"
+section "Voice: a speech service chosen, a thought spoken, a failure, and cancel (a tone made in the page; no microphone)"
 tone() { js "${1:-workspace}" "(__speech.talk.source = 'tone')" >/dev/null; }
 mic_down() { js workspace "(document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), 1)" >/dev/null; }
 mic_up() { js workspace "(document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)" >/dev/null; }
@@ -1221,7 +1235,7 @@ js workspace "([...document.querySelectorAll('.home .way.failed .act')].at(-1).c
 quiet && [ "$(thoughts)" = "$before" ] && pass "Dismiss removes it, and nothing was captured" || fail "dismissing a failed dictation"
 send 'call delete {"c":"prefs","id":"speech_by"}' 'call delete {"c":"prefs","id":"speech_languages"}' 'call put {"c":"prefs","id":"hold","patch":2}'
 
-echo "== An agent for one thought; what the host opens; links in a terminal; a session's details; a terminal open in 8 places"
+section "An agent for one thought; what the host opens; links in a terminal; a session's details; a terminal open in 8 places"
 # The agent picked goes with the thought written under it, and with no other: the next is the default's again.
 js workspace "(document.querySelector('.home .cap-agent').click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .agent-list'))" 3 "true" || fail "the agent control opens its list"
@@ -1317,7 +1331,7 @@ js workspace "(__ws.call('terminal.stop', { id: '$shell' }), 1)" >/dev/null
 until_has workspace "eval __ws.records.terminals.get('$shell')?.state" 8 "exited" && js workspace "(__ws.focusSession('$shell'), __ws.command('close-tab'), 1)" >/dev/null
 rm -f "$tmp/project/way-out.txt"
 
-echo "== Previews beside a terminal: what a link opens, each kind, what a frame is held to, an agent's own, staying current"
+section "Previews beside a terminal: what a link opens, each kind, what a frame is held to, an agent's own, staying current"
 # A web server of the check's own on this machine, and a project with one file of each kind.
 # It says its port once it has tried how this machine reaches it by another name: `localhost.` asks the resolver,
 # which on a runner takes seconds. Its line is waited for, up to half a minute, not for a moment.
@@ -1542,7 +1556,7 @@ running=$(ask workspace "eval [...__ws.records.terminals.values()].filter(t=>t.s
 sleep 1
 quit && pass "the app quits on request" || fail "the app quits on request"
 
-echo "== Relaunched"
+section "Relaunched"
 launch
 until_has workspace "eval __ws.ui.ready" 10 "True" || fail "the relaunched page reaches the core"
 js workspace "(__ws.menu.dry = true)" >/dev/null
@@ -1575,6 +1589,9 @@ until_has workspace "eval __ws.ui.view" 5 "$project" && [ "$(ask workspace "eval
   && pass "reopening it restores its layout and history and starts nothing" || fail "reopen a workspace"
 quit && pass "the app quits on request again" || fail "the second quit"
 
+section ""
+echo "== Where the time went ($SECONDS s in all)"
+printf '%s' "$timings" | sort -rn | sed 's/^/   /'
 echo
 [ "$fails" = 0 ] && echo "PASS  smoke" || echo "FAIL  smoke: $fails failed"
 exit "$fails"

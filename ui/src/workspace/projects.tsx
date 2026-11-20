@@ -166,7 +166,7 @@ export function ProjectsSheet({ auto }: { auto?: boolean }) {
     notNow.current = answered;
     return (
       <Frame size="md" title="Find your projects" guard={auto} typed={typed} acts={[{ k: 'esc', label: 'Not now', do: dismiss }]}>
-        <p class="facts-n" role="status">Looking at what is on {HERE}…</p>
+        <p class="facts-n" role="status">Searching {HERE} for your agents’ history…</p>
       </Frame>
     );
   }
@@ -204,7 +204,7 @@ export function ProjectsSheet({ auto }: { auto?: boolean }) {
     const look = () => (chosen.length ? ((notNow.current = () => {}), (begun.looked = true), void lookIn(chosen), redraw()) : undefined);
     return (
       <Frame size="md" title="Choose where your projects are" guard={auto} typed={typed}
-        acts={[other, { k: 'esc', label: 'Not now', do: once(() => (later(), dismiss())) }, { k: '↩', label: 'Look there', kind: 'primary', do: look }]}>
+        acts={[other, { k: 'esc', label: 'Not now', do: once(() => (later(), dismiss())) }, { k: '↩', label: 'Search there', kind: 'primary', do: look }]}>
         <div class="ticks" role="group" aria-label="Folders to look in">
           {places.map((f) => <button type="button" class="tick" role="checkbox" aria-checked={ticked.has(f)} onClick={() => tick(f)}><i /><span>{shownPath(f)}</span></button>)}
           <button type="button" class="tick add" onClick={() => void another()}><I n="plus" /><span>Another folder…</span></button>
@@ -232,9 +232,9 @@ const answered = () => void (records.prefs.has('setup_hidden') || call('put', { 
 function Found({ o, other }: { o: Offer | undefined; other: Act }) {
   const all = known(), coming = settling(), busy = begun.asking > 0 || looks().some(reading);
   const place = derived(o), most = place && place.projects * 2 >= all.length;
-  const title = busy && !all.length ? 'Looking…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects';
+  const title = busy && !all.length ? 'Searching…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects';
   return (
-    <Frame size="md" title={<>{busy && <Mark s="working" label="Looking" />}{title}</>} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
+    <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
       <section class="found" aria-busy={busy}>
         {all.length > 0 && <p class="found-o">None is open yet. A thought that names one opens it.</p>}
         {all.length > 0 && (
@@ -249,8 +249,8 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
         {!busy && !all.length && <p class="found-n">A folder counts when an agent worked there, or when it has Git or a package file in it.</p>}
         {place && !coming && (
           <p class="found-s">
-            <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Look there for the others too?</span>
-            <button type="button" class="btn" onClick={() => void lookIn([place.folder])}>Look there</button>
+            <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Search there for the others too?</span>
+            <button type="button" class="btn" onClick={() => void lookIn([place.folder])}>Search there</button>
           </p>
         )}
       </section>

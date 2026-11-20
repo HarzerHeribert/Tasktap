@@ -286,21 +286,18 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 /* ——— Home: one column, as wide as its rows read well; two where the window is wide (home.tsx) ———
    Whether Home has one column or two, and how wide it is, is the window's width alone, never the room beside the
    sidebar: opening or closing the sidebar never reflows Home (checklist item 36). Two only where both columns and
-   their margins fit. Where it stands is one switch on the root, `data-centre` (so the owner can compare):
-   - the default, the hybrid: the reading column (the Composer, the lists, the first start, Earlier) is centred on the
-     window, and the sidebar opens into its margin; in a window too narrow for that (about 1400 px and below) the
-     column moves right only as far as the sidebar needs. It is placed from the window's width (100vw) and the room
-     Home has now (100cqw of .room), so it stands still on every frame of the sidebar's slide.
-   - `beside`: centred in the room beside the sidebar, its width still the window's.
-   Below 800 px the sidebar lies over Home, which keeps the window's width. Terminals fill the room beside the sidebar
-   and sheets stay on the window's centre whatever this says. */
+   their margins fit. Where it stands is the owner's choice, the hybrid (2026-11-20): the reading column (the
+   Composer, the lists, the first start, Earlier) is centred on the window, and the sidebar opens into its margin; in a
+   window too narrow for that (about 1400 px and below) the column moves right only as far as the sidebar needs. It is
+   placed from the window's width (100vw) and the room Home has now (100cqw of .room), so it stands still on every
+   frame of the sidebar's slide. Below 800 px the sidebar lies over Home, which keeps the window's width. Terminals
+   fill the room beside the sidebar, and sheets stay on the window's centre. */
 .room{position:relative;min-height:0;display:grid;background:var(--bg);overflow:hidden;container-type:inline-size}
 .home{position:relative;z-index:1;min-height:0;overflow:auto}
 .hx{--cw:min(var(--home-w),calc(100vw - var(--side-w) - 2 * var(--home-gutter)));--at:max(var(--home-gutter),calc((100vw - var(--cw)) / 2 - (100vw - 100cqw)));
   position:relative;z-index:1;width:var(--cw);margin:0 0 0 var(--at);padding:22px 0 44px}
 .hx.two{--cw:min(var(--home-wide),calc(100vw - 2 * (var(--side-w) + var(--home-gutter))))}
-:root[data-centre=beside] .hx{--at:max(var(--home-gutter),calc((100cqw - var(--cw)) / 2))}
-@media(max-width:799px){.hx,:root[data-centre=beside] .hx{--cw:calc(100vw - 36px);--at:18px}}
+@media(max-width:799px){.hx{--cw:calc(100vw - 36px);--at:18px}}
 .hx.two .cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 var(--sp6);align-items:start}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}

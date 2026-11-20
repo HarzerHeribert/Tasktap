@@ -159,8 +159,6 @@ function shots() {
     for (const on of [true, false]) {
       s[`layout-${w}-${on ? 'open' : 'closed'}`] = { records: answered(looked(scene('busy'))), act: both(sidebar(on), wait(400)), viewport: { width: w, height: 900 }, dpr: 1 };
       s[`layout-quiet-${w}-${on ? 'open' : 'closed'}`] = { records: answered(looked(scene('normal'))), act: both(sidebar(on), wait(400)), viewport: { width: w, height: 900 }, dpr: 1 };
-      // The other value of the switch: centred beside the sidebar, the width still the window's.
-      s[`layout-beside-${w}-${on ? 'open' : 'closed'}`] = { records: answered(looked(scene('busy'))), act: both((p) => p.evaluate(() => (document.documentElement.dataset.centre = 'beside')), sidebar(on), wait(400)), viewport: { width: w, height: 900 }, dpr: 1 };
     }
   s['notch-question'] = { label: 'notch', records: scene('busy'), act: asks };
   s['notch-question-held'] = { label: 'notch', records: scene('busy'), act: both(asks, (p) => p.focus('#sheet [data-question] .ans'), wait(200)) };

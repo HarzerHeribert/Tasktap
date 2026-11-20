@@ -38,7 +38,7 @@ function useSteps(): Step[] {
   const by = pref('route_by'), answered = records.prefs.has('route_by'), placers_ = placers();
   const l = local.now, speaks = voiced(), service = pref('speech_by');
   const steps: Step[] = [{
-    id: 'projects', label: 'Find your projects', says: p.says, done: p.done, act: p.done ? 'See' : 'Look',
+    id: 'projects', label: 'Find your projects', says: p.says, done: p.done, act: p.done ? 'See' : 'Search',
     go: () => open({ kind: 'setup', step: 'projects' }),
   }];
   const state = placing(by, placers_), asks = first(by, placers_), more = by ? by.agents.filter((x) => x.on).length - 1 : 0;
@@ -137,7 +137,7 @@ export function SetupRow() {
   const shown = !pref('setup_hidden') && done < steps.length;
   const show = () => void call('put', { c: 'prefs', id: 'setup_hidden', patch: false }).then(() => ((setup.unfinished = true), (setup.shut = false), (setup.hid = 0), dismiss()), fail);
   return (
-    <Row name="Setup" hint={`${steps.map((s) => s.label).join(', ')}.`}>
+    <Row name="Setup" hint="What Tasktap asks once: where your projects are, whether an agent chooses the project, and whether you talk instead of typing.">
       <span class="v">{done === steps.length ? 'All done' : `${done} of ${steps.length} done`}{shown ? ', on Home' : ''}</span>
       {!shown && <button type="button" class="btn" onClick={show}>Show on Home</button>}
     </Row>

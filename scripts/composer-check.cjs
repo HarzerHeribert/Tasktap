@@ -714,7 +714,7 @@ async function main() {
       });
       await page.waitForTimeout(900);
       expect((await page.evaluate(() => window.__firstFrame)) === true, 'the first start: the projects step\'s sheet is not in Home\'s first picture with the records');
-      expect(/Looking at what is on/.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet does not say it is looking while the core has not said what there is');
+      expect(/Searching .* for your agents’ history/.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet does not say it is looking while the core has not said what there is');
       await page.evaluate(() => window.__fake.offer());
       await page.waitForTimeout(300);
       expect(/Tasktap reads which folders Claude Code.* worked in, and when\..*It never reads what was said\..*And the first lines of each project's README\./.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet\'s facts did not fill in, or not in their words');

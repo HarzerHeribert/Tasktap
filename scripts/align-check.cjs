@@ -595,14 +595,14 @@ async function main() {
         await page.context().close();
       }
     // Home's column is the window's (checklist item 36). Whether it has one column or two, and how wide, is the window's
-    // width alone: the sidebar's toggle reflows nothing on Home at any width. Where it stands is the root's switch
-    // (`data-centre`): by default the reading column is centred on the window and stands still as the sidebar opens
-    // and closes, also on every frame of the slide, wherever the window is wide enough (from about 1400 px); narrower,
-    // it moves right only as far as the sidebar needs. `beside` centres it beside the sidebar, its width the same.
+    // width alone: the sidebar's toggle reflows nothing on Home at any width. Where it stands is the owner's choice,
+    // the hybrid: the reading column is centred on the window and stands still as the sidebar opens and closes, also on
+    // every frame of the slide, wherever the window is wide enough (from about 1400 px); narrower, it moves right only
+    // as far as the sidebar needs, and never under it.
     // No row is longer than about 90 characters of its first line, so its time stays near its words.
     const layout = () => {
       const r = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent).map((e) => { const b = e.getBoundingClientRect(); return `${b.left.toFixed(1)}+${b.width.toFixed(1)}`; });
-      const cap = document.querySelector('.home .capture.raised .cap')?.getBoundingClientRect(), home = document.querySelector('.room > .home').getBoundingClientRect();
+      const cap = document.querySelector('.home .capture.raised .cap')?.getBoundingClientRect();
       const ctx = document.createElement('canvas').getContext('2d'), sample = 'Make the rehearsal timer readable on mobile, and check the export menu at 390 px';
       const rows = [...document.querySelectorAll('.hr-t')].filter((e) => e.offsetParent).map((t) => {
         ctx.font = getComputedStyle(t).font;
@@ -610,14 +610,12 @@ async function main() {
         return { chars: t.getBoundingClientRect().width / per, text: t.textContent.trim().slice(0, 30) };
       });
       return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), setup: r('.home .setup') },
-        mid: cap ? cap.left + cap.width / 2 : null, home: home.left + home.width / 2, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows };
+        mid: cap ? cap.left + cap.width / 2 : null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows };
     };
-    for (const centre of ['window', 'beside'])
-      for (const width of [1180, 1512, 1728, 2560, 3440])
+    for (const width of [1180, 1512, 1728, 2560, 3440])
         for (const sc of ['busy', 'normal']) {
           const page = await open(browser, { label: 'workspace', records: scene(sc), url: server.url, dpr: 1, viewport: { width, height: 900 } });
-          const at = `Home (${sc}) at ${width} px, centred ${centre === 'window' ? 'on the window' : 'beside the sidebar'}`;
-          await page.evaluate((c) => (c === 'beside' ? (document.documentElement.dataset.centre = 'beside') : delete document.documentElement.dataset.centre), centre);
+          const at = `Home (${sc}) at ${width} px`;
           const side = async (on) => (await page.evaluate((on) => ((window.__ws.ui.sidebar = on), window.__motion.redraw()), on), await page.waitForTimeout(250), measure(page, layout));
           const open_ = await side(true), shut = await side(false);
           measured.add('Home\'s column the window\'s');
@@ -625,16 +623,16 @@ async function main() {
           for (const [name, list] of Object.entries(open_.parts)) {
             const was = shut.parts[name], widths = (l) => l.map((x) => x.split('+')[1]).join();
             if (widths(list) !== widths(was)) failures.push(`${at}: the sidebar's toggle reflows the ${name} (${widths(list).slice(0, 60)} wide with it open, ${widths(was).slice(0, 60)} closed)`);
-            else if (centre === 'window' && width >= 1400 && list.join() !== was.join()) failures.push(`${at}: the sidebar's toggle moves the ${name} (${list.join(' ').slice(0, 60)} open, ${was.join(' ').slice(0, 60)} closed)`);
+            else if (width >= 1400 && list.join() !== was.join()) failures.push(`${at}: the sidebar's toggle moves the ${name} (${list.join(' ').slice(0, 60)} open, ${was.join(' ').slice(0, 60)} closed)`);
           }
           for (const [state, m] of [['open', open_], ['closed', shut]]) {
-            const want = centre === 'window' && (width >= 1400 || state === 'closed') ? width / 2 : centre === 'beside' ? m.home : null;
+            const want = width >= 1400 || state === 'closed' ? width / 2 : null;
             if (want !== null && m.mid !== null && Math.abs(m.mid - want) > 0.5) failures.push(`${at}, the sidebar ${state}: the Composer's centre is at ${m.mid.toFixed(1)}, not ${want.toFixed(1)}`);
             if (state === 'open' && m.left < 224 + 36 - 0.5) failures.push(`${at}, the sidebar open: the column starts at ${m.left.toFixed(1)}, under the sidebar or against it`);
             for (const row of m.rows) if (row.chars > 92) failures.push(`${at}, the sidebar ${state}: a row's first line has room for ${Math.round(row.chars)} characters ("${row.text}"), more than about 90`);
           }
           // On every frame of the slide the column stands where it is, where it is centred on the window.
-          if (centre === 'window' && width >= 1400) {
+          if (width >= 1400) {
             await page.evaluate(() => ((window.__ws.ui.sidebar = true), window.__motion.redraw()));
             await page.waitForTimeout(250);
             const frames = await page.evaluate(() => new Promise((done) => {

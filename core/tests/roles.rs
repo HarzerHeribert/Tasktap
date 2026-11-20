@@ -697,7 +697,10 @@ fn a_shim_steps_aside_where_no_one_types_or_an_agent_runs_already() {
     outer.stdin.as_ref().unwrap().write_all(b"done\n").unwrap();
     let out = outer.wait_with_output().unwrap();
     assert!(text(&out.stdout).contains("read:done"));
-    assert_eq!(sh.ended(session.id).unwrap().exit, Some(0));
+    // Without its exit the core did not take the shim's report within
+    // roles::WAIT, or refused it: what the shim said tells which.
+    let exit = sh.ended(session.id).unwrap().exit;
+    assert_eq!(exit, Some(0), "the shim said: {}", text(&out.stderr));
     assert_eq!(sh.s.w.model.sessions.len(), 1);
 
     // Nothing to step aside to.

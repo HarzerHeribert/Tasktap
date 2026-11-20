@@ -31,9 +31,36 @@
 //   agent keeps the list shut; the chip's reason is cut; or a real pointer's click on "Open another folder…" or a
 //   project in the chip's list does not land (also in WebKit, the Mac's engine, where Playwright's WebKit is installed:
 //   at a desk without it a NOTE says what was not tried; where CI is set a missing WebKit is a failure).
-// usage: node scripts/composer-check.cjs [--dist folder] [--review]   (ui/dist must be built)
+// Every step waits for what it acts on or reads by the page, never for a fixed time; SLOW_CORE (ms) makes the stand-in
+// core answer that much later and CPU_THROTTLE (n) runs the Chromium pages n times slower, to prove it.
+// usage: [SLOW_CORE=400] [CPU_THROTTLE=6] node scripts/composer-check.cjs [--dist folder] [--review]   (ui/dist must be built)
 const path = require('node:path');
-const { serve, open, findCore } = require('./motion-pages.cjs');
+const { serve, open: openPage, findCore } = require('./motion-pages.cjs');
+// Every page of the check, with a watch on each Composer's chip (Home's, New Task's, the notch's): once there, it
+// leaves its Composer only while something else has the foot's row (the list of places, the agents, the recording),
+// never while its words change; a moment without it, after a render, is a click a person could miss.
+const chipGone = [];
+// A page of the check that starts over by itself (a form sent by the browser, the bridge reopened): never wanted.
+const restarted = [];
+const CHIP_WATCH = `addEventListener('submit', (e) => queueMicrotask(() => console.info('submit ' + e.target.className + (e.defaultPrevented ? ', kept by the page' : ', NOT kept by the page'))));
+addEventListener('DOMContentLoaded', () => new MutationObserver(() => {
+  for (const cap of document.querySelectorAll('form.capture')) {
+    if (cap.querySelector('#dest-chip')) cap.dataset.hadChip = '';
+    else if ('hadChip' in cap.dataset && !cap.querySelector('.cap-row.cap-list, .cap-row.hear')) console.info('chip-gone ' + cap.outerHTML.replace(/\\s+/g, ' ').slice(0, 300));
+  }
+}).observe(document.body, { subtree: true, childList: true }));`;
+async function open(browser, o) {
+  const page = await openPage(browser, { ...o, init: [CHIP_WATCH, typeof o.init === 'string' ? o.init : ''].join(';\n') });
+  page.on('console', (m) => m.text().startsWith('chip-gone ') && chipGone.push(m.text().slice(10)));
+  // (With the last form the browser was asked to send, and whether the page kept it: a form sent is a page loaded.)
+  let submitted = 'none';
+  page.on('console', (m) => m.text().startsWith('submit ') && (submitted = m.text().slice(7)));
+  page.on('request', (r) => r.isNavigationRequest() && r.frame() === page.mainFrame() && restarted.push(`the ${o.label} page started over by itself: ${r.method()} ${r.url()}; the last form sent: ${submitted}`));
+  // Home with what the core holds (unless a step times the records itself, `subMs`): before it, the chip says that no
+  // project is known yet, and a click on it opens a folder, as it should.
+  if (o.label === 'workspace' && !o.records?.subMs) await page.waitForFunction(() => window.__ws?.ui.ready, null, { timeout: 15000 }).catch(() => {});
+  return page;
+}
 const { scene, flow } = require('./instrument-fixtures.cjs');
 const dist = path.resolve(process.argv.includes('--dist') ? process.argv[process.argv.indexOf('--dist') + 1] : path.join(__dirname, '../ui/dist'));
 const GEO = { do: 'geometry', width: 104, height: 16, cutout: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 1, corner: 10, offset: 0, available: 700, collapsed: false };
@@ -46,6 +73,27 @@ async function main() {
   findCore();
   const server = await serve(dist), browser = await chromium.launch({ headless: true }), failures = [];
   const expect = (ok, what) => ok || failures.push(what);
+  // A value the page shows in its own time (an answer of the core, a render), read until it is what is wanted, at the
+  // page's pace, or for 15 s: never once after a fixed wait, which a slow machine or a slow core outruns.
+  const until = async (read, ok, ms = 15000) => {
+    const end = Date.now() + ms;
+    let v = await read();
+    while (!ok(v) && Date.now() < end) (await new Promise((r) => setTimeout(r, 50)), (v = await read()));
+    return v;
+  };
+  // An element the next step acts on, waited for by the page (there, shown, enabled, still), never for a fixed time:
+  // a slow machine takes longer, and means the same. If it never comes, the failure says what the Composer showed.
+  const shown = (page) => page.evaluate(() => (document.querySelector('.sheet[role=dialog] .capture') ?? document.querySelector('.capture') ?? document.body).outerHTML.replace(/<svg[\s\S]*?<\/svg>/g, '<svg/>').replace(/\s+/g, ' ').slice(0, 1500)).catch(() => '(the page is gone)');
+  const whenThere = async (page, target, what) => {
+    const at = typeof target === 'string' ? page.locator(target).first() : target;
+    const ok = await at.waitFor({ state: 'visible', timeout: 15000 }).then(() => true, () => false);
+    if (!ok) failures.push(`there is no ${what} to act on after 15 s; the Composer showed: ${await shown(page)}`);
+    return ok ? at : null;
+  };
+  const clickWhenThere = async (page, target, what) => {
+    const at = await whenThere(page, target, what);
+    return !!at && at.click({ timeout: 15000 }).then(() => true, async () => (failures.push(`${what} would not take a click in 15 s; the Composer showed: ${await shown(page)}`), false));
+  };
   /** WebKit is not there for Playwright: a NOTE at a desk, a failure where CI is set, which must try the Mac's engine. */
   const noWebKit = (what) => (process.env.CI ? failures.push(`WebKit is not installed for Playwright, so ${what}`) : console.log(`NOTE  WebKit is not installed for Playwright: ${what}`));
   // Home, with a thought that waits (held) and a core that answers as `core` says.
@@ -65,7 +113,8 @@ async function main() {
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
     await page.keyboard.type('and the next');
-    expect((await value(page)) === 'and the next', `typed while a capture was on its way: the field holds "${await value(page)}", not "and the next"`);
+    const through = await until(() => value(page), (v) => v === 'and the next');
+    expect(through === 'and the next', `typed while a capture was on its way: the field holds "${through}", not "and the next"`);
     await page.waitForTimeout(800);
     expect((await value(page)) === 'and the next', `after the capture arrived the field holds "${await value(page)}", not what was typed meanwhile`);
     expect((await calls(page, 'thought.capture')) === 1 && (await page.evaluate(() => window.__fake.sent.text)) === 'first thought', 'Return twice: the thought was not captured once, as it was typed');
@@ -82,7 +131,7 @@ async function main() {
     });
     await page.keyboard.press('Meta+z');
     expect((await value(page)) === '', `⌘Z while a capture was on its way changed the field to "${await value(page)}" before it had arrived`);
-    await page.waitForTimeout(800);
+    await until(async () => [await value(page), await calls(page, 'thought.stop')], ([v, n]) => v === 'take this back' && n === 1);
     expect((await value(page)) === 'take this back' && (await calls(page, 'thought.stop')) === 1, `⌘Z while a capture was on its way: the field holds "${await value(page)}", not the thought taken back`);
     await page.context().close();
 
@@ -112,29 +161,27 @@ async function main() {
       const exact = (name) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
       const click = async (page, at, name) => {
         const target = name ? page.locator(at).filter({ hasText: exact(name) }) : page.locator(at);
-        try {
-          await target.first().click({ timeout: 2000 });
-        } catch {
-          failures.push(`there is no ${name ? `"${name}" in ` : ''}${at} to click`);
-        }
+        await clickWhenThere(page, target.first(), `${name ? `"${name}" in ` : ''}${at}`);
         await page.waitForTimeout(150);
       };
+      // The core has said which places the thought's words describe (projects.find), and the list shows its answer.
+      const described = (page) => page.waitForFunction(() => { const c = window.__speech.cap; return !!c.found?.thought && c.found.text === c.draft.trim(); }, null, { timeout: 15000 }).catch(() => {});
       const focused = (page) => page.evaluate(() => (document.activeElement?.closest('.cap-list') ? 'the list' : document.activeElement?.id || document.activeElement?.tagName));
       const chip = (page, at = '') => page.evaluate((s) => [...document.querySelectorAll(`${s}#dest-chip > b, ${s}#dest-chip > span`)].map((e) => e.textContent).join(' · '), at);
       // The list's rows by their names, the one marked with a star; the list is put away again.
       const rows = async (page, at = '') => {
         await click(page, `${at}#dest-chip`);
+        await whenThere(page, `${at}.cap-list > button`, `${at || 'Home '}: the chip's list`);
         const all = await page.evaluate((s) => [...document.querySelectorAll(`${s}.cap-list > button`)].map((b) => (b.getAttribute('aria-selected') === 'true' ? '*' : '') + (b.querySelector('span')?.textContent ?? b.textContent)), at);
         const into = await focused(page);
         expect(all.length > 0 && into === 'the list', `${at || 'Home '}: a click on the chip leaves ${all.length ? 'the list without the keyboard' : 'no list open'} (the keyboard is on ${into})`);
         await page.keyboard.press('Escape');
-        await page.waitForTimeout(100);
-        const back = await focused(page);
+        const back = await until(() => focused(page), (v) => v === 'capture-input');
         expect(back === 'capture-input', `${at || 'Home '}: Escape in the list leaves the keyboard on ${back}, not the field`);
         return all.join(', ');
       };
       const says = async (page, words, where, at = '') => {
-        const now = await chip(page, at);
+        const now = await until(() => chip(page, at), (v) => v === words);
         expect(now === words, `${where}: the chip says "${now}", not "${words}"`);
       };
       const marks = async (page, row, where, at = '') => {
@@ -142,8 +189,18 @@ async function main() {
         expect(marked.length === 1 && marked[0] === `*${row}`, `${where}: the list marks ${marked.join(' and ') || 'no row'}, not "${row}" (${all})`);
         expect(all.split(', ').includes('Scratch') || all.split(', ').includes('*Scratch'), `${where}: the list has no Scratch to choose (${all})`);
       };
-      const typed = async (page, text) => (await page.keyboard.type(text), await page.waitForTimeout(400));
-      const sent = (page) => page.evaluate(() => window.__fake.sent);
+      // Typed, and the core asked where it would go and answered (the page's own hint for the words in the field).
+      const typed = async (page, text) => {
+        await page.keyboard.type(text);
+        await page.waitForFunction(() => { const c = window.__speech?.cap; return !c || !c.draft.trim() || c.hint?.text === c.draft.trim(); }, null, { timeout: 15000 }).catch(() => {});
+      };
+      // What the last Return sent: the next capture the core was asked for, once it was asked.
+      const capturesSeen = new WeakMap();
+      const sent = async (page) => {
+        const n = await until(() => calls(page, 'thought.capture'), (v) => v > (capturesSeen.get(page) ?? 0), 5000);
+        capturesSeen.set(page, n);
+        return page.evaluate(() => window.__fake.sent);
+      };
 
       // Home: nothing chosen and no model agreed to; Scratch is not the default though the newest thought is there.
       page = await open(browser, { label: 'workspace', records: structuredClone(r), url: server.url, dpr: 1 });
@@ -176,13 +233,11 @@ async function main() {
       await page.focus(FIELD);
       await page.keyboard.press('Tab');
       await page.keyboard.press('ArrowDown');
-      await page.waitForTimeout(150);
-      const opened = await focused(page);
+      const opened = await until(() => focused(page), (v) => v === 'the list');
       expect(opened === 'the list', `Home: Tab and an arrow on the chip leave the keyboard on ${opened}, not in the list`);
       for (let i = 0; i < 6 && !(await page.evaluate(() => document.activeElement?.textContent === 'fieldnotes')); i++) await page.keyboard.press('ArrowDown');
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(150);
-      const chosen = await focused(page);
+      const chosen = await until(() => focused(page), (v) => v === 'capture-input');
       expect(chosen === 'capture-input', `Home: a place chosen by the keyboard leaves the keyboard on ${chosen}, not the field`);
       await says(page, 'fieldnotes · your choice', 'Home, fieldnotes chosen');
       await marks(page, 'fieldnotes', 'Home, fieldnotes chosen');
@@ -237,7 +292,8 @@ async function main() {
 
       // Placing by a model agreed to: Tasktap decides, and says who reads it.
       page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 3 }, rev: 2 }] }, url: server.url, dpr: 1 });
-      const model = await chip(page);
+      // (Who reads it is known once the core has said which agents are signed in.)
+      const model = await until(() => chip(page), (v) => /^Tasktap decides · .+ reads it$/.test(v));
       expect(/^Tasktap decides · .+ reads it$/.test(model), `Home, placing by a model agreed to: the chip says "${model}", not who reads the thought`);
       await page.focus(FIELD);
       await typed(page, 'fix the export in ledger-api');
@@ -288,16 +344,17 @@ async function main() {
         await page.waitForTimeout(400);
       };
       await keep('buy milk');
-      const line = await kept(page);
+      const line = await until(() => kept(page), (t) => t.startsWith('It named no folder'));
       expect(line.startsWith('It named no folder; saved for later') && line.includes('Undo') && line.includes('Send to a folder'), `a thought kept for later by its words: its line says "${line}", without Undo and Send to a folder`);
       await click(page, '.capture .cap-said button', '⌘ZUndo');
-      expect((await page.inputValue(FIELD)) === 'buy milk', `Undo on a thought kept for later by its words leaves "${await page.inputValue(FIELD)}" in the field`);
+      const milk = await until(() => page.inputValue(FIELD), (v) => v === 'buy milk');
+      expect(milk === 'buy milk', `Undo on a thought kept for later by its words leaves "${milk}" in the field`);
       await page.fill(FIELD, '');
       await keep('buy bread');
       await page.focus(FIELD);
       await page.keyboard.press('Meta+z');
-      await page.waitForTimeout(300);
-      expect((await page.inputValue(FIELD)) === 'buy bread', `⌘Z on a thought kept for later by its words leaves "${await page.inputValue(FIELD)}" in the field`);
+      const bread = await until(() => page.inputValue(FIELD), (v) => v === 'buy bread');
+      expect(bread === 'buy bread', `⌘Z on a thought kept for later by its words leaves "${bread}" in the field`);
       await page.fill(FIELD, '');
       await keep('buy cheese');
       await click(page, '.capture .cap-said button', 'Send to a folder…');
@@ -373,21 +430,18 @@ async function main() {
         await page.focus(FIELD);
         await typed(page, 'roll out the new release');
         await page.keyboard.press('Meta+k');
-        await page.waitForTimeout(150);
-        const into = await page.evaluate(() => document.activeElement?.id);
+        const into = await until(() => page.evaluate(() => document.activeElement?.id), (v) => v === 'cap-find');
         expect(into === 'cap-find', `Home: ⌘K from the field leaves the keyboard on ${into}, not the list's field`);
         await page.keyboard.type('harbor');
-        await page.waitForTimeout(400);
-        const found = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.textContent));
+        const found = await until(() => page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.textContent)), (f) => !!f[0]?.startsWith('harbormaster'));
         expect(found[0]?.startsWith('harbormaster') && found.every((f) => !/pyrite|kiln/.test(f)), `Home: "harbor" in the list's field finds ${JSON.stringify(found)}`);
         expect(found.every((f) => !/Tasktap decides|For later/.test(f)), `Home: while something is typed in the list's field it shows more than what it found (${found.join(', ')})`);
         // A name no project has: none found, and the list says so; then the one that matches.
         await page.fill('#cap-find', 'zebra');
-        await page.waitForTimeout(400);
-        const none = await page.evaluate(() => ({ rows: document.querySelectorAll('.cap-list > button[role=option]').length, said: document.querySelector('.cap-none')?.textContent }));
+        const none = await until(() => page.evaluate(() => ({ rows: document.querySelectorAll('.cap-list > button[role=option]').length, said: document.querySelector('.cap-none')?.textContent })), (n) => n.rows === 0 && n.said === 'No project by that name.');
         expect(none.rows === 0 && none.said === 'No project by that name.', `Home: "zebra" in the list's field finds ${none.rows} and says ${JSON.stringify(none.said)}`);
         await page.fill('#cap-find', 'harb');
-        await page.waitForTimeout(400);
+        await until(() => page.evaluate(() => document.querySelector('.cap-list > button[role=option]')?.textContent ?? ''), (t) => t.startsWith('harbormaster'));
         await page.keyboard.press('Enter');
         await page.waitForTimeout(200);
         await says(page, 'harbormaster · your choice · opens it', 'Home, a known project chosen');
@@ -401,7 +455,8 @@ async function main() {
         await page.focus(FIELD);
         await typed(page, 'the static site rebuilds every page');
         await click(page, '#dest-chip');
-        await page.waitForTimeout(400);
+        await whenThere(page, '.cap-list > button[role=option]', 'the chip\'s list for a thought already written');
+        await described(page);
         const first = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.querySelector('span')?.textContent));
         expect(first[0] === 'kiln' && !first.some((f) => /pyrite|harbormaster/.test(f)) && first.filter((f) => f === 'kiln').length === 1,
           `Home, a thought already written: the list begins ${first.slice(0, 4).join(', ')}, not with the one place its words describe, once, and nothing unasked`);
@@ -410,7 +465,8 @@ async function main() {
         await page.fill(FIELD, '');
         await typed(page, 'rename the variables before lunch');
         await click(page, '#dest-chip');
-        await page.waitForTimeout(400);
+        await whenThere(page, '.cap-list > button[role=option]', 'the chip\'s list for a thought that names no project');
+        await described(page);
         const plain = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.querySelector('span')?.textContent));
         expect(!plain.some((f) => /pyrite|kiln|harbormaster/.test(f)), `Home, a thought that points at no project: the list shows a project not open (${plain.join(', ')})`);
         const rowsShown = await page.evaluate(() => document.querySelectorAll('.cap-list > *').length);
@@ -516,7 +572,7 @@ async function main() {
       const answered = (page) => page.evaluate(() => window.__fake.answered ?? null);
       const choice = async (page) => { const a = await answered(page); return !a ? 'none' : a.kind === 'choice' ? a.choice : a.kind; };
       // A click on what may be missing or not take one (as in the build before): said as a failure, never a crash.
-      const tap = (page, sel, what) => page.click(sel, { timeout: 5000 }).then(() => true, () => (failures.push(`${what}: there is nothing to click (${sel})`), false));
+      const tap = (page, sel, what) => clickWhenThere(page, sel, `${what} (${sel})`);
       const metal = (k) => !!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
       const key = (page, sel = '.home .capture .cap-row:not(.hear) > .key') => page.evaluate(([s, m]) => { const k = document.querySelector(s); return k ? `${(0, eval)(m)(k) ? 'metal' : 'quiet'} "${k.textContent.trim()}"` : 'none'; }, [sel, String(metal)]);
 
@@ -606,7 +662,7 @@ async function main() {
       await sendIt(page);
       await arrived(page);
       await page.keyboard.type('look at the logs 2', { delay: 30 });
-      await page.waitForTimeout(200);
+      await until(async () => [await value(page), await where(page)], ([v, w]) => v === 'look at the logs 2' && w === 'needs');
       expect((await value(page)) === 'look at the logs 2' && (await choice(page)) === 'none', `typing after the question came: the field holds "${await value(page)}", answered ${JSON.stringify(await answered(page))}`);
       expect((await where(page)) === 'needs' && (await caps(page, '.needs')) === '', `typing after the question came: it is ${await where(page)} with caps "${await caps(page, '.needs')}", not waiting in Needs you without caps`);
       expect((await key(page)) === 'metal "Start"', `typing after the question came: the key says ${await key(page)}, not Start again`);
@@ -619,6 +675,7 @@ async function main() {
       await page.keyboard.type('1 more thing');
       await page.waitForTimeout(1200);
       await page.keyboard.type(' and 2');
+      await until(async () => [await value(page), await where(page)], ([v, w]) => v === '1 more thing and 2' && w === 'needs');
       expect((await value(page)) === '1 more thing and 2' && (await choice(page)) === 'none' && (await where(page)) === 'needs', `typing the next thought as the question came: the field holds "${await value(page)}", answered ${JSON.stringify(await answered(page))}, the question ${await where(page)}`);
       await page.context().close();
 
@@ -628,7 +685,7 @@ async function main() {
         await sendIt(page);
         await arrived(page);
         await page.keyboard.press(k);
-        await page.waitForTimeout(200);
+        await until(async () => [await inField(page), await where(page)], ([f, w]) => f && w === 'needs');
         expect((await inField(page)) && (await where(page)) === 'needs', `${k} at the Composer's question: the keyboard ${await inField(page) ? 'is' : 'is not'} in the field, the question ${await where(page)}`);
         await page.keyboard.type('1');
         await page.waitForTimeout(150);
@@ -684,7 +741,7 @@ async function main() {
         const w = document.querySelector('.home .ways');
         return { line: w?.querySelector('.way-h')?.innerText.replace(/\s+/g, ' ').trim(), more: [...(w?.querySelectorAll('.way-b, .way-w, .way-n') ?? [])].filter((x) => x.offsetParent).length, open: w?.querySelector('.way-more')?.getAttribute('aria-expanded') };
       });
-      let u = await under();
+      let u = await until(under, (x) => /^Starting in cuegrid\s*·?\s*placed by Claude Code\b.*Undo$/.test(x.line ?? ''));
       expect(/^Starting in cuegrid\s*·?\s*placed by Claude Code\b.*Undo$/.test(u.line ?? '') && u.more === 0 && u.open === 'false', `a thought placed: under the Composer "${u.line}", ${u.more} more lines shown, its disclosure ${u.open}`);
       await tap(page, '.home .way-more', 'a thought placed: its disclosure');
       await page.waitForTimeout(150);
@@ -718,11 +775,16 @@ async function main() {
       const notNow = (page) => page.evaluate(() => (window.__fake.records.prefs ?? []).some((p) => p.id === 'setup_hidden') || (window.__fake.records.looks ?? []).length > 0);
       const sheetUp = (page) => page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true);
       const first = async (o = {}) => open(browser, { label: 'workspace', records: { ...projects('first-agents'), ...o }, url: server.url, dpr: 1 });
-      // The sheet that came by itself, up long enough by the page's clock to take a key: 650 ms after the page first
-      // sees it, which is no earlier than it came.
+      // The sheet that came by itself, up long enough by the page's clock to take a key: its answer (the key of its
+      // foot) there and unchanged for 650 ms since the page first saw it so, which is no earlier than it came.
       const settled = (page) => page.evaluate(() => new Promise((done) => {
         const end = performance.now() + 15000;
-        const look = () => (document.querySelector('.sheet[role=dialog]') ? setTimeout(done, 650) : performance.now() > end ? done() : setTimeout(look, 10));
+        let was = null, since = 0;
+        const look = () => {
+          const k = document.querySelector('.sheet[role=dialog] .sh-f .key')?.textContent ?? null;
+          if (k !== was) (was = k, (since = performance.now()));
+          return (k !== null && performance.now() - since >= 650) || performance.now() > end ? done() : setTimeout(look, 10);
+        };
         look();
       }));
       page = await first({ subMs: 900, offerHeld: true });
@@ -730,11 +792,11 @@ async function main() {
         const look = () => (window.__ws.ui.ready ? (window.__firstFrame = !!document.querySelector('.sheet[role=dialog]')) : requestAnimationFrame(look));
         requestAnimationFrame(look);
       });
-      await page.waitForTimeout(900);
+      await until(() => page.evaluate(() => window.__firstFrame), (v) => v !== undefined);
       expect((await page.evaluate(() => window.__firstFrame)) === true, 'the first start: the projects step\'s sheet is not in Home\'s first picture with the records');
-      expect(/Searching .* for your agents’ history/.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet does not say it is looking while the core has not said what there is');
+      expect(/Searching .* for your agents’ history/.test(await until(() => page.evaluate(() => document.querySelector('.sheet')?.textContent ?? ''), (t) => /Searching .* for your agents’ history/.test(t))), 'the first start: the sheet does not say it is looking while the core has not said what there is');
       await page.evaluate(() => window.__fake.offer());
-      await page.waitForTimeout(300);
+      await until(() => page.evaluate(() => document.querySelector('.sheet')?.textContent ?? ''), (t) => /Tasktap reads which folders/.test(t));
       expect(/Tasktap reads which folders Claude Code.* worked in, and when\..*It never reads what was said\..*And the first lines of each project's README\./.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet\'s facts did not fill in, or not in their words');
       await page.context().close();
 
@@ -745,7 +807,7 @@ async function main() {
       expect(await sheetUp(page), 'the first start: the projects step is not up');
       await page.keyboard.type('fix the export menu', { delay: 40 });
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(400);
+      await until(() => page.evaluate(() => window.__fake.sent?.text), (t) => t === 'fix the export menu');
       expect(!(await allowed(page)) && !(await page.evaluate(() => window.__ws.ui.sheet)) && (await page.evaluate(() => window.__fake.sent?.text)) === 'fix the export menu' && (await notNow(page)),
         `typing at the first start: allowed ${await allowed(page)}, the sheet ${await page.evaluate(() => window.__ws.ui.sheet?.kind ?? 'gone')}, sent "${await page.evaluate(() => window.__fake.sent?.text)}", kept as Not now ${await notNow(page)}`);
       await page.context().close();
@@ -768,8 +830,7 @@ async function main() {
           expect(/press Return again/.test(await page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '')), 'the first start: a Return held back is not said in the sheet');
           await page.waitForTimeout(700);
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(300);
-          expect(await allowed(page), 'the first start: Return after 600 ms of quiet did not allow it');
+          expect(await until(() => allowed(page), (v) => v), 'the first start: Return after 600 ms of quiet did not allow it');
         }
         await page.context().close();
       }
@@ -807,25 +868,26 @@ async function main() {
       // Setup (R11, R13): "Setup · 1 of 3 done", quiet actions on one edge, its words; Hide gives the field the
       // keyboard and says for a moment where Setup went.
       page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
-      await page.waitForTimeout(300);
+      await whenThere(page, '.home .setup [data-step=placing]', 'Setup\'s placing step');
       const setup = await page.evaluate(() => {
         const s = document.querySelector('.home .setup'), acts = [...(s?.querySelectorAll('.setup-b [data-step] button') ?? [])];
         return { head: s?.querySelector('.fold-h')?.innerText.replace(/\s+/g, ' ').trim(), quiet: acts.every((b) => b.matches('.act')), edges: [...new Set(acts.map((b) => Math.round(b.getBoundingClientRect().right * 2) / 2))], placing: s?.querySelector('[data-step=placing] .t')?.textContent };
       });
       expect(/^Setup\s*·?\s*\d of \d done/.test(setup.head ?? '') && setup.quiet && setup.edges.length === 1 && setup.placing === 'Let an agent choose the project', `Setup says "${setup.head}", its actions ${setup.quiet ? 'quiet' : 'not all quiet'} on ${setup.edges.length} edges, its placing step "${setup.placing}"`);
       await tap(page, '.home .setup-h .act', 'Setup\'s Hide');
-      await page.waitForTimeout(300);
-      const gone = await page.evaluate(() => document.querySelector('.home .setup-gone')?.textContent ?? '');
+      const gone = await until(() => page.evaluate(() => document.querySelector('.home .setup-gone')?.textContent ?? ''), (t) => t === 'Setup is in Settings › About.');
+      await until(() => page.evaluate(() => window.__ws.records.prefs.get('setup_hidden')?.value), (v) => v === true);
       expect((await inField(page)) && gone === 'Setup is in Settings › About.' && (await page.evaluate(() => window.__ws.records.prefs.get('setup_hidden')?.value)) === true, `Hide: the keyboard ${await inField(page) ? 'is' : 'is not'} in the field, Setup's place says "${gone}"`);
-      await page.waitForTimeout(5300);
-      expect(!(await page.evaluate(() => !!document.querySelector('.home .setup, .home .setup-gone'))), 'Hide: Setup, or what its place said, is still on Home after a few seconds');
+      // Gone after its five seconds, by the page's own clock: a timer of that length and 300 ms more, set after the
+      // page's own (setup.tsx GONE_FOR), fires after it however slow the machine, and then the line is off Home.
+      const lingers = await page.evaluate(() => new Promise((done) => setTimeout(() => setTimeout(() => done(!!document.querySelector('.home .setup, .home .setup-gone'))), 5300)));
+      expect(!lingers, 'Hide: Setup, or what its place said, is still on Home after a few seconds');
       await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw()));
-      await page.waitForTimeout(300);
+      await whenThere(page, '.settings .set', 'Settings › About');
       const about = await page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Setup')?.textContent ?? '');
       expect(/of \d done/.test(about) && /Show on Home/.test(about), `Settings › About does not say where Setup is ("${about}")`);
-      await page.locator('.settings .set button', { hasText: 'Show on Home' }).click({ timeout: 2000 }).catch(() => failures.push('Settings › About has no Show on Home to click'));
-      await page.waitForTimeout(300);
-      expect(await page.evaluate(() => !!document.querySelector('.home .setup')), 'Show on Home does not bring Setup back');
+      await clickWhenThere(page, page.locator('.settings .set button', { hasText: 'Show on Home' }).first(), 'Show on Home in Settings › About');
+      expect(await until(() => page.evaluate(() => !!document.querySelector('.home .setup')), (v) => v), 'Show on Home does not bring Setup back');
       await page.context().close();
 
       // Agreed to placing under older terms: Setup's placing step says so and is not done, and no thought carries the
@@ -834,7 +896,9 @@ async function main() {
         const r = { ...flow(scene('normal'), 'held'), prefs: [{ id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 2 }, rev: 9 }] };
         for (const t of r.thoughts) if (t.route) t.route = { ...t.route, fallback: 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again' };
         page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
-        await page.waitForTimeout(300);
+        await whenThere(page, '.home .setup [data-step=placing]', 'Setup\'s placing step under older terms');
+        // (The terms the core holds now come with its first words; the step says so once they are there.)
+        await until(() => page.evaluate(() => document.querySelector('.setup [data-step=placing]')?.textContent ?? ''), (t) => /The terms changed/.test(t));
         const step = await page.evaluate(() => { const s = document.querySelector('.setup [data-step=placing]'); return s ? `${s.hasAttribute('data-done')} ${s.textContent}` : ''; });
         expect(/^false .*The terms changed\. Agree again to keep it on\./.test(step), `an agreement to older terms: Setup's placing step says "${step}", not that the terms changed, undone`);
         expect(!(await page.evaluate(() => /the agreement/.test(document.querySelector('.home').innerText))), 'an agreement to older terms: a thought on Home carries the sentence about it');
@@ -847,15 +911,14 @@ async function main() {
         page = await open(browser, { label: 'workspace', records: agents(scene('normal'), n), url: server.url, dpr: 1 });
         await page.focus('.cap-agent');
         await page.keyboard.press('ArrowDown');
-        await page.waitForTimeout(200);
+        await whenThere(page, '.agent-list [role=option]', `${n} agents: the agent list`);
         const rows = await page.evaluate(() => [...document.querySelectorAll('.agent-list [role=option]')].map((b) => b.dataset.agent));
         expect(rows.length === n, `${n} agents: the list has ${rows.length} rows`);
         expect(!(await page.evaluate(() => !!document.querySelector('.cap-row select, .rings'))), `${n} agents: a row of rings or a system menu is still there`);
         if (n > 6) {
           expect(await page.evaluate(() => document.activeElement?.id === 'agent-find'), `${n} agents: the list's field does not have the keyboard`);
           await page.keyboard.type('gem');
-          await page.waitForTimeout(150);
-          expect((await page.evaluate(() => [...document.querySelectorAll('.agent-list [role=option]')].map((b) => b.dataset.agent).join(' '))) === 'gemini', `${n} agents: typing "gem" does not narrow the list to Gemini CLI`);
+          expect((await until(() => page.evaluate(() => [...document.querySelectorAll('.agent-list [role=option]')].map((b) => b.dataset.agent).join(' ')), (v) => v === 'gemini')) === 'gemini', `${n} agents: typing "gem" does not narrow the list to Gemini CLI`);
           await page.keyboard.press('Enter');
         } else {
           expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-selected') === 'true'), `${n} agents: the chosen agent's row does not have the keyboard`);
@@ -863,14 +926,14 @@ async function main() {
           await page.keyboard.press('ArrowDown');
           await page.keyboard.press('Enter');
         }
-        await page.waitForTimeout(200);
-        const now = await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent);
+        const now = await until(() => page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent), (v) => v === (n > 6 ? 'gemini' : rows[2]));
         expect(now === (n > 6 ? 'gemini' : rows[2]), `${n} agents: the agent picked by keyboard is ${now}, not ${n > 6 ? 'gemini' : rows[2]}`);
-        expect(await page.evaluate(() => document.activeElement?.id === 'capture-input'), `${n} agents: once picked, the field does not have the keyboard back`);
+        expect(await until(() => page.evaluate(() => document.activeElement?.id === 'capture-input'), (v) => v), `${n} agents: once picked, the field does not have the keyboard back`);
         await page.focus('.cap-agent');
         await page.keyboard.press('ArrowDown');
+        await whenThere(page, '.agent-list [role=option]', `${n} agents: the agent list, again`);
         await page.keyboard.press('Escape');
-        await page.waitForTimeout(150);
+        await until(() => page.evaluate(() => !!document.querySelector('.agent-list')), (v) => !v);
         expect(!(await page.evaluate(() => !!document.querySelector('.agent-list'))) && (await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent)) === now, `${n} agents: Escape did not leave the list as it was`);
         await page.context().close();
       }
@@ -890,14 +953,12 @@ async function main() {
       expect(order.join(' ') === 'dest-chip cap-agent mic key', `Tab from the field reaches ${order.join(', ')}, not the chip, the agent control, the microphone and the key`);
       await page.focus(FIELD);
       await page.keyboard.press('Meta+j');
-      await page.waitForTimeout(200);
-      expect(await page.evaluate(() => !!document.querySelector('.agent-list') && document.activeElement?.id === 'agent-find'), '⌘J in the field does not open the agent list with its field');
+      expect(await until(() => page.evaluate(() => !!document.querySelector('.agent-list') && document.activeElement?.id === 'agent-find'), (v) => v), '⌘J in the field does not open the agent list with its field');
       await page.keyboard.type('co');
-      await page.waitForTimeout(150);
-      const firstRow = await page.evaluate(() => document.querySelector('.agent-list [role=option]')?.dataset.agent);
+      const firstRow = await until(() => page.evaluate(() => document.querySelector('.agent-list [role=option]')?.dataset.agent), (v) => v === 'codex');
       expect(firstRow === 'codex', `typing "co" in the agent list puts ${firstRow} first, not Codex`);
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(200);
+      await until(async () => [await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent), await inField(page)], ([a, f]) => a === 'codex' && f);
       expect((await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent)) === 'codex' && (await inField(page)), 'typing "co" and Return does not pick Codex and give the field its keyboard back');
       await page.context().close();
       {
@@ -905,12 +966,11 @@ async function main() {
         r.agents[0].signed_in = false;
         page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
         await tap(page, '.home .cap-agent', 'the agent control');
-        await page.waitForTimeout(200);
+        await whenThere(page, '.agent-list [data-agent=codex]', 'the usual agent signed out: the agent list');
         const list = await page.evaluate(() => ({ open: !!document.querySelector('.agent-list'), sheet: window.__ws.ui.sheet?.kind ?? null, sign: [...document.querySelectorAll('.agent-list button')].map((b) => b.textContent.trim()).find((t) => /^Sign in/.test(t)) ?? null }));
         expect(list.open && !list.sheet && list.sign === 'Sign in to Claude Code…', `the usual agent signed out: a click on the control opens ${list.open ? 'the list' : 'no list'}${list.sheet ? ` and the ${list.sheet} sheet` : ''}, its sign-in row "${list.sign}"`);
         await tap(page, '.agent-list [data-agent=codex]', 'the usual agent signed out: Codex in the list');
-        await page.waitForTimeout(200);
-        expect((await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent)) === 'codex', 'the usual agent signed out: another agent cannot be picked');
+        expect((await until(() => page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent), (v) => v === 'codex')) === 'codex', 'the usual agent signed out: another agent cannot be picked');
         await page.context().close();
       }
 
@@ -1007,11 +1067,48 @@ async function main() {
           if (click) document.querySelector('.home .capture .cap-row > .key').click();
           else document.querySelector('#capture-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
           return t;
-        }, [T, how !== 'Return']);
-        await page.waitForTimeout(300);
-        const c = await choice(page);
+        }, [T, how !== 'Return']).catch(async (e) => {
+          await new Promise((r) => setTimeout(r, 500));
+          failures.push(`${how} ${T} ms after the question came: ${String(e).split('\n')[0]}; ${restarted.splice(0).join('; ') || 'nothing said why'}`);
+          return null;
+        });
+        if (t === null) {
+          await page.context().close();
+          continue;
+        }
+        // An answer reaches the stand-in core in the page's time: waited for where one is due, a moment where none is.
+        const c = await until(() => choice(page), (v) => v !== 'none', t < 597 ? 600 : 5000);
         expect(t < 597 ? c === 'none' : t < 604 || c === 0, `${how} ${t} ms after the question came ${c === 'none' ? 'did nothing' : `answered ${JSON.stringify(c)}`}, while the key was ${t < 600 ? 'quiet' : 'metal'}`);
         await page.context().close();
+      }
+      // The row Return takes changed by the core (the question's places in another order): the key is quiet again, and
+      // Return 50 ms after it changed does nothing, 650 ms after it answers the row now first. Timed in the page.
+      for (const T of [50, 650]) {
+        let t = Infinity;
+        for (let attempt = 0; attempt < 3 && (T < 600 ? !(t < 597) : !(t >= 604)); attempt++) {
+          page = await asking();
+          await sendIt(page);
+          await ready(page);
+          t = await page.evaluate((T) => new Promise((done) => {
+            const k = document.querySelector('.home .capture .cap-row > .key'), was = k.textContent, q = window.__fake.asked, order = q.choices.map((_, i) => (i < 2 ? 1 - i : i));
+            const watch = new MutationObserver(() => {
+              if (k.textContent === was) return;
+              watch.disconnect();
+              const at = performance.now();
+              setTimeout(() => {
+                document.querySelector('#capture-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+                done(Math.round(performance.now() - at));
+              }, T);
+            });
+            watch.observe(k, { childList: true, subtree: true, characterData: true });
+            window.__fake.push({ t: 'change', rev: 1e9, sets: [{ c: 'questions', put: [{ ...q, rev: 1e9, choices: order.map((i) => q.choices[i]), places: order.map((i) => q.places[i]), notes: order.map((i) => q.notes[i]) }] }] });
+          }), T);
+          const c = await until(() => choice(page), (v) => v !== 'none', T < 600 ? 600 : 5000);
+          if (T < 600 && t < 597) expect(c === 'none', `the question's first row changed by the core: Return ${t} ms after answered ${JSON.stringify(c)}`);
+          if (T > 600 && t >= 604) expect(c === 0, `the question's first row changed by the core: Return ${t} ms after answered ${JSON.stringify(c)}, not the row now first`);
+          await page.context().close();
+        }
+        if (T < 600 ? !(t < 597) : !(t >= 604)) console.log(`NOTE  this machine could not press Return ${T} ms after the question's row changed, three times (${t} ms); not measured`);
       }
       page = await asking();
       await sendIt(page);
@@ -1027,11 +1124,13 @@ async function main() {
       // within 600 ms of the last key; then Return answers it.
       // (Watched from before the page's own script runs, so the moment it came is known however soon that is.)
       const watchUp = 'addEventListener("DOMContentLoaded", () => new MutationObserver(() => (window.__up ||= document.querySelector(".sheet[role=dialog]") ? performance.now() : 0)).observe(document.body, { childList: true, subtree: true }))';
+      // (And when the sheet's answer, the key of its foot, appeared or last changed: Return counts from then too.)
+      const watchKey = 'addEventListener("DOMContentLoaded", () => { let was = null; new MutationObserver(() => { const k = document.querySelector(".sheet[role=dialog] .sh-f .key")?.textContent ?? null; if (k !== was) ((was = k), (window.__keyAt = k === null ? undefined : performance.now())); }).observe(document.body, { childList: true, subtree: true, characterData: true }); });';
       // Pressed in the page at 55 ms; a machine too busy to press that soon is tried again, never taken for a pass.
       let press, early = Infinity;
       for (let attempt = 0; attempt < 3 && !(early < 500); attempt++) {
       if (attempt) await page.context().close();
-      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), subMs: 700 }, url: server.url, dpr: 1, init: watchUp });
+      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), subMs: 700 }, url: server.url, dpr: 1, init: `${watchUp};\n${watchKey}` });
       await page.waitForFunction(() => window.__up > 0, null, { timeout: 4000 }).catch(() => {});
       press = (T) => page.evaluate(async (T) => {
         await new Promise((r) => setTimeout(r, Math.max(0, window.__up + T - performance.now())));
@@ -1043,15 +1142,49 @@ async function main() {
       if (early < 500) expect(!(await allowed(page)) && (await sheetUp(page)), `the first start's sheet: Return ${early} ms after it came, no key before, ${(await allowed(page)) ? 'allowed it' : 'put it away'}`);
       }
       if (!(early < 500)) console.log(`NOTE  this machine could not press Return within 500 ms of the first start's sheet, three times (${early} ms); its own clock was not measured`);
-      const late = await press(1400);
-      await page.waitForTimeout(300);
-      expect(await allowed(page), `the first start's sheet: Return ${late} ms after it came, quiet since, did not allow it`);
+      // (After the early Return, quiet as long as the rule asks, by the page's clock: on a slow page the early one may
+      // itself have come late.)
+      await page.waitForFunction(() => window.__keyAt > 0, null, { timeout: 15000 }).catch(() => {});
+      const late = await press(Math.max(1400, (early || 0) + 700, Math.round((await page.evaluate(() => window.__keyAt - window.__up)) + 700) || 0));
+      expect(await until(() => allowed(page), (v) => v), `the first start's sheet: Return ${late} ms after it came, quiet since, did not allow it`);
       // What was found: one key puts it away (Done; Escape too), not two that do the same.
       await page.evaluate(() => window.__fake.offer?.());
-      await page.waitForTimeout(600);
+      await until(() => page.evaluate(() => document.querySelector('.sheet #sheet-title')?.textContent ?? ''), (t) => /^Found/.test(t));
       const foot = await page.evaluate(() => [...document.querySelectorAll('.sheet .sh-f :is(.act, .key)')].filter((b) => b.offsetParent).map((b) => b.textContent.trim()));
       expect(!(foot.some((t) => /Close/.test(t)) && foot.some((t) => /Done/.test(t))), `what was found: its foot shows ${foot.join(', ')}, two keys that do the same`);
       await page.context().close();
+
+      // The quiet clock restarts when what Return would do appears or changes by itself: the stand-in core says what
+      // there is 100, 700 and 1500 ms after the first start's sheet came ("Searching…" until then, with nothing for
+      // Return to do); Return 50 ms after the sheet's answer (Allow) appears is held back with the usual sentence, 650 ms
+      // after it allows. In both engines, timed in the page; a machine too busy to press within 597 ms is tried again.
+      for (const [engine, b] of both)
+        for (const D of [100, 700, 1500])
+          for (const T of [50, 650]) {
+            let t = Infinity;
+            for (let attempt = 0; attempt < 3 && (T < 600 ? !(t < 597) : !(t >= 604)); attempt++) {
+              const p = await open(b, { label: 'workspace', records: { ...projects('first-agents'), offerHeld: true }, url: server.url, dpr: 1, init: `${watchUp};\n${watchKey}` });
+              await p.waitForFunction(() => window.__up > 0 && !!window.__fake.offer, null, { timeout: 15000 }).catch(() => {});
+              t = await p.evaluate(([D, T]) => new Promise((done) => {
+                setTimeout(() => window.__fake.offer(), Math.max(0, window.__up + D - performance.now()));
+                const end = performance.now() + 15000;
+                const wait = () => (window.__keyAt > 0 ? setTimeout(() => {
+                  (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+                  done(Math.round(performance.now() - window.__keyAt));
+                }, Math.max(0, window.__keyAt + T - performance.now())) : performance.now() > end ? done(-1) : setTimeout(wait, 2));
+                wait();
+              }), [D, T]);
+              if (t < 0) expect(false, `${engine}: the first start's sheet, the core answering ${D} ms after it came: its answer never appeared`);
+              else if (T < 600 && t < 597) {
+                const said = await until(() => p.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? ''), (x) => !!x, 3000);
+                expect(!(await allowed(p)) && said === 'You were typing: press Return again to allow.',
+                  `${engine}: the first start's sheet, the core answering ${D} ms after it came: Return ${t} ms after Allow appeared ${(await allowed(p)) ? 'allowed it' : 'was held back'}, the sheet saying "${said}"`);
+              } else if (T > 600 && t >= 604)
+                expect(await until(() => allowed(p), (v) => v), `${engine}: the first start's sheet, the core answering ${D} ms after it came: Return ${t} ms after Allow appeared, quiet since, did not allow it`);
+              await p.context().close();
+            }
+            if (T < 600 ? !(t < 597) : !(t >= 604)) console.log(`NOTE  ${engine}: this machine could not press Return ${T} ms after the first start's answer appeared (core at ${D} ms), three times (${t} ms); not measured`);
+          }
 
       // N4: ⌘J on Home wherever the keyboard is: the agent list opens in the Composer; behind a sheet its key is hidden.
       page = await open(browser, { label: 'workspace', records: scene('busy'), url: server.url, dpr: 1 });
@@ -1131,9 +1264,9 @@ async function main() {
       const toFound = async (page) => {
         await settled(page);
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(300);
+        await until(() => allowed(page), (v) => v);
         await page.evaluate(() => window.__fake.offer?.());
-        await page.waitForFunction(() => /^Found/.test(document.querySelector('.sheet #sheet-title')?.textContent ?? ''), null, { timeout: 4000 }).catch(() => {});
+        await page.waitForFunction(() => /^Found/.test(document.querySelector('.sheet #sheet-title')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
       };
       // What was found: the first text typed into the Composer under it puts it away and stays; Return with the field
       // empty is Done.
@@ -1159,12 +1292,11 @@ async function main() {
       // first 600 ms says nothing held back, and is tried again.)
       const heldSays = async (page, untilTitle) => {
         await page.evaluate((t) => new Promise((done) => {
-          const end = performance.now() + 5000;
-          const tick = () => (new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? '') || performance.now() > end ? done() : setTimeout(tick, 4));
+          const end = performance.now() + 15000;
+          const tick = () => ((new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? '') && document.querySelector('.sheet .sh-f .key')) || performance.now() > end ? done() : setTimeout(tick, 4));
           tick();
         }).then(() => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))), untilTitle);
-        await page.waitForTimeout(150);
-        return page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '');
+        return until(() => page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? ''), (x) => !!x, 1000);
       };
       for (const [records, title, verb] of [[projects('first-agents'), '^Find your projects', 'allow'], [projects('first-folders'), '^Choose where', 'search there']]) {
         let said = '';
@@ -1247,17 +1379,17 @@ async function main() {
       for (const [name, b] of engines) {
         page = await open(b, { label: 'workspace', records: { ...scene('normal'), pick: '/Users/example/projects/inkwell' }, url: server.url, dpr: 1 });
         await page.click(FIELD);
-        await page.click('#dest-chip');
-        await page.waitForTimeout(200);
-        const box = await page.locator('.cap-list button:has-text("Open another folder")').boundingBox();
-        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await clickWhenThere(page, '#dest-chip', `${name}: the chip`);
+        const other = await whenThere(page, '.cap-list button:has-text("Open another folder")', `${name}: "Open another folder…" in the chip's list`);
+        const box = other && (await other.boundingBox());
+        if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
         await page.waitForTimeout(400);
         expect((await page.evaluate(() => window.__fake.picked.length)) === 1, `${name}: a click on "Open another folder…" did not ask for the folder panel`);
         // A project row of the list, clicked: it is chosen.
-        await page.click('#dest-chip');
-        await page.waitForTimeout(200);
-        const row = await page.locator('.cap-list [role=option]:has-text("fieldnotes")').boundingBox();
-        await page.mouse.click(row.x + row.width / 2, row.y + row.height / 2);
+        await clickWhenThere(page, '#dest-chip', `${name}: the chip, again`);
+        const one = await whenThere(page, '.cap-list [role=option]:has-text("fieldnotes")', `${name}: fieldnotes in the chip's list`);
+        const row = one && (await one.boundingBox());
+        if (row) await page.mouse.click(row.x + row.width / 2, row.y + row.height / 2);
         await page.waitForTimeout(200);
         expect((await page.evaluate(() => document.querySelector('#dest-chip b')?.textContent)) === 'fieldnotes', `${name}: a click on a project in the chip's list did not choose it`);
         await page.context().close();
@@ -1268,8 +1400,11 @@ async function main() {
     await browser.close();
     await server.close();
   }
+  failures.push(...restarted);
+  // The chip never left its Composer while nothing else had its row.
+  if (chipGone.length) failures.push(`a Composer's chip left it ${chipGone.length} times while nothing else had its row (a click there would miss); the first time the Composer was: ${chipGone[0]}`);
   for (const f of failures) console.log('FAIL  ' + f);
   console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut; asks a just-sent thought\'s question once, at the Composer it was sent from, the field keeping the keyboard (a row\'s number, the arrows and Return answer while it is empty, Return only after 600 ms of quiet and never held down; any other key types and leaves it in Needs you), its key saying and doing what Return does; says a placed thought in one line; shows no cap where its key does nothing; puts the first start\'s sheet in Home\'s first picture or not at all, lets nothing typed land on Allow or be lost, keeps it as Not now however it is put away; says Setup quietly and where it went; reaches the agent control by ⌘J, Tab and a list that always opens, Codex first for "co"; never cuts the chip\'s reason; and lands a click on Open another folder…');
   process.exitCode = failures.length ? 1 : 0;
 }
-main().catch((e) => (console.error(e), process.exit(1)));
+main().catch((e) => (console.error(e), restarted.forEach((r) => console.log('FAIL  ' + r)), process.exit(1)));

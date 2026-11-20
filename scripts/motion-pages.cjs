@@ -1,6 +1,8 @@
 // Runs the notch and workspace pages from ui/dist in headless Chromium without the Tauri host:
 // a fake Tauri runtime and a fake core answer the pages, so their real DOM can be screenshotted.
 // Library: serve, open, fixtures. CLI: node scripts/motion-pages.cjs <outdir> (ui/dist must be built).
+// A slow machine, on request: SLOW_CORE=<ms> (the core's every word that much later, or `lateMs` in the records) and
+// CPU_THROTTLE=<n> (the page n times slower, Chromium only).
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -29,12 +31,15 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
   let channel = 0, index = 0, rev = 100, nextEvent = 1;
   const records = records0;
   const enc = new TextEncoder(), dec = new TextDecoder();
-  const toCore = (obj) => {
+  const deliver = (obj) => {
     const p = enc.encode(JSON.stringify(obj)), out = new Uint8Array(5 + p.length);
     new DataView(out.buffer).setUint32(0, p.length + 1, true);
     out.set(p, 5);
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
+  // `lateMs` (or SLOW_CORE in the environment): everything the core says comes that much later, in its order, as a
+  // core that is far away or busy says it.
+  const toCore = (obj) => (records.lateMs ? setTimeout(() => deliver(obj), records.lateMs) : deliver(obj));
   const push = (change) => {
     for (const set of change.sets || []) {
       if (set.c === 'glance') { records.glance = set.put[set.put.length - 1]; continue; }
@@ -566,6 +571,10 @@ async function open(browser, { label, records = {}, viewport, dpr = 2, url, vide
   if (TEXT !== 'default' && !(records.prefs || []).some((p) => p.id === 'text_size')) records = { ...records, prefs: [...(records.prefs || []), { id: 'text_size', value: TEXT, rev: 1 }] };
   const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}), ...(system === 'windows' ? { userAgent: WINDOWS } : {}) });
   const page = await context.newPage();
+  // CPU_THROTTLE: the page runs that many times slower, through Chromium's own protocol (a slow machine).
+  if (Number(process.env.CPU_THROTTLE) > 1 && browser.browserType().name() === 'chromium')
+    await (await context.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.CPU_THROTTLE) });
+  if (Number(process.env.SLOW_CORE) > 0 && records.lateMs === undefined) records = { ...records, lateMs: Number(process.env.SLOW_CORE) };
   if (clock) await page.clock.install();
   // `fixed`: the date the page reads, held (its timers run on); `init`: a script run before the page's own (a
   // function, or its text).

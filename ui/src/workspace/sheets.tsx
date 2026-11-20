@@ -19,7 +19,7 @@ import { mac, plain, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import {
   agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, open, openWorkspace,
-  pickFolder, projectName, projects, quiet, records, setLayout, stop, title, ui,
+  pickFolder, projectName, projects, quiet, QUIET, byPerson, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
 import { SetupSheet } from './setup.tsx';
@@ -48,9 +48,15 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
   const [held, hold] = useState('');
   // A sheet that came by itself is guarded whoever draws it, from the moment it came.
   const self = guard || (ui.sheet?.kind === 'setup' && !!ui.sheet.auto);
-  const [born] = useState(() => performance.now());
   const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
   const rest = acts.filter((x) => x.k !== 'esc');
+  // What Return gives, and since when: from the moment a sheet that came by itself came; and on every sheet, again from
+  // the moment it appears or changes by itself (the core's answer turns "Searching…" into a question), never by the
+  // person's own key or click. A Return within 600 ms of that is held back: one meant for what was there before, or
+  // pressed twice, never answers what the person has not seen.
+  const returns = [...choices, ...rest].find((x) => x.k === '↩')?.label ?? '';
+  const since = useRef({ what: returns, at: self ? performance.now() : -Infinity });
+  if (since.current.what !== returns) since.current = { what: returns, at: byPerson() ? since.current.at : performance.now() };
   // The answer: the one Return gives, else the only one there is, unless the answers are a list of their own.
   const main = rest.find((x) => x.kind === 'primary') ?? (rest.length === 1 && !choices.length ? rest[0] : undefined);
   // Escape does what the answer does (a sheet that only reports): one key is shown, the answer's; Escape still works.
@@ -64,8 +70,10 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
     const act = [...choices, ...rest, out].find((x) => (beside && x.k === '↩' ? e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey : matches(x.k, e, typing || (beside && x.k.length === 1))));
     // Return or Space on a button of it is the browser's press of that button, and held back the same.
     const press = !beside && !act && (e.key === 'Enter' || e.key === ' ') && !!(e.target as HTMLElement).closest('button');
-    // Two clocks (the review's N3): no key in the sheet's first 600 ms, nor within 600 ms of the last key anywhere.
-    if (self && (act ? act !== out : press) && !quiet(e, born)) {
+    // Two clocks (the review's N3): no key in the sheet's first 600 ms, nor within 600 ms of the last key anywhere; and on
+    // any sheet, no Return within 600 ms of its answer appearing or changing by itself.
+    const early = self ? !quiet(e, since.current.at) : e.key === 'Enter' && performance.now() - since.current.at < QUIET;
+    if (early && (act ? act !== out : press)) {
       e.preventDefault();
       e.stopPropagation();
       const k = act ? act.k : e.key === ' ' ? 'Space' : '↩';

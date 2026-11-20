@@ -1089,7 +1089,7 @@ key="$(route_key project)"
 js workspace "([...document.querySelectorAll('.cap-ask .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5 "true" && line="$(ask workspace "text .home .way-h")" \
   && js workspace "(document.querySelector('.home .way-more').click(), 1)" >/dev/null \
-  && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "Starting in" && echo "$line" | grep -q "your answer" \
+  && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "Starting in" && echo "$line" | grep -q "you chose it" \
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Brief by Fixture agent · fixture-small" && ! echo "$going" | grep -q "Placed by" \
   && [ "$(js workspace "(b => b ? b.textContent + ' ' + b.disabled : 'no key')(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
   && pass "answered, it is on its way to that folder in one line, where it starts, that the person answered, and Undo; behind its disclosure the brief in full, the person's own words, who wrote the brief and not that anything placed it; the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"

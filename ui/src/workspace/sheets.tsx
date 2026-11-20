@@ -69,7 +69,7 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
       e.preventDefault();
       e.stopPropagation();
       const k = act ? act.k : e.key === ' ' ? 'Space' : '↩';
-      return hold(`You were typing: press ${said(k)} again${act ? ` to ${act.label.replace(/…$/, '').toLowerCase()}` : ''}.`);
+      return hold(`You were typing: press ${said(k)} again${act ? ` to ${toDo(act.label)}` : ''}.`);
     }
     if (!act) {
       // Text, typed with the keyboard on the sheet (after Tab, or a click): the Composer's, with the keyboard, the
@@ -83,6 +83,22 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
     hold('');
     act.do();
   };
+  // While the keyboard is in the Composer under it, the sheet is not modal (a screen reader would hide the field that
+  // has the keyboard): the field is described by the sheet's title and words, and the sheet's arrival is said once, in a
+  // polite live region. With the keyboard in it (Tab), it is modal as any sheet.
+  const [inside, setInside] = useState(false);
+  useLayoutEffect(() => {
+    const field = self && !inside ? document.querySelector<HTMLElement>('.home #capture-input') : null;
+    field?.setAttribute('aria-describedby', 'sheet-title sheet-body');
+    return () => field?.removeAttribute('aria-describedby');
+  }, [self, inside]);
+  useEffect(() => {
+    if (!self) return undefined;
+    const live = document.getElementById('sheet-said') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'sheet-said', className: 'sr' }));
+    live.setAttribute('aria-live', 'polite');
+    const t = setTimeout(() => (live.textContent = [document.getElementById('sheet-title')?.textContent, document.getElementById('sheet-body')?.textContent].filter(Boolean).join('. ')), 100);
+    return () => (clearTimeout(t), (live.textContent = ''));
+  }, []);
   // A sheet that came by itself leaves the keyboard in the Composer's field (Sheets): its keys are taken there, and
   // the first text that lands in the field (typed, composed, pasted, dropped) puts the sheet away as Not now.
   useLayoutEffect(() => {
@@ -97,9 +113,10 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
   });
   const answer = (x: Act) => <Answer cls="act" k={x.k} label={x.label} danger={x.kind === 'danger'} onClick={x.do} />;
   return (
-    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1} data-keys={self ? 'composer' : true} onKeyDown={(e) => keys(e)}>
+    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal={!self || inside ? 'true' : 'false'} aria-labelledby="sheet-title" aria-describedby="sheet-body" tabIndex={-1} data-keys={self ? 'composer' : true} onKeyDown={(e) => keys(e)}
+      onFocusIn={() => setInside(true)} onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setInside(false)}>
       <header class="sh-h"><h2 id="sheet-title">{name}</h2>{aside}</header>
-      <div class="sh-b">
+      <div class="sh-b" id="sheet-body">
         {children}
         {choices.length > 0 && <div class="choices">{choices.map(answer)}</div>}
       </div>
@@ -120,6 +137,9 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
 const cancel: Act = { k: 'esc', label: 'Cancel', do: dismiss };
 /** Whether a key press is the one a choice's key cap shows. Return never presses a choice while a button or a field
  *  has the keyboard: those take it themselves. */
+/** What an answer does, as the end of "press Return again to …": its label as a verb, "close" for one that only
+ *  puts the sheet away (Done, Close, OK). */
+const toDo = (label: string) => (/^(Done|Close|OK)$/.test(label) ? 'close' : label.replace(/…$/, '').toLowerCase());
 /** A key as a sentence says it: Return (Enter off the Mac), Space, Escape, else as its cap spells it. */
 const said = (k: string) => (k === '↩' ? (mac ? 'Return' : 'Enter') : k === 'Space' ? 'Space' : k === 'esc' ? 'Escape' : spell(k));
 function matches(k: string, e: KeyboardEvent, typing: boolean) {
@@ -402,6 +422,9 @@ export function Sheets() {
       if (e.key !== 'Tab' || !sheet) return;
       const all = [...sheet.querySelectorAll<HTMLElement>('button, input, [tabindex="0"]')].filter((x) => !x.hidden && x.tabIndex >= 0);
       const at = all.indexOf(document.activeElement as HTMLElement);
+      // One that came by itself: Shift-Tab from its first control gives the keyboard back to the Composer under it.
+      const field = d.kind === 'setup' && d.auto && e.shiftKey && at === 0 ? document.querySelector<HTMLElement>('.home #capture-input') : null;
+      if (field) return (e.preventDefault(), field.focus());
       if (at === -1 || (e.shiftKey ? at === 0 : at === all.length - 1)) {
         e.preventDefault();
         all[e.shiftKey ? all.length - 1 : 0]?.focus();

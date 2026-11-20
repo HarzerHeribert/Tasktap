@@ -1111,6 +1111,104 @@ async function main() {
         }
       if (wk) await wk.close();
 
+      // ——— The review's third pass: what was found put away by typing, the held-back sentence for every sheet, a sheet
+      // that leaves the keyboard in the Composer not modal, "you chose it", Setup only its header under a step's sheet ———
+      const firstUp = (records = projects('first-agents')) => open(browser, { label: 'workspace', records, url: server.url, dpr: 1 });
+      const sheetSays = (page) => page.evaluate(() => document.querySelector('.sheet #sheet-title')?.textContent ?? '');
+      const toFound = async (page) => {
+        await page.waitForTimeout(1300);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        await page.evaluate(() => window.__fake.offer?.());
+        await page.waitForFunction(() => /^Found/.test(document.querySelector('.sheet #sheet-title')?.textContent ?? ''), null, { timeout: 4000 }).catch(() => {});
+      };
+      // What was found: the first text typed into the Composer under it puts it away and stays; Return with the field
+      // empty is Done.
+      page = await firstUp();
+      await toFound(page);
+      await page.waitForTimeout(800);
+      const foundTitle = await sheetSays(page);
+      await page.keyboard.type('a thought', { delay: 30 });
+      await page.waitForTimeout(300);
+      expect(/^Found/.test(foundTitle) && !(await page.evaluate(() => window.__ws.ui.sheet)) && (await value(page)) === 'a thought',
+        `typing on "${foundTitle}": the sheet ${await page.evaluate(() => window.__ws.ui.sheet?.kind ?? 'gone')}, the Composer holds "${await value(page)}"`);
+      await page.context().close();
+      page = await firstUp();
+      await toFound(page);
+      await page.waitForTimeout(800);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect(!(await page.evaluate(() => window.__ws.ui.sheet)) && (await calls(page, 'thought.capture')) === 0, `Return with the field empty on what was found: the sheet ${await page.evaluate(() => window.__ws.ui.sheet?.kind ?? 'gone')}, ${await calls(page, 'thought.capture')} thoughts sent`);
+      await page.context().close();
+
+      // The held-back sentence reads as a sentence on every sheet that comes by itself: what Return will do, as a verb.
+      // (Return pressed in the page the moment the title is there; a machine too busy for that to be within the sheet's
+      // first 600 ms says nothing held back, and is tried again.)
+      const heldSays = async (page, untilTitle) => {
+        await page.evaluate((t) => new Promise((done) => {
+          const end = performance.now() + 5000;
+          const tick = () => (new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? '') || performance.now() > end ? done() : setTimeout(tick, 4));
+          tick();
+        }).then(() => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))), untilTitle);
+        await page.waitForTimeout(150);
+        return page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '');
+      };
+      for (const [records, title, verb] of [[projects('first-agents'), '^Find your projects', 'allow'], [projects('first-folders'), '^Choose where', 'search there']]) {
+        let said = '';
+        for (let attempt = 0; attempt < 3 && !said; attempt++) {
+          page = await open(browser, { label: 'workspace', records: { ...records, subMs: 400 }, url: server.url, dpr: 1 });
+          said = await heldSays(page, title);
+          await page.context().close();
+        }
+        expect(said === `You were typing: press Return again to ${verb}.`, `Return at once on "${title.slice(1)}…": the sheet says "${said}", not "You were typing: press Return again to ${verb}."`);
+      }
+      let foundSaid = '';
+      for (let attempt = 0; attempt < 3 && !foundSaid; attempt++) {
+        if (attempt) await page.context().close();
+        page = await firstUp();
+        await page.waitForTimeout(1300);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        await page.evaluate(() => window.__fake.offer?.());
+        foundSaid = await heldSays(page, '^Found');
+      }
+      expect(foundSaid === 'You were typing: press Return again to close.', `Return at once on what was found: the sheet says "${foundSaid}", not "You were typing: press Return again to close."`);
+      await page.context().close();
+
+      // With the keyboard in the Composer under it, the sheet is not modal, the field is described by it, and its
+      // arrival is said once; Tab into it makes it modal; Shift-Tab from its first control gives the Composer back.
+      page = await firstUp();
+      await page.waitForTimeout(1300);
+      const aria = () => page.evaluate(() => {
+        const s = document.querySelector('.sheet[role=dialog]'), f = document.querySelector('.home #capture-input'), by = f?.getAttribute('aria-describedby') ?? '';
+        return { modal: s?.getAttribute('aria-modal'), field: document.activeElement === f, by, described: !!by && by.split(' ').every((id) => document.getElementById(id)?.textContent.trim()), said: document.getElementById('sheet-said')?.textContent ?? '' };
+      });
+      const sr = await aria();
+      expect(sr.field && sr.modal === 'false' && sr.described && /Find your projects/.test(sr.said),
+        `the first start's sheet with the keyboard in the Composer: aria-modal ${sr.modal}, the field ${sr.described ? 'described by it' : `not described (${sr.by || 'none'})`}, said "${sr.said.slice(0, 40)}"`);
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(150);
+      const inSheet = await aria(), inIt = await page.evaluate(() => !!document.activeElement?.closest('.sheet'));
+      expect(inIt && inSheet.modal === 'true' && !inSheet.by, `Tab into the first start's sheet: the keyboard ${inIt ? 'in it' : 'elsewhere'}, aria-modal ${inSheet.modal}, the field still described by "${inSheet.by}"`);
+      await page.keyboard.press('Shift+Tab');
+      await page.waitForTimeout(150);
+      const back = await aria();
+      expect(back.field && back.modal === 'false', `Shift-Tab from the sheet's first control: the keyboard ${back.field ? 'in the Composer' : 'not in the Composer'}, aria-modal ${back.modal}`);
+      // While a step's sheet is up, Setup under it is its header line only: "Find your projects" is said once.
+      const twice = await page.evaluate(() => [...document.querySelectorAll('body *')].filter((e) => e.offsetParent && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim() === 'Find your projects')).length);
+      expect(twice === 1 && !(await page.evaluate(() => !!document.querySelector('.home .setup-b'))), `the first start: "Find your projects" is shown ${twice} times, Setup ${(await page.evaluate(() => !!document.querySelector('.home .setup-b'))) ? 'open under the sheet' : 'folded'}`);
+      await page.context().close();
+
+      // An answered thought on its way says who chose: "you chose it".
+      page = await asking();
+      await sendIt(page);
+      await page.waitForTimeout(1300);
+      await page.keyboard.press('1');
+      await page.waitForTimeout(600);
+      const chose = await page.evaluate(() => document.querySelector('.home .way-h')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
+      expect(/you chose it/.test(chose) && !/your answer/.test(chose), `an answered thought on its way says "${chose}", not "· you chose it"`);
+      await page.context().close();
+
       // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.
       page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1, system: 'windows' });
       await page.focus(FIELD);

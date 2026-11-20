@@ -27,8 +27,18 @@ fn write(p: &Path, text: &str) {
     std::fs::write(p, text).unwrap();
 }
 
+/// A folder as the core names it: canonical, and on Windows without the
+/// `\\?\` a canonical path begins with there, which git does not take.
 fn real(p: &Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap()
+    let path = std::fs::canonicalize(p).unwrap();
+    let text = path.to_str().unwrap();
+    PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text))
+}
+
+/// A folder under the home folder as a person names it: on Windows with
+/// the system's own separator.
+fn under(home: &str, rel: &str) -> String {
+    Path::new(home).join(rel).to_str().unwrap().to_owned()
 }
 
 fn git(at: &Path, args: &[&str]) {
@@ -73,16 +83,17 @@ fn repo(at: &Path, about: &str, remote: Option<&str>) {
     }
 }
 
+/// A full copy of a folder, its `.git` too, as `cp -R` makes one.
 fn copy(from: &Path, to: &Path) {
-    mkdir(to.parent().unwrap());
-    let ok = Command::new("cp")
-        .arg("-R")
-        .arg(from)
-        .arg(to)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok);
+    mkdir(to);
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let (from, to) = (entry.path(), to.join(entry.file_name()));
+        match entry.file_type().unwrap().is_dir() {
+            true => copy(&from, &to),
+            false => drop(std::fs::copy(&from, &to).unwrap()),
+        }
+    }
 }
 
 /// Sets a file's modified time, as an agent's last write would have.
@@ -446,7 +457,9 @@ fn a_repository_is_one_project_whatever_its_copies() {
     };
     let out = map::read(input);
     let repo_of = |name: &str| {
-        let m = out.cards.iter().find(|m| m.folder.ends_with(name)).unwrap();
+        let m = (out.cards.iter())
+            .find(|m| Path::new(&m.folder).ends_with(name))
+            .unwrap();
         m.repo.clone().unwrap()
     };
     assert!(repo_of("projects/ledger").starts_with("root "));
@@ -475,7 +488,7 @@ fn a_repository_is_one_project_whatever_its_copies() {
     let by = |rel: &str| {
         cards
             .iter()
-            .find(|c| c.folder == home.join(rel).to_str().unwrap())
+            .find(|c| Path::new(&c.folder) == home.join(rel))
             .unwrap()
     };
     // One project per repository; the copy beside other projects is it.
@@ -492,7 +505,7 @@ fn a_repository_is_one_project_whatever_its_copies() {
         .find(|c| c.repo == ledger.repo && c.copy_of.is_none())
         .unwrap();
     assert!(
-        primary.folder.contains("/projects/"),
+        Path::new(&primary.folder).parent() == Some(&home.join("projects")),
         "the copy among other projects"
     );
     assert_eq!(by("work/ledger-copy").copy_of, Some(primary.id));
@@ -639,7 +652,7 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
     let mut w = core.watch();
     let look = w.ok::<call::LookAdd>(&AddLook {
         id: LookId::mint(),
-        folder: Some(format!("{home_text}/projects")),
+        folder: Some(under(&home_text, "projects")),
         agent: None,
         on: None,
     });
@@ -730,7 +743,7 @@ fn where_a_projects_agent_works_is_set_on_its_card_and_its_workspace_follows() {
     let mut w = core.watch();
     w.ok::<call::LookAdd>(&AddLook {
         id: LookId::mint(),
-        folder: Some(format!("{home_text}/projects")),
+        folder: Some(under(&home_text, "projects")),
         agent: None,
         on: None,
     });
@@ -1082,7 +1095,7 @@ fn a_field_finds_a_project_by_what_is_typed_and_a_thought_by_its_own_words() {
     let mut w = core.watch();
     w.ok::<call::LookAdd>(&AddLook {
         id: LookId::mint(),
-        folder: Some(format!("{home_text}/projects")),
+        folder: Some(under(&home_text, "projects")),
         agent: None,
         on: None,
     });
@@ -1275,7 +1288,7 @@ fn a_fifo_is_never_read_and_a_look_that_hangs_is_let_go() {
     let mut w = core.watch();
     let look = w.ok::<call::LookAdd>(&AddLook {
         id: LookId::mint(),
-        folder: Some(format!("{home_text}/projects")),
+        folder: Some(under(&home_text, "projects")),
         agent: None,
         on: None,
     });
@@ -1339,11 +1352,7 @@ fn a_known_project_gives_no_right_until_a_thought_starts_there() {
         ),
     );
     let home_text = real(&home).to_str().unwrap().to_owned();
-    let path = format!(
-        "{}:{}",
-        agents(&data).display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
+    let path = path_with(&agents(&data));
     let core = Core::start_env(&data, &[], &[("HOME", &home_text), ("PATH", &path)]);
     let mut w = core.watch();
     w.ok::<call::FixtureClock>(&FixtureClock {

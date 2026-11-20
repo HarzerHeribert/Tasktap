@@ -10,9 +10,12 @@
 //   - the live notch (the app's own page): it plays, it can be paused and stepped, it never takes the keyboard, and
 //     it rests while the top is out of sight
 //   - every word keeps the app's floor of 4.5 : 1 against what it stands on
+//   - what it shows of the app (site/app) is made from the app as it is: the sources scripts/render-site.cjs makes it
+//     from hash as they did when it was made (site/app/SOURCE). Stale pictures are a NOTE, so work on the interface
+//     goes on; with --fresh they fail the run, as where the site is published or a release made (the workflows).
+// usage: node scripts/verify-pages.cjs [--fresh] [--stamp]   (--stamp: that last check alone, with no build or browser)
 // TASKTAP_SCREENSHOTS=<dir> keeps pictures of what was checked.
 const assert = require('node:assert/strict');
-const { chromium } = require('playwright');
 const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -25,6 +28,17 @@ const RETIRED = /Python|Notebook|Activity view|Session history|review[- ]first|t
 const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [640, 450]];
 
 (async () => {
+  // What the site shows of the app is made from the app as it is. Anything else there would make other pictures or
+  // another notch: never published (--fresh), only noted while the interface is being worked on.
+  const args = process.argv.slice(2);
+  const { inputs, stamped } = require('./render-site.cjs');
+  if (stamped() !== inputs()) {
+    const stale = 'the site\'s pictures of the app (site/app) were made from other sources than these: run (cd ui && npm run build) && node scripts/render-site.cjs on a Mac, look at the result, and commit it';
+    if (args.includes('--fresh')) (console.error('FAIL: ' + stale), process.exit(1));
+    console.log('NOTE: ' + stale);
+  } else if (args.includes('--stamp')) console.log('PASS: the site\'s pictures of the app are made from the app as it is');
+  if (args.includes('--stamp')) return;
+  const { chromium } = require('playwright');
   const server = createServer(async (req, res) => {
     const name = new URL(req.url, 'http://localhost').pathname;
     if (!name.startsWith(prefix)) return void res.writeHead(404).end();
@@ -167,7 +181,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.equal(await page.locator('.steps [aria-current]').textContent(), 'Needs you', 'it stays where it is');
     assert.equal(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length), 0, 'no animation runs');
     assert.equal(await page.locator('.light').getAttribute('data-moves'), 'false');
-    await page.getByRole('button', { name: 'Result', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await frame.locator('.result .qp').waitFor();
     assert.match(await frame.locator('.result').innerText(), /Keep/);
     await still.close();
@@ -210,7 +224,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     const notch = live.frameLocator('.notch iframe');
     await live.locator('.stage.live').waitFor();
     // It plays: the thought is typed into the app's own capture line.
-    await live.locator('.steps [aria-current]').filter({ hasText: 'Put in' }).waitFor();
+    await live.locator('.steps [aria-current]').filter({ hasText: 'Tell the agent' }).waitFor();
     await live.waitForFunction(() => document.querySelector('.notch iframe').contentDocument.querySelector('#capture-input')?.value.length > 4);
     assert.notEqual(await live.evaluate(() => document.activeElement?.tagName), 'IFRAME', 'the notch never takes the keyboard');
     // Paused, it holds where it is.

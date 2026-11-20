@@ -5,8 +5,9 @@
 //   chrome  the app's motion engine and its styles, bundled from ui/src/motion (site/src/chrome.ts)
 //   shots   pictures of the app's pages on fixture records (instrument-fixtures.cjs), at the sizes the site shows
 //           them and at 1x and 2x, never scaled; and of the notch and the chrome for where scripts are off
+//   stamp   what it was all made from (`inputs`), into site/app/SOURCE, which verify-pages.cjs holds the pictures to
 // Run on a Mac, where the system face is the app's: (cd ui && npm run build) && node scripts/render-site.cjs
-// usage: node scripts/render-site.cjs [embed] [chrome] [shots] [--only name,name]
+// usage: node scripts/render-site.cjs [embed] [chrome] [shots] [stamp] [--only name,name]   (with no step: all four)
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -14,6 +15,26 @@ const root = path.resolve(__dirname, '..');
 const dist = path.join(root, 'ui/dist');
 const out = path.join(root, 'site/app');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
+
+/** What the site's part of the app is made from: the app's pages and their dependencies, the stand-in for the host and
+ *  the core with its records, the protocol, the fixtures and this recipe. One hash of every file's path and bytes, in
+ *  order; tests left out. When it differs from the one in site/app/SOURCE, something here would make other pictures. */
+const INPUTS = ['ui/src', 'ui/public', 'ui/notch.html', 'ui/workspace.html', 'ui/vite.config.ts', 'ui/package-lock.json', 'site/src',
+  'scripts/render-site.cjs', 'scripts/motion-pages.cjs', 'scripts/instrument-fixtures.cjs', 'core/proto/protocol.ts'];
+function inputs(base = root) {
+  // The files git keeps, so a stray local file counts for nothing, read as they are in the working tree.
+  const files = execFileSync('git', ['-C', base, 'ls-files', '-z', '--', ...INPUTS], { encoding: 'utf8' }).split('\0').filter((f) => f && !/\.test\.ts$/.test(f));
+  const hash = require('node:crypto').createHash('sha256');
+  for (const rel of files.sort()) hash.update(rel + '\0').update(fs.readFileSync(path.join(base, rel))).update('\0');
+  return hash.digest('hex');
+}
+/** The hash site/app/SOURCE says the pictures were made from. */
+const stamped = (dir = out) => (/^inputs ([0-9a-f]{64})$/m.exec(fs.existsSync(path.join(dir, 'SOURCE')) ? fs.readFileSync(path.join(dir, 'SOURCE'), 'utf8') : '') || [])[1] || null;
+function stamp() {
+  const commit = execFileSync('git', ['-C', root, 'log', '-1', '--format=%h', '--', 'ui', 'site/src', 'scripts/motion-pages.cjs'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(out, 'SOURCE'), `Made by scripts/render-site.cjs from ui/ at ${commit}.\ninputs ${inputs()}\n`);
+  console.log('stamp', stamped());
+}
 
 function embed() {
   if (!fs.existsSync(path.join(dist, 'notch.html'))) throw new Error('ui/dist is not built: (cd ui && npm run build)');
@@ -42,8 +63,6 @@ function embed() {
     `<title>Tasktap’s notch, live</title>\n${links}${style}\n<script src="stage.js"></script>\n<script type="module" src="${script}"></script>\n</head>\n<body class="native-host notch-first">\n</body>\n</html>\n`);
   // The app's token file, as it is: the site names no colour, size or duration of its own.
   fs.copyFileSync(path.join(root, 'ui/src/tokens.css'), path.join(out, 'tokens.css'));
-  const commit = execFileSync('git', ['-C', root, 'log', '-1', '--format=%h', '--', 'ui', 'scripts/motion-pages.cjs'], { encoding: 'utf8' }).trim();
-  fs.writeFileSync(path.join(out, 'SOURCE'), `Made by scripts/render-site.cjs from ui/ at ${commit}.\n`);
   console.log('embed', files.join(' '));
 }
 
@@ -65,15 +84,21 @@ const off = (records) => ((records.prefs = (records.prefs || []).filter((p) => p
 function pictures() {
   const { scene, flow } = require('./instrument-fixtures.cjs');
   const show = (key) => async (page, r) => page.evaluate((id) => window.__ws.show(id), r.ids.projects[key]);
+  const both = (...acts) => async (page, r) => { for (const a of acts) await a(page, r); };
+  // As a click puts it there: no focus ring, which only the keyboard's way there draws, and nothing scrolled, which a
+  // window that never scrolls must not be (in the narrow window the question stands below what is drawn).
+  const held = async (page) => (await page.waitForSelector('.ask-pane[data-question]'),
+    await page.evaluate(() => document.querySelector('.ask-pane[data-question]').focus({ focusVisible: false, preventScroll: true })));
   return {
     // A spoken thought on its way: where it goes, its brief, the words as said, Undo. The Composer 600 wide.
     held: { records: () => off(flow(scene('normal'), 'held', {})), fit: ['.capture.raised', 600], cut: '.capture.raised', pad: [10, 20, 12, 20], clear: true },
-    // Home's first layer while much goes on: what needs the person, changes waiting, what runs.
-    home: { records: () => off(scene('busy')), fit: ['.cols', 1040], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100, style: ALONE },
-    'home-640': { records: () => off(scene('busy')), fit: ['.cols', 640], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100, style: ALONE },
-    // The workspace: terminals in splits, a question under its terminal.
-    workspace: { records: () => scene('workspace'), viewport: [1040, 700], act: show('cuegrid'), style: TRAFFIC },
-    'workspace-720': { records: () => scene('workspace'), viewport: [720, 540], act: show('cuegrid'), style: TRAFFIC },
+    // Home's first layer while much goes on: what needs the person, changes waiting, what runs. One column, at the
+    // Composer's width (tokens.css --home-w), as a window of any usual width shows it.
+    home: { records: () => off(scene('busy')), fit: ['.cols', 720], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100, style: ALONE },
+    // The workspace: terminals in splits, a question under its terminal, with the keyboard in it as when the person
+    // answers it there: its answers' caps show only then (page.ts markHeld, parts.css "A key cap shows only…").
+    workspace: { records: () => scene('workspace'), viewport: [1040, 700], act: both(show('cuegrid'), held), style: TRAFFIC },
+    'workspace-720': { records: () => scene('workspace'), viewport: [720, 540], act: both(show('cuegrid'), held), style: TRAFFIC },
   };
 }
 /** The notch from the site's own embed, as a picture for where it cannot run: [name, step, width, height]. */
@@ -176,5 +201,7 @@ async function main(args) {
   if (all || args.includes('embed')) embed();
   if (all || args.includes('chrome')) await chrome();
   if (all || args.includes('shots')) await shots(only);
+  if (all || args.includes('stamp')) stamp();
 }
-main(process.argv.slice(2)).catch((e) => (console.error(e), process.exit(1)));
+if (require.main === module) main(process.argv.slice(2)).catch((e) => (console.error(e), process.exit(1)));
+module.exports = { inputs, stamped, INPUTS };

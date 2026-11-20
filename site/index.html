@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0a0a0b">
-<title>Tasktap: put a thought in</title>
-<meta name="description" content="A Mac app for working with coding agents. Say or type a thought from any app: Tasktap works out where it belongs, starts a coding agent on it in a real terminal, and comes back only when it needs you or has a result.">
-<meta property="og:title" content="Tasktap: put a thought in">
-<meta property="og:description" content="Say or type a thought from any app. Tasktap works out where it belongs, starts a coding agent on it in a real terminal, and comes back only when it needs you or has a result.">
+<title>Tasktap: Tell any coding agent what to do, out loud.</title>
+<meta name="description" content="Hold a key and talk, from whatever app you are in.">
+<meta property="og:title" content="Tasktap: Tell any coding agent what to do, out loud.">
+<meta property="og:description" content="Hold a key and talk, from whatever app you are in.">
 <meta property="og:type" content="website">
 <link rel="icon" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -34,8 +34,8 @@
   </div>
   <div class="wrap top-in">
     <div class="words">
-      <h1 id="top-h">Put a thought in.</h1>
-      <p class="lead">Say it or type it, from any app. Tasktap works out where it belongs, starts a coding agent on it in a real terminal, and comes back only when it needs you or has a result.</p>
+      <h1 id="top-h">Tell any coding agent what to&nbsp;do, out&nbsp;loud.</h1>
+      <p class="lead">Hold a key and talk, from whatever app you are in. Tasktap gives the task to Claude Code, Codex or whichever agent you use, in the right project, and calls you only when the agent has a question or is finished.</p>
       <p class="acts">
         <a class="key lg" href="#get"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Get Tasktap</a>
         <a class="btn lg" href="docs/">How it works</a>
@@ -49,112 +49,111 @@
         <noscript><picture class="notch-ask"><source media="(max-width:520px)" srcset="app/shots/notch-320.webp 1x, app/shots/notch-320@2x.webp 2x" width="328" height="343"><img src="app/shots/notch.webp" srcset="app/shots/notch.webp 1x, app/shots/notch@2x.webp 2x" width="480" height="329" alt=""></picture></noscript>
       </div>
       <figcaption>
-        <span class="sr">Tasktap’s notch at the top of the screen, walking through one thought: it is typed in, placed in the folder cuegrid, worked on by Claude Code, which asks one question, and comes back as a result to keep or discard.</span>
-        <span class="steps" role="group" aria-label="One thought, step by step" hidden>
-          <button type="button" data-step="say">Put in</button>
-          <button type="button" data-step="place">Placed</button>
+        <span class="sr">Tasktap at the top of your screen, in the notch, with one task from start to finish: it is handed off to the project cuegrid, worked on by Claude Code, which asks one question, and comes back done, for you to keep or discard.</span>
+        <span class="steps" role="group" aria-label="One task, step by step" hidden>
+          <button type="button" data-step="say">Tell the agent</button>
+          <button type="button" data-step="place">Handed off</button>
           <button type="button" data-step="work">Working</button>
           <button type="button" data-step="ask">Needs you</button>
-          <button type="button" data-step="result">Result</button>
+          <button type="button" data-step="result">Done</button>
           <button type="button" class="hold" aria-label="Pause" aria-pressed="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path class="on" d="M5.75 4v8M10.25 4v8"/><path class="off" d="M5.5 3.75L11.5 8l-6 4.25z"/></svg></button>
         </span>
-        <span class="still-says fine">The notch, opened by a question from Claude Code.</span>
+        <span class="still-says fine">The notch at the top of your screen, opened by a question from Claude Code.</span>
       </figcaption>
     </figure>
   </div>
 </section>
 
 <section class="sec wrap" id="difference" aria-labelledby="difference-h">
-  <p class="sec-label">The difference</p>
+  <p class="sec-label">Why</p>
   <div class="pair">
-    <h2 id="difference-h">Not one more place to manage agents.</h2>
+    <h2 id="difference-h">Stop babysitting your agents.</h2>
     <div class="text">
-      <p>A thought goes in from wherever you are and finds its project without you choosing one. The agent works out of sight and comes back to you only when it needs you.</p>
-      <p class="note">Speech can stay on your Mac. Every agent works in a real terminal, as you would run it yourself. And when nothing is going on, Tasktap uses no processor time.</p>
+      <p>Today you pick the project, open a terminal, start the agent, type the task, and keep looking over to see whether it is waiting for you.</p>
+      <p>With Tasktap you tell the agent what to do, once. Tasktap picks the project, starts the agent and stays quiet until there is a question or a result.</p>
     </div>
   </div>
 </section>
 
 <section class="sec wrap" id="placing" aria-labelledby="placing-h">
-  <p class="sec-label">Placing</p>
+  <p class="sec-label">Handing off</p>
   <div class="split">
     <div class="text">
-      <h2 id="placing-h">Say it the way you think it.</h2>
-      <p>Type a line, or hold a key and talk, from the notch or with a shortcut in whatever app you are in. Tasktap works out which of your projects, and which session in it, the thought belongs to.</p>
-      <p>From rambling speech it writes a brief for the agent: the goal, the limits you gave, and what counts as done if you said it. Your own words always go along with it, and the brief adds nothing you did not say.</p>
-      <p class="note">For a few seconds you see where it goes and can take it back. A thought that could mean two places becomes one question to you. One with no folder to go to is saved for later.</p>
-      <p class="note">Today a thought finds the projects you have opened in Tasktap. Coming: a map of the projects on your Mac, so it also finds one you have not opened yet.</p>
+      <h2 id="placing-h">Talk the way you think. The agent gets a clear task.</h2>
+      <p>Ramble, correct yourself, change your mind halfway. From that, Tasktap writes the agent a short brief: the goal, the limits you set, and when the task counts as done. The brief adds nothing you did not say, and your own words go along.</p>
+      <p>Tasktap knows your projects and picks the one you mean. If the task could belong to two projects, Tasktap asks you one question.</p>
     </div>
-    <figure class="shot held pan" tabindex="-1">
-      <img src="app/shots/held.webp" srcset="app/shots/held.webp 1x, app/shots/held@2x.webp 2x" width="640" height="334" loading="lazy" decoding="async"
-        alt="The Composer on Home in Tasktap: the field that says “Put a thought in”, where it goes (Tasktap decides), the agents’ rings, the key to talk and Start. Under it, a spoken thought on its way to the folder cuegrid, with Undo. Its brief reads: Make the rehearsal timer's digits fit on one line on phones; they currently wrap onto two. Keep the keyboard shortcuts working. Do not change the desktop layout. Below it, under “You said”, the rambling words as they were spoken, and “Placed by Claude Code · haiku”.">
-    </figure>
+    <div class="aside">
+      <figure class="shot held pan" tabindex="-1">
+        <img src="app/shots/held.webp" srcset="app/shots/held.webp 1x, app/shots/held@2x.webp 2x" width="640" height="186" loading="lazy" decoding="async"
+          alt="Where you hand off a task in Tasktap’s window: the field that says “Put a thought in”, where the task goes (Tasktap decides), the agent that runs it (Claude Code, with its ring), the key to talk and Start. Under it, a spoken task on its way: Starting in cuegrid, placed by Claude Code, its brief behind Brief, and Undo.">
+      </figure>
+      <div class="text">
+        <p class="note">For a few seconds you see where the task went and can take it back with one key.</p>
+        <p class="note">Tasktap learns your projects once, from the folders your agents already worked in and the ones you add. Tasktap reads names and the first lines of each README, never your conversations, and keeps all of it on your Mac.</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section class="sec wrap" id="home" aria-labelledby="home-h">
-  <p class="sec-label">Home</p>
-  <div class="pair">
+  <p class="sec-label">While it works</p>
+  <div class="beside">
     <div class="text">
-      <h2 id="home-h">It comes back when it needs you.</h2>
-      <p>While agents work, the notch shows a count and nothing else. When one of them needs an answer, the notch opens by itself with the question, first and in full, its answers on keys. Answer it there, in the window, or in your own words.</p>
-      <p class="note">On Home every thought is one row, led by its agent’s ring: what it is, where it runs, and what the agent is doing now.</p>
+      <h2 id="home-h">You are called only when you are needed.</h2>
+      <p>While agents work, you see a small count at the top of your screen and nothing else. When an agent has a question, the question opens there in full. Answer with one key and go back to what you were doing.</p>
+      <p class="note">One list shows everything: what needs you, what is finished, and what is still running.</p>
+      <h3>Several tasks in one project, and no task in another task’s way.</h3>
+      <p>In a git project where a task is already running, a new task gets its own copy of the project and its own branch. When a task that ran in its own copy is finished, you look at its changes and keep or discard them. Nothing is merged or deleted until you say so.</p>
     </div>
-    <div class="text">
-      <h3>Several thoughts, one project.</h3>
-      <p>In a git project that already has work running, a new thought gets its own copy of the project and its own branch, so two runs cannot overwrite each other. Its changes come back with Keep and Discard. Tasktap merges or deletes only when you press one of them.</p>
-    </div>
+    <figure class="shot bare pan" tabindex="-1">
+      <img src="app/shots/home.webp" srcset="app/shots/home.webp 1x, app/shots/home@2x.webp 2x" width="720" height="670" loading="lazy" decoding="async"
+        alt="Tasktap’s list of everything, in three parts, each task led by its agent’s ring. Needs you: a question from Claude Code in the project ledger-api, in full, with the answers Yes and No on the keys 1 and 2 and a reply in your own words; two more questions as one line each. Changes waiting: “Export the cue sheet as PDF” in cuegrid, 4 files, with Keep, Discard and Review changes. Running: four tasks in fieldnotes, cuegrid and ledger-api, each with what its agent is doing now.">
+    </figure>
   </div>
-  <figure class="shot bare pan" tabindex="-1">
-    <picture>
-      <source media="(max-width:1135px)" srcset="app/shots/home-640.webp 1x, app/shots/home-640@2x.webp 2x" width="640" height="670">
-      <img src="app/shots/home.webp" srcset="app/shots/home.webp 1x, app/shots/home@2x.webp 2x" width="1040" height="514" loading="lazy" decoding="async"
-        alt="Home in Tasktap, in three parts, each row led by its agent’s ring. Needs you: a question from Claude Code in the folder ledger-api, in full, with the answers Yes and No on the keys 1 and 2 and a reply in your own words; two more questions as one line each. Changes waiting: “Export the cue sheet as PDF” in cuegrid, 4 files, with Keep, Discard and Review changes. Running: four thoughts in fieldnotes, cuegrid and ledger-api, each with what its agent is doing now.">
-    </picture>
-  </figure>
 </section>
 
 <section class="sec wrap" id="workspace" aria-labelledby="workspace-h">
-  <p class="sec-label">Workspace</p>
+  <p class="sec-label">When you look</p>
   <div class="pair">
-    <h2 id="workspace-h">A terminal workspace, not a chat window.</h2>
+    <h2 id="workspace-h">Every agent runs in a real terminal.</h2>
     <div class="text">
-      <p>Every thought runs in a real terminal that you can open, read and type into. Split panes in both directions, keep tabs, send a session to the background and bring it back where it left off.</p>
-      <p>A page, a picture, a PDF or Markdown that an agent made can stand beside its terminal, as a preview.</p>
-      <p class="note">A question shows under its terminal. So does a result, with Keep, Discard and Review changes.</p>
+      <p>You can open that terminal, read it and type into it, exactly as if you had started the agent yourself. Split the terminal, keep tabs, send a session to the background and bring it back.</p>
+      <p>A page, a picture or a PDF that an agent made opens beside its terminal.</p>
+      <p class="note">Questions and finished work show right under the terminal they belong to.</p>
     </div>
   </div>
   <figure class="shot window pan" tabindex="-1">
     <picture>
       <source media="(max-width:1135px)" srcset="app/shots/workspace-720.webp 1x, app/shots/workspace-720@2x.webp 2x" width="720" height="540">
       <img src="app/shots/workspace.webp" srcset="app/shots/workspace.webp 1x, app/shots/workspace@2x.webp 2x" width="1040" height="700" loading="lazy" decoding="async"
-        alt="The Tasktap window on the workspace cuegrid. A sidebar lists three workspaces with their sessions and their states. Three panes: Claude Code editing a stylesheet and running tests; a shell showing git log; and a second Claude Code session, with its question in full under its terminal and three answers on the keys 1, 2 and 3.">
+        alt="The Tasktap window on the project cuegrid. A sidebar lists three projects with their tasks and terminals. Three terminals side by side: Claude Code editing a stylesheet and running tests; a shell showing git log; and a second Claude Code task, with its question in full under its terminal and three answers on the keys 1, 2 and 3.">
     </picture>
   </figure>
 </section>
 
 <section class="sec wrap" id="agents" aria-labelledby="agents-h">
-  <p class="sec-label">Agents</p>
+  <p class="sec-label">Your agents</p>
   <div class="pair">
-    <h2 id="agents-h">Ten agents, and any you add.</h2>
+    <h2 id="agents-h">Use the agents you already pay for.</h2>
     <div class="text">
-      <p>Claude Code, Codex, Antigravity, OpenCode, Pi, Qwen Code, Goose, Crush, Droid and Aider, installed and signed in by you, on your own subscription. Any other agent that runs from a command line can be added in Settings by its command. Tasktap starts them in terminals; it does not replace them.</p>
+      <p>Claude Code, Codex, Copilot and eight more work as they are, installed and signed in by you, on your own subscription. Tasktap has no account and no subscription of its own, and any other command-line agent can be added in Settings.</p>
     </div>
   </div>
   <dl class="rows">
-    <div><dt>Answered from the notch</dt><dd>Claude Code and OpenCode: their questions and their requests to run a command or change a file. Codex: its requests.</dd></div>
-    <div><dt>Answered in their terminal</dt><dd>What Antigravity, Pi and Qwen Code ask, and Codex’s questions. Tasktap shows that they wait and leads you to the terminal.</dd></div>
-    <div><dt>One task, then done</dt><dd>Goose, Crush, Droid and Aider run a thought to its end and ask nothing on the way. A follow-up waits for that end.</dd></div>
-    <div><dt>Placing</dt><dd>Where a thought goes and its brief can be worked out by the smallest model of Claude Code, Codex or Antigravity, once you allow it.</dd></div>
+    <div><dt>You answer at the top of your screen</dt><dd>Claude Code and OpenCode: their questions and their requests to run a command or change a file. Codex and Copilot: their requests.</dd></div>
+    <div><dt>You answer in the terminal</dt><dd>Antigravity, Pi and Qwen Code, and the questions of Codex and Copilot. Tasktap shows you which agent waits and takes you to its terminal.</dd></div>
+    <div><dt>Agents that run to the end</dt><dd>Goose, Crush, Droid and Aider finish a task without asking on the way.</dd></div>
+    <div><dt>Finding the project</dt><dd>Picking the project and writing the brief can be done by the smallest model of Claude Code, Codex or Antigravity, once you allow it.</dd></div>
   </dl>
 </section>
 
 <section class="sec wrap" id="light" aria-labelledby="light-h">
-  <p class="sec-label">Light</p>
+  <p class="sec-label">Footprint</p>
   <div class="split">
     <div class="text">
-      <h2 id="light-h">Nothing runs when nothing is going on.</h2>
-      <p>One small native core owns the data, the terminals and the agents. It is driven by events and never polls. An idle Tasktap uses no processor time.</p>
+      <h2 id="light-h">You will not notice Tasktap running.</h2>
+      <p>Idle, Tasktap uses no processor time at all. Tasktap starts in about a third of a second and never checks anything on a timer.</p>
     </div>
     <div class="figures">
       <table>
@@ -175,9 +174,9 @@
 <section class="sec wrap" id="details" aria-labelledby="details-h">
   <p class="sec-label" id="details-h">Details</p>
   <dl class="rows">
-    <div><dt>Voice</dt><dd>Hold <kbd>⌥</kbd><kbd>Space</kbd> and talk. Speech can be turned into text on the Mac itself and sent nowhere, by Whisper large-v3 turbo, a 574 MB download made once. It was tried in German and English, and in both mixed in one dictation. Or by a speech service you choose, with your own key.</dd></div>
-    <div><dt>What leaves the Mac</dt><dd>A thought goes to a model for placing, and a recording to a speech service, only after you have read exactly what is sent and allowed it. Until then a thought goes to the folder or session it names, and speech on the Mac sends nothing.</dd></div>
-    <div><dt>Effects</dt><dd>The light and the chrome are one setting: Full, Still or Off. They follow Reduce Motion and Low Power Mode.</dd></div>
+    <div><dt>Voice</dt><dd>Hold <kbd>⌥Space</kbd> and talk. Your voice can be turned into text on the Mac itself and sent nowhere (a 574 MB download, made once); it was tried in German, in English, and in both mixed. Or use a speech service of your choice with your own key.</dd></div>
+    <div><dt>Privacy</dt><dd>Tasktap sends your words nowhere by itself. Before a task goes to a model, or a recording to a speech service, you read exactly what would be sent. The one thing Tasktap fetches without asking is the check for a new version, which you can turn off in Settings › About.</dd></div>
+    <div><dt>Effects</dt><dd>The moving light is one setting, Full, Still or Off, and follows Reduce Motion and Low Power Mode.</dd></div>
     <div><dt>Platforms</dt><dd>macOS 13 or later. Windows is being built: there a tab at the top edge of the screen and an icon by the clock stand in for the notch, and so far Claude Code, Codex and the agents you add run there. Speech on Windows goes through a speech service.</dd></div>
   </dl>
 </section>
@@ -186,9 +185,9 @@
   <p class="sec-label">Get it</p>
   <div class="split">
     <div class="text">
-      <h2 id="get-h">A download, or one line.</h2>
+      <h2 id="get-h">Download Tasktap, or install it with one line.</h2>
       <p>For a Mac with Apple silicon and macOS 13 or later, and for Windows on x64, installed for you alone with no administrator. Tasktap updates itself from Settings › About.</p>
-      <p>Or build it from source: <a href="https://github.com/HarzerHeribert/Tasktap">the repository</a> says how.</p>
+      <p>Or build Tasktap from source: <a href="https://github.com/HarzerHeribert/Tasktap">the repository</a> says how.</p>
     </div>
     <div class="build">
       <div class="for-mac">
@@ -196,7 +195,7 @@
         <p class="acts"><a class="key lg" href="https://github.com/HarzerHeribert/Tasktap/releases/latest/download/Tasktap_aarch64.dmg"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Download for Mac</a></p>
         <p class="fine">A disk image, signed by its developer and notarised by Apple: open it and drag Tasktap to Applications.</p>
         <div class="line"><pre class="pan" tabindex="0" aria-label="The line for Terminal"><code>curl -fsSL https://harzerheribert.github.io/Tasktap/install.sh | sh</code></pre><button type="button" class="btn copy">Copy</button></div>
-        <p class="fine">In Terminal, this line downloads the newest release from GitHub, checks its SHA-256 and that Apple notarised it, and copies Tasktap to Applications. <a href="install.sh.txt">Read the script</a>.</p>
+        <p class="fine">In Terminal, the Mac’s install line downloads the newest release from GitHub, checks its SHA-256 and that Apple notarised it, and copies Tasktap to Applications. <a href="install.sh.txt">Read the Mac’s install script</a>.</p>
       </div>
       <div class="for-win">
         <h3>On Windows</h3>
@@ -211,7 +210,7 @@
 </main>
 
 <footer class="foot wrap">
-  <p class="license">Tasktap is source-available under Apache License 2.0 with the Commons Clause. Use, modification, and free redistribution are permitted under those terms; selling Tasktap or a service whose value comes substantially from it requires separate permission. Third-party tools retain their own terms. <a href="https://github.com/HarzerHeribert/Tasktap/blob/main/LICENSE">Full license</a></p>
+  <p class="license">Tasktap is source-available under Apache License 2.0 with the Commons Clause. Use, modification, and free redistribution are permitted under Apache License 2.0 with the Commons Clause; selling Tasktap or a service whose value comes substantially from it requires separate permission. Third-party tools retain their own terms. <a href="https://github.com/HarzerHeribert/Tasktap/blob/main/LICENSE">Full license</a></p>
   <nav aria-label="More"><a href="docs/">How it works</a><a href="https://github.com/HarzerHeribert/Tasktap">Source</a></nav>
 </footer>
 </body>

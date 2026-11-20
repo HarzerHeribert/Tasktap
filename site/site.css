@@ -8,7 +8,7 @@
   --f-head:600 clamp(26px,2.9vw,34px)/1.14 var(--ui); --ls-head:-.022em;        /* a section's headline */
   --f-sub:600 20px/28px var(--ui);                                             /* a second headline; a guide's chapter */
   --f-prose:400 16px/25px var(--ui);                                           /* running text read as a page */
-  --site-w:1040px;                 /* Home's column, tokens.css --home-w */
+  --site-w:1040px;                 /* the page's column: the workspace's picture is this wide */
   --gut:clamp(20px,5vw,48px);
   --gap:clamp(88px,11vw,152px);    /* between sections */
 }
@@ -21,9 +21,12 @@ body{margin:0;font:var(--f-prose);color:var(--fg2);-webkit-font-smoothing:antial
 a{color:inherit;text-decoration:none}
 img,picture{display:block}
 [hidden]{display:none!important}
+/* No scroll bar anywhere, as in the app (ui/src/parts.css): the page and what pans scroll as they did, without one. */
+*{scrollbar-width:none}
+::-webkit-scrollbar{display:none}
 /* A ring for keyboard focus only, as in the app. */
 :focus{outline:0}
-:focus-visible{outline:1.5px solid var(--accent);outline-offset:2px;border-radius:var(--r1)}
+:focus-visible{outline:1.5px solid var(--accent);outline-offset:1px;border-radius:var(--r1)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .skip{position:absolute;z-index:20;left:var(--gut);top:-48px;height:var(--ctl-h);padding:0 10px;display:inline-flex;align-items:center;border-radius:var(--r1);background:var(--fill);color:var(--fg);font:var(--f-small);box-shadow:inset 0 0 0 1px var(--line2)}
 .skip:focus{top:10px}
@@ -143,14 +146,19 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
    the picture it is panned, without a bar, and dissolves at the edge that has more (the app's rule for a scroller). */
 .shot{min-width:0}
 .shot img{max-width:none}
-.pan{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain}
-.pan::-webkit-scrollbar{display:none}
+.pan{overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain}
 .pan[data-more=right]{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade) * 2),#0000);mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade) * 2),#0000)}
 .pan[data-more=left]{-webkit-mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2));mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2))}
 .pan[data-more="left right"]{-webkit-mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2),#000 calc(100% - var(--fade) * 2),#0000);mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2),#000 calc(100% - var(--fade) * 2),#0000)}
 /* The Composer's picture carries 20 px of nothing each side, for its edge's shadow: it stands on the column's edge. */
 .shot.held{margin:-10px -20px 0}
-.split>.shot{align-self:start}
+.split>:is(.shot,.aside){align-self:start}
+/* A picture with the words about it under it, in the split's wider column. */
+.aside{min-width:0}
+.aside>.text{margin-top:var(--sp5)}
+/* Home's picture at its own width, one column as the app has it, with the words beside it. */
+.beside{display:grid;grid-template-columns:minmax(0,1fr) 720px;column-gap:var(--sp6);align-items:start;margin-top:var(--sp6)}
+.beside h3{margin-top:var(--sp6)}
 .pair+.shot{margin-top:var(--sp6)}
 .shot.window{margin-top:clamp(32px,5vw,56px)}
 .shot.window img{border-radius:var(--r3);box-shadow:0 0 0 1px var(--line)}
@@ -226,7 +234,7 @@ html:not(.js) .copy{display:none}
   .band{bottom:auto;top:44px;--band-open:.08}
   .split,.pair,.rows>div{grid-template-columns:minmax(0,1fr)}
   .rows>div{row-gap:var(--sp1)}
-  .split>.shot,.figures,.build{margin-top:var(--sp2)}
+  .split>:is(.shot,.aside),.figures,.build{margin-top:var(--sp2)}
   .foot{grid-template-columns:minmax(0,1fr)}
   .doc-in{grid-template-columns:minmax(0,1fr)}
   .contents{position:static;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));column-gap:var(--sp5);padding-bottom:var(--sp5)}
@@ -239,6 +247,8 @@ html:not(.js) .copy{display:none}
   .band{top:132px;width:460px;height:240px}
 }
 @media(max-width:1135px){
+  .beside{grid-template-columns:minmax(0,1fr)}
+  .beside>.shot{margin-top:var(--sp6)}
   .shot.pan{margin-inline:calc(-1 * var(--gut));padding-inline:var(--gut);scroll-padding-inline:var(--gut)}
   .shot.held.pan{padding-inline:calc(var(--gut) - 20px)}
 }

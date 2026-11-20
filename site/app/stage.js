@@ -30,7 +30,7 @@
     ],
     agents: [agent('claude', '2.1.326'), agent('codex', '0.169.0')],
     prefs: [
-      { id: 'route_by', value: { agent: 'claude', model: 'haiku' }, rev: 2 },
+      { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 3 }, rev: 2 },
       { id: 'speech_by', value: { server: 'https://api.openai.com', model: 'gpt-transcribe' }, rev: 2 },
       { id: 'keys', value: ['https://api.openai.com'], rev: 2 },
       { id: 'speech_languages', value: ['en'], rev: 2 },
@@ -38,19 +38,22 @@
     glance: { ...GLANCE },
   };
 
-  (function fakeRuntime({ label, records: records0, welcome, terms }) {
+  (function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }) {
   const callbacks = new Map();
   let nextCb = 1;
   const listeners = new Map(); // event -> [{handler, id}]
   let channel = 0, index = 0, rev = 100, nextEvent = 1;
   const records = records0;
   const enc = new TextEncoder(), dec = new TextDecoder();
-  const toCore = (obj) => {
+  const deliver = (obj) => {
     const p = enc.encode(JSON.stringify(obj)), out = new Uint8Array(5 + p.length);
     new DataView(out.buffer).setUint32(0, p.length + 1, true);
     out.set(p, 5);
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
+  // `lateMs` (or SLOW_CORE in the environment): everything the core says comes that much later, in its order, as a
+  // core that is far away or busy says it.
+  const toCore = (obj) => (records.lateMs ? setTimeout(() => deliver(obj), records.lateMs) : deliver(obj));
   const push = (change) => {
     for (const set of change.sets || []) {
       if (set.c === 'glance') { records.glance = set.put[set.put.length - 1]; continue; }
@@ -73,6 +76,8 @@
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // What every `put` asked for, in order (settings-rows-check.cjs).
+  const puts = [];
   // The sizes terminals were opened at and asked to take, in order (terminal-size-check.cjs).
   const sizes = [];
   // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
@@ -93,6 +98,7 @@
   const answer = (call) => {
     const { id, name, args } = call;
     calls.push(name);
+    if (name === 'put') puts.push(args);
     if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
@@ -195,10 +201,40 @@
     // A thought saved for later is kept as the core keeps it, so the page can show where it landed; and with `keep`,
     // one left to the router that names no place, as the match on names keeps it.
     if (name === 'thought.update') window.__fake.updated = args;
+    // A folder the person chose in the panel becomes a workspace, as the core makes one: open, named by its folder.
+    if (name === 'project.add' && !(records.projects || []).some((p) => p.folder === args.folder)) {
+      push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ id: args.id, rev, name: args.folder.split('/').pop(), folder: args.folder, kind: 'folder', color: '#7aa2f7', aliases: [], git: true, isolate: 'busy', open: true, available: true }] }] });
+      return reply(id, args.id);
+    }
     if (name === 'thought.capture' && (args.mode === 'note' || (records.keep && !args.project_id))) {
       rev++;
       push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
         reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: args.mode === 'note' ? 'kept' : 'kept_name', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+      return reply(id, null);
+    }
+    // `asks`: a thought left to the router is asked about, as the match on names asks when it is unsure: the thought,
+    // then (`asks.ms` later, 300 by default) "Where should this go?" with the folders `asks.choices` names. Answered by
+    // a choice it starts there; by Keep for later it is kept.
+    if (name === 'thought.capture' && records.asks && !args.project_id && !args.card_id && args.mode !== 'note') {
+      const now = Date.now(), thought = { id: args.id, rev: ++rev, text: args.text, strokes: [], source: args.source || 'typed', mode: 'ask', phase: 'captured', status: 'needs_you',
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: 1 },
+        placed: null, agent: args.agent || 'claude', model: null, workdir: null, hold_until: null, read: false, created: now, updated: now };
+      push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [thought] }] });
+      reply(id, null);
+      const projects = (records.projects || []).filter((p) => p.open && p.kind === 'folder');
+      const choices = (records.asks.choices || projects.slice(0, 3).map((p) => p.name)).slice(0, 3);
+      const q = { id: `019a8b6c-7d10-7000-a000-${String(++rev).padStart(12, '0')}`, rev, thought_id: args.id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null,
+        reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices, places: choices.map((n) => ({ project: (projects.find((p) => p.name === n) || {}).id })), notes: records.asks.notes || choices.map(() => '') };
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'questions', put: [{ ...q, rev }] }] }), records.asks.ms ?? 300);
+      window.__fake.asked = q;
+      return;
+    }
+    if (name === 'question.answer' && window.__fake.asked && args.id === window.__fake.asked.id) {
+      const q = window.__fake.asked, t = (records.thoughts || []).find((x) => x.id === q.thought_id), now = Date.now();
+      window.__fake.answered = args;
+      const to = args.kind === 'choice' ? q.places[args.choice] : null;
+      push({ t: 'change', rev: ++rev, sets: [{ c: 'questions', put: [{ ...q, rev, state: 'answered' }] },
+        { c: 'thoughts', put: [{ ...t, rev, ...(to ? { phase: 'routed', status: 'routed', project_id: to.project, placed: 'answer', hold_until: now + 3000 } : { mode: 'note', status: 'captured', placed: 'kept_answer' }) }] }] });
       return reply(id, null);
     }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
@@ -209,11 +245,84 @@
       if (t) push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ ...t, rev, workdir: { ...t.workdir, changes: args.keep || said ? 'kept' : 'discarded' } }] }] });
       return reply(id, null);
     }
+    // What Tasktap knows of the person's projects (docs/projects-design.md): `offer` is what `projects.offer` finds;
+    // a look added or switched on puts its row and then, one by one as a look fills in, the cards of `found`;
+    // `projects.find` is the core's own answer (`FIND` below), or `finds` by its text where a picture wants one.
+    // `offerHeld`: the answer waits until the check calls window.__fake.offer() (the first start, at a moment it chooses).
+    if (name === 'projects.offer' && records.offerHeld) return void (window.__fake.offer = () => reply(id, records.offer || { agents: [], places: [] }));
+    if (name === 'projects.offer') return void setTimeout(() => reply(id, records.offer || { agents: [], places: [] }), records.offerMs || 0);
+    if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
+    const look = (row) => {
+      push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] });
+      if (!row.on) return;
+      const found = (records.found || []).filter((c) => !(records.cards || []).some((x) => x.id === c.id));
+      found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), 90 * (i + 1)));
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now() }] }] }), 90 * (found.length + 1));
+    };
+    if (name === 'look.add') {
+      const had = (records.looks || []).find((l) => (args.agent && l.agent === args.agent) || (args.folder && l.folder === args.folder));
+      look({ ...(had || { id: args.id, kind: args.agent ? 'agent' : 'folder', agent: args.agent || null, folder: args.folder || null, state: 'new', found: 0, looked: null, note: null }), on: args.on ?? true });
+      return reply(id, (had || args).id);
+    }
+    if (name === 'projects.find') {
+      if ((records.finds || {})[args.text]) return reply(id, { found: records.finds[args.text].slice(0, args.limit || 3) });
+      // Asked of the core's own code (core/examples/find.rs), with the projects a request gives it: the open folders
+      // with their cards' names and lines, then the projects known and not open. Nothing without it.
+      if (!window.__coreFind) return reply(id, { found: [] });
+      const cards = records.cards || [], short = (f) => f.replace(/^\/Users\/[^/]+/, '~');
+      const open = (records.projects || []).filter((p) => p.open && p.kind === 'folder' && p.available !== false).map((p) => {
+        const c = cards.find((x) => x.project_id === p.id || x.folder === p.folder);
+        return { to: { project: p.id }, name: p.name, aliases: [...(p.aliases || []), ...((c && c.names) || []).filter((n) => n !== p.name)], about: (c && c.about) || '', folder: short(p.folder), used: (c && c.used) || null };
+      });
+      const known = cards.filter((c) => !c.copy_of && !c.inside && !c.hidden && c.available !== false && !open.some((o) => o.to.project === c.project_id || o.folder === short(c.folder)))
+        .map((c) => ({ to: { card: c.id }, name: c.name, aliases: c.names || [], about: c.about || '', folder: short(c.folder), used: c.used || null }));
+      return void window.__coreFind(JSON.stringify({ text: args.text, limit: args.limit, thought: !!args.thought, projects: [...open, ...known] }))
+        .then((answer) => reply(id, JSON.parse(answer)));
+    }
+    if (name === 'put' && (args.c === 'cards' || args.c === 'looks')) {
+      const row = (records[args.c] || []).find((r) => r.id === args.id);
+      if (!row) return toCore({ t: 'reply', id, err: { code: 'gone', message: `no row "${args.id}"` } });
+      const next = { ...row, ...Object.fromEntries(Object.entries(args.patch).filter(([, v]) => v !== null && v !== undefined)), rev: ++rev };
+      push({ t: 'change', rev, sets: [{ c: args.c, put: [next] }] });
+      if (args.c === 'looks' && next.on && !row.on) look(next);
+      // Where its agent works: the card's workspace follows, as in the core (records.rs `PutTarget::Cards`).
+      const ws = args.c === 'cards' && args.patch.isolate && (records.projects || []).find((p) => p.id === row.project_id || p.folder === row.folder);
+      if (ws) push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ ...ws, rev, isolate: args.patch.isolate }] }] });
+      return reply(id, { rev });
+    }
+    if (name === 'delete' && (args.c === 'cards' || args.c === 'looks')) return push({ t: 'change', rev: ++rev, sets: [{ c: args.c, del: [args.id] }] }), reply(id, { rev });
     if (name === 'put' && args.c !== 'prefs') return reply(id, { rev: ++rev });
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
-      push({ t: 'change', rev, snap: true, sets });
-      return reply(id, { rev });
+      // `subMs`: the records come this long after the page asked (a core slow to answer at the first start).
+      const answer = () => (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev }));
+      return void (records.subMs ? setTimeout(answer, records.subMs) : answer());
+    }
+    // What runs in a terminal, as the core says when it is closed (`terminal.runs`): what `runs` holds for it, else
+    // the rule in small: an agent's live session runs, a shell with none is idle, one not running has ended.
+    // `terminal.stop` ends it a moment later; `project.close` closes the folder, its terminals stopped with `stop`.
+    if (name === 'terminal.runs') {
+      const t = (records.terminals || []).find((x) => x.id === args.id);
+      if (!t) return refuse('gone', `no terminal ${args.id}`);
+      if ((records.runs || {})[args.id]) return reply(id, records.runs[args.id]);
+      const s = (records.sessions || []).filter((x) => x.terminal_id === t.id && x.state !== 'ended').at(-1);
+      const names = { claude: 'Claude Code', codex: 'Codex' };
+      if (t.state !== 'running') return reply(id, { state: 'ended', what: [], session: null });
+      if (s) return reply(id, { state: 'running', what: [names[s.agent] || s.agent], session: s.id });
+      return reply(id, t.kind === 'shell' ? { state: 'idle', what: [], session: null } : { state: 'running', what: [t.title], session: null });
+    }
+    const end = (t) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'terminals', put: [{ ...t, rev, state: 'exited', exit: null }] }] }), 50);
+    if (name === 'terminal.stop') {
+      const t = (records.terminals || []).find((x) => x.id === args.id);
+      if (t && t.state === 'running') end(t);
+      return reply(id, null);
+    }
+    if (name === 'project.close') {
+      window.__fake.closed = [...(window.__fake.closed || []), args];
+      const p = (records.projects || []).find((x) => x.id === args.id);
+      if (p) push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ ...p, rev, open: false }] }] });
+      if (args.stop) (records.terminals || []).filter((t) => t.project_id === args.id && t.state === 'running').forEach(end);
+      return reply(id, null);
     }
     // A key the rule of a shortcut refuses is refused in the core's sentence, and nothing is stored.
     if (name === 'put' && args.c === 'prefs' && args.id === 'talk_key' && args.patch && refused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: refused(args.patch) } });
@@ -251,26 +360,85 @@
   };
   // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
   const opened = [];
-  // The capture key: the one registered (`capture`, the system's own unless the scene says another, or none), which a
-  // call changes unless the rule refuses the key or the scene says another app holds it (`taken`, by its code).
-  const usual = { control: true, alt: true, shift: false, meta: false, code: 'Space' };
-  let capture = records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
+  // The keys a person records, as the host keeps them (host/src/keys.rs): each the scene's preference or this
+  // system's own. A call changes one unless the rule refuses it, the scene says another app holds it (`taken`, by its
+  // code), or another of Tasktap's keys has it already, in the core's sentence that names which. The capture key is
+  // the one registered (`capture`: the system's own unless the scene says another, or none). A scene with
+  // `takes: false` is a copy that takes no global key (a review build): it names none and refuses every one.
+  const win = /Windows/.test(navigator.userAgent), takes = records.takes !== false;
+  const usual = win ? { control: false, alt: true, shift: true, meta: false, code: 'Space' } : { control: true, alt: true, shift: false, meta: false, code: 'Space' };
+  let capture = !takes ? null : records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
+  const OWN_KEYS = {
+    question: { control: !win, alt: true, shift: win, meta: false, code: 'KeyJ' }, yes: { control: !win, alt: true, shift: win, meta: false, code: 'KeyY' },
+    no: { control: !win, alt: true, shift: win, meta: false, code: 'KeyN' }, talk: { control: win, alt: !win, shift: false, meta: false, code: 'Space' },
+  };
+  const PREF = { capture: 'capture_key', question: 'question_key', yes: 'yes_key', no: 'no_key', talk: 'talk_key' };
+  const DOES = { capture: 'to put a thought in', question: 'to go to an agent’s question', yes: 'to answer Yes', no: 'to answer No', talk: 'as the key to hold while you talk' };
+  const stored = (w) => ((records.prefs || []).find((p) => p.id === PREF[w]) || {}).value;
+  const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
+  const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
+  const answers = () => ({ question: keyOf('question'), yes: keyOf('yes'), no: keyOf('no'), takes });
+  /** Why `key` cannot be the key `which` beside Tasktap's own window, as the core's `own_key` says it. */
+  const sys = win ? 'windows' : 'mac';
+  const own = (which, key) => {
+    const c = ownKeys.app.find((x) => same(x[sys], key));
+    if (c) return `Tasktap uses ${c.says[sys]} for ${c.name}`;
+    if (which === 'talk') {
+      const f = ownKeys.field.find((x) => same(x[sys], key));
+      return f && `A text field uses ${f.says[sys]} for ${f.name}`;
+    }
+    return null;
+  };
+  /** A key taken from other apps may not be the system's command modifier alone with one key (`every_app`). */
+  const everyApp = (which, key) => {
+    const alone = ['control', 'alt', 'shift', 'meta'].filter((m) => key[m]).length === 1;
+    if (which !== 'talk' && alone && (win ? key.control : key.meta)) return win ? 'Other apps use Ctrl with a single key: hold Alt or Shift as well' : 'Other apps use ⌘ with a single key: hold Control or Option as well';
+    return null;
+  };
+  /** Tries `key` as the key `which`, and stores it: the reply's sentence when refused. */
+  const record = (which, given) => {
+    if (which !== 'talk' && !takes) throw 'Tasktap Review takes no keys from other apps';
+    const key = given || (which === 'capture' ? usual : OWN_KEYS[which]);
+    const other = Object.keys(PREF).find((w) => w !== which && same(keyOf(w), key));
+    const why = refused(key) || (given && own(which, key)) || (other && `Tasktap already uses that combination ${DOES[other]}`) || (given && everyApp(which, key))
+      || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
+    if (why) throw why;
+    if (which === 'capture') capture = key;
+    const id = PREF[which];
+    rev++;
+    records.prefs = (records.prefs || []).filter((p) => p.id !== id).concat(given ? [{ id, value: key, rev }] : []);
+    push({ t: 'change', rev, sets: [{ c: 'prefs', ...(given ? { put: [{ id, value: key, rev }] } : { del: [id] }) }] });
+    return key;
+  };
   const hostValue = (name, a) => {
-    if (name === 'host.capture_key') {
-      if (a.key === undefined) return { key: capture };
-      const key = a.key || usual, why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
-      if (why) throw why;
-      capture = key;
-      rev++;
-      records.prefs = (records.prefs || []).filter((p) => p.id !== 'capture_key').concat(a.key ? [{ id: 'capture_key', value: key, rev }] : []);
-      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
-      return { key };
+    if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
+    if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
+    if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());
+    // Opening at login, as the scene says the system has it (`login`; none: a host without the call). Every call is kept
+    // (`logins`); a change is the system's at once, or, with `approve`, waits for the person to allow it.
+    if (name === 'host.login') {
+      window.__fake.logins.push(a);
+      if (records.login && a.on !== undefined) {
+        if (records.login.state === 'unavailable') throw 'macOS can open only a signed Tasktap app when you log in';
+        records.login = { state: a.on ? (records.approve ? 'approve' : 'on') : 'off' };
+      }
+      return records.login ?? null;
     }
     // A preview's frame: where it loads a file from (`frames`, a server of the check's own), whether a local address
     // is answered (`listens`), or the host's refusal (`noframes`).
     if (name === 'host.frame') {
       if (records.noframes) throw records.noframes;
       return { base: records.frames || 'http://127.0.0.1:9/none', ...(a.listens ? { listens: records.listens !== false } : {}) };
+    }
+    // The system's folder panel: what was asked, in order, and the folder `pick` names (none: the person cancelled).
+    if (name === 'host.pick') return (window.__fake.picked.push(a), records.pick ?? null);
+    // Windows' tab and the updater, as a scene says them (none: a host without the call).
+    if (name === 'host.tab') return records.tab ?? null;
+    // What the page asked of the updater is kept (`updates`); the person's own check (`now`) finds what `checked` says.
+    if (name === 'host.update') {
+      window.__fake.updates.push(a);
+      if (a.look && a.now && records.checked) records.update = records.checked;
+      return records.update ?? null;
     }
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
@@ -289,7 +457,12 @@
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, sizes, close, opened };
+  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [], updates: [], logins: [] };
+  // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
+  // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
+  const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),
+    [['Minus', '-'], ['Equal', '='], ['BracketLeft', '['], ['BracketRight', ']'], ['Backslash', '\\'], ['Semicolon', ';'], ['Quote', "'"], ['Backquote', '`'], ['Comma', ','], ['Period', '.'], ['Slash', '/']]));
+  if (top === window) Object.defineProperty(navigator, 'keyboard', { configurable: true, value: { getLayoutMap: async () => new Map(Object.entries(records.layout || US)) } });
   window.__fake.speech = { acts: [], ended: [], fed: [], said(line) { callbacks.get(this.channel)?.({ index: this.n++, message: line }); } };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
@@ -351,7 +524,7 @@
       return null;
     },
   };
-})({ label: 'notch', records, welcome: { v: 1, calls: ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'] }, terms: { route: { instructions: '', sends: [], tools: [{ agent: 'claude', model: 'haiku' }] }, speech: { sent: [], path: '/v1/audio/transcriptions', seconds: 300 } } });
+})({ label: 'notch', records, welcome: { v: 1, calls: ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'] }, terms: { route: { instructions: '', sends: [], terms: 3, tools: [{ agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }] }, speech: { sent: [], path: '/v1/audio/transcriptions', seconds: 300 } } });
 
   const fake = window.__fake;
   const TEXT = 'Make the rehearsal timer\'s digits fit on one line on phones';
@@ -377,11 +550,11 @@
     id: ids.session, project_id: P.cuegrid, agent: 'claude', terminal_id: ids.terminal, adopted: false, state, thought_id: ids.thought, turn: 1, resume: null, name: null, named_at: null,
     model: null, cwd: '', exit: null, error: null, activity,
   });
-  const held = (ms) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief: TEXT, route: ROUTE, hold_until: Date.now() + ms });
-  const running = (o) => thought({ phase: 'working', status: 'working', live: true, project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, ...o });
+  const held = (ms) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief: TEXT, route: ROUTE, placed: 'model', hold_until: Date.now() + ms });
+  const running = (o) => thought({ phase: 'working', status: 'working', live: true, project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, placed: 'model', ...o });
   const workdir = (changes) => ({ path: '/Users/example/Library/Application Support/Tasktap/worktrees/cuegrid-timer-digits', branch: 'tasktap/cuegrid-timer-digits', destination: 'main', base: '4f2a91c',
     left_out: false, changes, files: 3, insertions: 21, deletions: 6 });
-  const finished = (o) => thought({ phase: 'done', status: 'done', project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, workdir: workdir('pending'), ...o });
+  const finished = (o) => thought({ phase: 'done', status: 'done', project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, placed: 'model', workdir: workdir('pending'), ...o });
   const question = () => ({ id: ids.question, thought_id: ids.thought, session_id: ids.session, turn: 1, source: 'agent', prompt: ASK, detail: null, reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices: CHOICES });
   const result = () => ({ id: ids.result, thought_id: ids.thought, session_id: ids.session, turn: 1, kind: 'changes', summary: SUMMARY });
 

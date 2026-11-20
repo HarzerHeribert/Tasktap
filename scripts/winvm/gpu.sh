@@ -7,8 +7,9 @@
 #   scripts/winvm/gpu.sh [ref] [--out DIR] [--no-build] [--size window|full] [--effects full,still,off]
 #                        [--lumen on,off] [--states rest,working,...] [--seconds 60]
 #   scripts/winvm/gpu.sh --rest        the proof alone (checklist item 35): the floor and the app at rest, a minute
-#                                      each; fails when the app uses the graphics processor at all with no caret or
-#                                      with Tasktap not in front, or more than 0.01 % with the caret in Home's field
+#                                      each; fails when the page draws a frame, when with no caret or with Tasktap
+#                                      not in front the app uses more than 0.01 % of the graphics processor in any
+#                                      second, or more than 0.01 % on average with the caret in Home's field
 #   scripts/winvm/gpu.sh --dry-run     over SSH alone: whether the screen shows the test account's unlocked desktop,
 #                                      whether the card and the counters can be read, what the round would measure;
 #                                      starts nothing

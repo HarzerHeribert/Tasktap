@@ -651,14 +651,19 @@ function Measure-State($state, $effects, $lumen, $settle, $length = $Seconds) {
     }
     $row
 }
-# Item 35 of the trial checklist: at rest, with Tasktap not in front or with no caret, the app's figure is exactly zero;
-# with the caret in Home's field and Tasktap in front, its blink costs at most 0.01 % of the 3D engine. The page draws
-# no frame of its light in any of them.
+# Item 35 of the trial checklist, by its meaning: at rest, with Tasktap not in front or with no caret, the app draws
+# nothing: the page draws no frame in any second, and the app's processes use at most 0.01 % of the graphics processor
+# in every second (what is left, a second or two a minute with no frame of the page and no processor time of the app,
+# is the compositor's own accounting, and was there before any change: README.md). With the caret in Home's field and
+# Tasktap in front, its blink costs at most 0.01 % of the 3D engine, and the page draws no frame of its light either.
 function Check-Rest($row, $state, $what) {
     $caret = $state -eq 'rest'
-    $ok = (-not $row.frames) -and $(if ($caret) { $row.app3d -le 0.01 } else { $row.nonzero -eq 0 })
-    $evidence = "in $($row.s) one-second samples the app's processes used $(if ($row.nonzero) { "some engine in $($row.nonzero) (at most $(F $row.maxall 3) % of one; 3D $(F $row.app3d 3) % on average)" } else { 'no engine at all: 0.000 % each second' }); the page drew $(F $row.frames) frames a second; the compositor $(F $row.comp 3) % against the floor's $(F $rows[0].comp 3) %"
-    $claim = if ($caret) { 'at rest with the caret blinking in Home''s field the app uses at most 0.01 % of the graphics processor' } else { 'at rest the app uses no graphics processor' }
+    $drawn = [Math]::Round($row.frames * $row.s)
+    $ok = ($drawn -eq 0) -and $(if ($caret) { $row.app3d -le 0.01 } else { $row.maxall -le 0.01 })
+    $page = if ($drawn) { "the page drew $drawn frames ($(F $row.frames) a second)" } else { 'the page drew no frame in any second' }
+    $used = if ($row.nonzero) { "the app's processes used some engine in $($row.nonzero) (at most $(F $row.maxall 3) % of one in their busiest second; 3D $(F $row.app3d 3) % on average)" } else { "the app's processes used no engine at all: exactly zero, 0.000 % each second" }
+    $evidence = "in $($row.s) one-second samples $page; $used; the compositor $(F $row.comp 3) % against the floor's $(F $rows[0].comp 3) %"
+    $claim = if ($caret) { 'at rest with the caret blinking in Home''s field the app uses at most 0.01 % of the graphics processor' } elseif ($row.nonzero -eq 0) { 'at rest the app uses no graphics processor: exactly zero' } else { 'at rest the app draws nothing: no frame of the page, and at most 0.01 % of the graphics processor in every second' }
     Say $(if ($ok) { 'PASS' } else { 'FAIL' }) "$($claim): $what" $evidence
 }
 

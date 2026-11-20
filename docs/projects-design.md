@@ -182,7 +182,7 @@ Generated folders on a disk image, cold meaning the image was detached and attac
 
 Pictures of every state, at one and two pixels to a point, are on the owner's page. In words:
 
-**The first run.** Under the Composer, where "A thought starts in a folder" stands today: "Where are your projects?", with the common folders that exist ticked (`~/projects`, `~/code`, `~/Developer`, `~/src`; on Windows `source\repos`), each found with one `stat` and not looked into; "Where your agents have worked", not ticked; "Another folder…"; the sentence of what is read; "Look there" on Return and "Not now". After it, the same place shows the projects found, the most recently alive first, and says that none is open yet. "Open a folder…" stays as "Open another folder…".
+**The first run** (as first designed; since 2026-11-19 it is Setup's first step, a sheet that is part of Home's first picture: design/ui-directions/NOTES.md §13). Under the Composer, where "A thought starts in a folder" stood: "Where are your projects?" (now "Choose where your projects are"), with the common folders that exist ticked (`~/projects`, `~/code`, `~/Developer`, `~/src`; on Windows `source\repos`), each found with one `stat` and not looked into; "Where your agents have worked", not ticked; "Another folder…"; the sentence of what is read; "Look there" on Return and "Not now". After it, the same place shows the projects found, the most recently alive first, and says that none is open yet. "Open a folder…" stays as "Open another folder…".
 
 **The chip** always says where the thought will go and why.
 

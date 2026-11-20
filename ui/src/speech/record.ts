@@ -66,7 +66,7 @@ const WHY: Record<string, string> = {
   busy: 'Another window is recording. Finish there first.',
 };
 
-type Ear = { node: AudioWorkletNode; rate: number; deaf(): void; close(): void };
+type Ear = { node: AudioWorkletNode; rate: number; ctx: AudioContext; deaf(): void; close(): void };
 let ear: Ear | null = null;
 /** The attempt under way; one that was given up meanwhile sees another number. */
 let attempt = 0;
@@ -77,6 +77,12 @@ let loud: Loud | null = null;
 
 /** Whether this page hears anything now: the checks hold it to false after every dictation. */
 export const live = () => !!ear;
+/** The samples the page was handed since its recording began. */
+let frames = 0;
+/** For the checks, while a recording runs: its audio's state and own clock, and the samples handed over so far. Where
+ *  the machine's audio does not run in real time (a virtual Mac with no sound device) the clock falls behind the wall
+ *  and so do the samples. */
+export const audio = () => (ear ? { state: ear.ctx.state, time: ear.ctx.currentTime, frames, rate: ear.rate } : null);
 /** This page's dictation, as the core has it. */
 export const mine = () => (talk.id ? records.dictations.get(talk.id) : undefined);
 /** The loudest recording under way, 0 to 1, whichever page records it: what the motion listens to. */
@@ -130,7 +136,7 @@ async function open(): Promise<Ear> {
     mute.gain.value = 0;
     heard.connect(node).connect(mute).connect(ctx.destination);
     void ctx.resume();
-    return { node, rate: ctx.sampleRate, deaf, close: () => (deaf(), (node.port.onmessage = null), void ctx.close()) };
+    return { node, rate: ctx.sampleRate, ctx, deaf, close: () => (deaf(), (node.port.onmessage = null), void ctx.close()) };
   } catch (e) {
     deaf();
     void ctx.close();
@@ -200,7 +206,8 @@ export async function begin(target: DictationTarget, field: Field | null): Promi
       // The longest a recording lasts: it ends by itself, as letting go would end it.
       if (room <= 0) end();
     };
-    mic.node.port.onmessage = ({ data }: MessageEvent<Float32Array | null>) => (data ? send(pcm.push(data)) : finish());
+    frames = 0;
+    mic.node.port.onmessage = ({ data }: MessageEvent<Float32Array | null>) => (data ? ((frames += data.length), send(pcm.push(data))) : finish());
     if (here) {
       // The helper first: without it there is nothing to begin. It loads its model while the person speaks.
       hearing = id;

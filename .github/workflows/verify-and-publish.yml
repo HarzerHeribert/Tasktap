@@ -269,9 +269,10 @@ jobs:
         with:
           path: build/pages
 
+  # Only when every check passed, the install lines' included (interface, core).
   deploy:
     name: Publish GitHub Pages
-    needs: [site]
+    needs: [site, interface, core]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -284,6 +285,18 @@ jobs:
       group: tasktap-pages
       cancel-in-progress: false
     steps:
+      # The site offers the newest release's files by fixed names, which only a release made by release.yml has; until
+      # one is published the site stays as it was. A range of one byte, since a signed asset address may refuse HEAD.
+      - name: The newest published release has what the site offers
+        run: |
+          missing=""
+          for name in Tasktap_aarch64.dmg Tasktap_x64-setup.exe SHA256SUMS; do
+            curl -fsL --proto '=https' --range 0-0 -o /dev/null "https://github.com/HarzerHeribert/Tasktap/releases/latest/download/$name" || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The site was not published, because the newest published release has no$missing; publish a release made by release.yml first, and the site that is up stays up until then."
+            exit 1
+          fi
       - name: Deploy checked Pages artifact
         id: publish
         uses: actions/deploy-pages@v4

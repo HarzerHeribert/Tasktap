@@ -3,9 +3,9 @@
 //   - both pages at six sizes: one headline, the skip link first, no sideways scroll, every picture there and shown
 //     at its own size (never scaled), every link and anchor inside the site resolving
 //   - the words: nothing of what was true only of 1.2, its update feed not published; downloads only by the release's
-//     fixed names; the visitor's system's download and install line in its order (a Mac's download first, Windows'
-//     line first), with Copy; the install scripts published as they are in site/, and as .txt to read; and one metal
-//     key in view at a time
+//     fixed names; both systems' download and install line, the visitor's system first, each in its order (a Mac's
+//     download first, Windows' line first), with Copy, which selects the line where there is no clipboard; the install
+//     scripts published as they are in site/, and as .txt to read; and one metal key in view at a time
 //   - with scripts off the page still explains the product; under Reduce Motion nothing moves by itself
 //   - the live notch (the app's own page): it plays, it can be paused and stepped, it never takes the keyboard, and
 //     it rests while the top is out of sight
@@ -97,11 +97,12 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
         assert.match(href, /^https:\/\/github\.com\/HarzerHeribert\/Tasktap\/releases\/latest\/download\/Tasktap_(aarch64\.dmg|x64-setup\.exe)$/, `${suffix || 'home'} offers ${href}`);
     }
     await page.goto(url);
-    // The visitor's system: anywhere but Windows the Mac's download first and its line second; on Windows the line
+    // Both systems, the visitor's first: anywhere but Windows the Mac's download, then its line; on Windows its line
     // first, since SmartScreen stops a browser's download of the installer, which is not code-signed.
     const MAC = 'curl -fsSL https://harzerheribert.github.io/Tasktap/install.sh | sh', WIN = 'irm https://harzerheribert.github.io/Tasktap/install.ps1 | iex';
     const offered = (p) => p.locator('#get :is(a[href*="releases"], pre)').evaluateAll((all) => all.filter((el) => el.getClientRects().length).map((el) => (el.tagName === 'PRE' ? el.textContent : el.href.split('/').pop())));
-    assert.deepEqual(await offered(page), ['Tasktap_aarch64.dmg', MAC]);
+    assert.deepEqual(await offered(page), ['Tasktap_aarch64.dmg', MAC, WIN, 'Tasktap_x64-setup.exe']);
+    assert.match(await page.locator('.words .fine').innerText(), /Windows on x64/, 'the top says Windows is offered too');
     assert.match(await page.locator('.foot .license').innerText(), /source-available under Apache License 2\.0 with the Commons Clause/);
     // The scripts the lines run are published as they are in site/, and as a .txt copy a browser shows.
     for (const name of ['install.sh', 'install.ps1']) {
@@ -114,13 +115,21 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     await windows.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     const win = watch(await windows.newPage());
     await win.goto(url);
-    assert.deepEqual(await offered(win), [WIN, 'Tasktap_x64-setup.exe']);
-    const copy = win.locator('#get .copy:visible');
+    assert.deepEqual(await offered(win), [WIN, 'Tasktap_x64-setup.exe', 'Tasktap_aarch64.dmg', MAC]);
+    const copy = win.locator('#get .copy').first();
     await copy.click();
     assert.equal(await win.evaluate(() => navigator.clipboard.readText()), WIN, 'Copy puts the line on the clipboard');
     assert.equal(await copy.textContent(), 'Copied');
     if (shots) await win.locator('#get').screenshot({ path: path.join(shots, 'get-windows-1440.png') });
     await windows.close();
+    // Where there is no clipboard, Copy selects the line, and nothing goes wrong.
+    const bareClip = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await bareClip.addInitScript(() => Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined }));
+    const noClip = watch(await bareClip.newPage());
+    await noClip.goto(url);
+    await noClip.locator('#get .copy').first().click();
+    assert.equal(await noClip.evaluate(() => getSelection().toString()), MAC, 'without a clipboard, Copy selects the line');
+    await bareClip.close();
     // One metal key in view: the page's two keys are further apart than any window is tall.
     const keys = await page.locator('a.key').evaluateAll((all) => all.map((k) => k.getBoundingClientRect().top + scrollY));
     assert.equal(keys.length, 2);
@@ -231,7 +240,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
 
     assert.deepEqual(outside, [], 'nothing outside the site is requested');
     assert.deepEqual(errors, []);
-    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, pictures present and unscaled at 1x and 2x, links and anchors); the words (nothing of 1.2, no 1.2 feed, downloads by fixed names, the download and the install line in the order of each system with Copy, the install scripts as published, one key in view, 4.5 : 1); scripts off; Reduce Motion; the live notch (plays, pauses, steps, keeps out of the keyboard, rests out of sight); nothing requested from outside; no browser errors.');
+    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, pictures present and unscaled at 1x and 2x, links and anchors); the words (nothing of 1.2, no 1.2 feed, downloads by fixed names, both systems with the visitor first, each in its order, with Copy and its fallback, the install scripts as published, one key in view, 4.5 : 1); scripts off; Reduce Motion; the live notch (plays, pauses, steps, keeps out of the keyboard, rests out of sight); nothing requested from outside; no browser errors.');
   } finally {
     if (browser) await browser.close();
     server.close();

@@ -173,10 +173,10 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 .rows dt{font:var(--f-label);color:var(--fg);padding-top:4px}
 .rows dd{text-wrap:pretty}
 
-/* get it: the download and the line for a terminal, only the visitor's system's when scripts run */
-.js:not(.win) .for-win,.win .for-mac{display:none}
-.build>div+div{margin-top:var(--sp6)}
+/* get it: the download and the line for a terminal, for each system, the visitor's first */
+.build{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp6)}
 .build .acts{margin-top:0}
+.build h3+*,.build h3+.acts{margin-top:var(--sp4)}
 .build .fine+*{margin-top:var(--sp5)}
 .line{display:flex;align-items:center;gap:var(--sp2)}
 .build .line pre{flex:1 1 auto;min-width:0;font:var(--f-code);line-height:22px}

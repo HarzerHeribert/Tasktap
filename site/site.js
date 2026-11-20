@@ -20,13 +20,19 @@
     new ResizeObserver(mark).observe(el);
   }
 
+  // On Windows its way to get the app comes first, for the eye and for a screen reader alike.
+  const win = $('.win .for-win');
+  if (win) win.parentElement.prepend(win);
   // A line to paste: Copy puts it on the clipboard and says so for a moment; where it cannot, the line is selected.
   for (const button of document.querySelectorAll('.copy')) {
-    const line = button.previousElementSibling;
-    button.addEventListener('click', () => navigator.clipboard.writeText(line.textContent).then(() => {
-      button.textContent = 'Copied';
-      setTimeout(() => (button.textContent = 'Copy'), 2000);
-    }, () => getSelection().selectAllChildren(line)));
+    const line = button.previousElementSibling, select = () => getSelection().selectAllChildren(line);
+    button.addEventListener('click', () => {
+      if (!navigator.clipboard) return select();
+      navigator.clipboard.writeText(line.textContent).then(() => {
+        button.textContent = 'Copied';
+        setTimeout(() => (button.textContent = 'Copy'), 2000);
+      }, select);
+    });
   }
 
   const top = $('.top'), stage = $('#stage');

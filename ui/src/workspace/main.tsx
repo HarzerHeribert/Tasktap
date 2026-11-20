@@ -448,8 +448,8 @@ void client
     else show(ui.view);
     firstStart();
     redraw();
-    // After the frame it is laid out in.
-    requestAnimationFrame(() => setTimeout(ready));
+    // Once that render is laid out (a timer, not a frame: a hidden window draws none).
+    setTimeout(ready);
     void loadTerms();
   })
   .catch((e) => (fail(e), ready()));

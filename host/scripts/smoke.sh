@@ -176,7 +176,9 @@ for _ in $(seq 1 100); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; 
 # covered window would not draw is checked too.
 [ -n "${FRONT:-}" ] && send front
 grep -q '"event":"ready"' "$log" && pass "the app starts and reaches its own core" || { fail "the app starts" "$(tail -3 "$log")"; exit 1; }
-until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .capture')" 10 "home true" && grep -q '"event":"window"' "$log" \
+# The host shows the window a moment after Home's first picture with the records is laid out: its line is waited for.
+until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .capture')" 10 "home true" \
+  && for _ in $(seq 1 100); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done && grep -q '"event":"window"' "$log" \
   && pass "the workspace window opens at launch, on Home, once its page has drawn" || fail "the workspace window opens"
 # A core built with its fixtures lists its agents when asked, as a normal one does at start, and runs their commands then.
 send 'call put {"c":"prefs","id":"agent","patch":"fixture"}' 'call put {"c":"prefs","id":"hold","patch":2}' 'call agents.detect {}'
@@ -209,6 +211,11 @@ until_has workspace "eval String(!__ws.ui.sheet && !!document.querySelector('.ho
   && pass "after Not now, Home is one composition: the Composer a little above the middle, centred on the window as far as the sidebar lets it, its place saying No projects yet, saved for later, its key the metal key that Return saves for later with; under it, on its edges, Setup with none of its steps done, and nothing else loose" || fail "Home on first start" "$(js workspace "$edges")"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
+# A Mac may ask for reduced motion (Accessibility, Reduce motion; GitHub's Mac runners have it on): then the light is
+# held still at every level and the sidebar does not slide, as the person asked, and the steps hold the app to that.
+reduced="$(js workspace "String(matchMedia('(prefers-reduced-motion: reduce)').matches)")"
+[ "$reduced" = true ] && echo "NOTE  this Mac asks for reduced motion: the light and the sidebar are held to staying still"
+usual="$([ "$reduced" = true ] && echo still || echo full)"
 # A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
 if until_has workspace "eval String(!!document.querySelector('.light .motion canvas') && __motion.stats.frames > 0)" 10 "true"; then
   pass "Home's light draws its chrome as a canvas"
@@ -227,6 +234,14 @@ sleep 2
 # keyframes and no frames; back at rest it stops.
 if [ "$(js workspace "String(document.hidden)")" = true ]; then
   pass "the loop while agents work: the window is covered, so nothing is drawn yet"
+elif [ "$reduced" = true ]; then
+  drawn="__motion.stats.frames + __motion.stats.keys"
+  js workspace "(Object.assign(__motion.debug, { state: 'working', active: true }), __motion.redraw(), 1)" >/dev/null; sleep 1
+  was=$(js workspace "$drawn"); sleep 2
+  held="$(js workspace "document.documentElement.dataset.effects + ' ' + document.querySelector('.light')?.dataset.moves + ' ' + ($drawn - $was)")"
+  js workspace "(Object.assign(__motion.debug, { state: null, active: null }), __motion.redraw(), 1)" >/dev/null; sleep 1
+  [ "$held" = "still false 0" ] && pass "while agents work on a Mac that asks for reduced motion the light is held still: the effects are Still, nothing moves and nothing is drawn" \
+    || fail "the loop while agents work, with reduced motion" "$held"
 else
   drawn="__motion.stats.frames + __motion.stats.keys"
   js workspace "(Object.assign(__motion.debug, { state: 'working', active: true }), __motion.redraw(), 1)" >/dev/null; sleep 1
@@ -260,10 +275,10 @@ until_has workspace "eval document.documentElement.dataset.effects + ' ' + docum
   && send 'call put {"c":"prefs","id":"motion_ambient","patch":"off"}' \
   && until_has workspace "eval String(!document.querySelector('.light') && !document.querySelector('.spark .glyph') && !document.querySelector('.room canvas'))" 3 "true" \
   && send 'call delete {"c":"prefs","id":"motion_ambient"}' \
-  && until_has workspace "eval String(!!document.querySelector('.light') && localStorage.length === 0) + ' ' + document.documentElement.dataset.effects" 3 "true full" \
+  && until_has workspace "eval String(!!document.querySelector('.light') && localStorage.length === 0) + ' ' + document.documentElement.dataset.effects" 3 "true $usual" \
   && js workspace "(__motion.debug.saving = true, __motion.redraw(), 1)" >/dev/null \
   && until_has workspace "eval document.documentElement.dataset.effects + ' ' + document.querySelector('.light')?.dataset.moves" 3 "still false" \
-  && pass "the effects are the core's preference: at Still the light is a picture while agents work, Off takes the light and the glyphs away at once, Low Power Mode holds Full at Still, and nothing is kept in the page" || fail "the effects preference"
+  && pass "the effects are the core's preference: at Still the light is a picture while agents work, Off takes the light and the glyphs away at once, Low Power Mode holds Full at Still, and nothing is kept in the page (with none chosen: $usual)" || fail "the effects preference"
 js workspace "(Object.assign(__motion.debug, { state: null, active: null, saving: null }), __motion.redraw(), 1)" >/dev/null
 send 'call put {"c":"prefs","id":"motion_style","patch":"glyphs"}' 'call put {"c":"prefs","id":"motion_lumen","patch":true}'
 until_has workspace "eval document.querySelector('.light .motion').dataset.style" 3 "glyphs" \
@@ -710,8 +725,24 @@ ok = len(f) >= 6 and abs(xs[-1] - xs[0]) > 200 and min(steps) > -0.6 and abs(xs[
 print("ok" if ok else "frames %d, from %s to %s, rests at %s, title %s rests %s, last steps %s" % (len(f), xs[0], xs[-1], d["rest"][0], ts[-1], d["rest"][1], steps[-4:]))' "$1"; }
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 sleep 0.5
+# With reduced motion the sidebar does not slide: the content stands where it rests from the first frame.
+still() { python3 -c '
+import json, sys
+d = json.loads(sys.argv[1]); x, t = d["frames"][0]
+print("ok" if [x, t] == d["rest"] else "first at %s, title %s; rests at %s" % (x, t, d["rest"]))' "$1"; }
 if [ "$(js workspace "String(document.hidden)")" = true ]; then
   pass "the sidebar's slide: the window is covered, so nothing moves to judge"
+elif [ "$reduced" = true ]; then
+  cols="$(js workspace "__ws.engines.get(__ws.current().id).term.cols")"
+  shut="$(still "$(js workspace "JSON.stringify(await __ws.slide())")")"
+  sleep 0.4
+  wider="$(js workspace "__ws.engines.get(__ws.current().id).term.cols")"
+  open="$(still "$(js workspace "JSON.stringify(await __ws.slide())")")"
+  sleep 0.4
+  [ "$shut" = ok ] && [ "$open" = ok ] && [ "$wider" -gt "$cols" ] && [ "$(js workspace "__ws.engines.get(__ws.current().id).term.cols")" = "$cols" ] \
+    && [ "$(js workspace "String(__ws.ui.sidebar && !__ws.ui.slide && !!document.querySelector('.side'))")" = true ] \
+    && pass "with reduced motion the sidebar shuts and opens at once, the content and the title where they rest from the first frame, and the terminal beside it is fitted after" \
+    || fail "the sidebar without its slide" "shut: $shut; open: $open; columns $cols, $wider"
 else
   cols="$(js workspace "__ws.engines.get(__ws.current().id).term.cols")"
   out="$(js workspace "JSON.stringify(await __ws.slide())")"; shut="$(judge "$out")"
@@ -1288,9 +1319,12 @@ rm -f "$tmp/project/way-out.txt"
 
 echo "== Previews beside a terminal: what a link opens, each kind, what a frame is held to, an agent's own, staying current"
 # A web server of the check's own on this machine, and a project with one file of each kind.
+# It says its port once it has tried how this machine reaches it by another name: `localhost.` asks the resolver,
+# which on a runner takes seconds. Its line is waited for, up to half a minute, not for a moment.
 python3 "$host/scripts/frame-fixture.py" "$tmp/frames.log" "$host/scripts/frame-probe.html" > "$tmp/frames.port" &
-for _ in $(seq 1 50); do [ -s "$tmp/frames.port" ] && break; sleep 0.1; done
+for _ in $(seq 1 300); do [ -s "$tmp/frames.port" ] && break; sleep 0.1; done
 read -r fport remote < "$tmp/frames.port"
+[ -n "$fport" ] || fail "the check's own web server for frames said no port in half a minute"
 real="$(cd "$tmp/project" && pwd -P)"
 printf '# Smoke notes\n\nWritten by **the agent**. See [the log](plain.txt) and https://example.com/docs.\n\n<script>document.title = "ran"</script>\n\n- [x] one\n- [ ] two\n' > "$tmp/project/notes.md"
 echo "plain words" > "$tmp/project/plain.txt"
@@ -1453,7 +1487,8 @@ until_has workspace "eval $front" 8 "web DIV Nothing answers yet" || fail "nothi
 shot preview-nothing workspace
 python3 -m http.server "$quietport" --bind 127.0.0.1 --directory "$tmp/project" >/dev/null 2>&1 &
 late=$!
-sleep 1
+# The terminal speaks once the server answers, which a busy machine's Python takes its time to start.
+for _ in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:$quietport/" && break; sleep 0.1; done
 term_line "echo the server is up"
 until_has workspace "eval $frame" 8 "allow-scripts allow-forms allow-same-origin 127.0.0.1:$quietport" && pass "a local address that nothing answers says so, and is shown once its server does and its terminal has gone quiet" || fail "a server that starts later" "$(js workspace "$front")"
 kill "$late" 2>/dev/null

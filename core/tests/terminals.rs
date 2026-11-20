@@ -770,6 +770,9 @@ fn a_shell_says_what_runs_in_it_and_nothing_when_it_waits_for_a_command() {
     screen.line("kill -9 %1 %2");
     assert!(idle(&runs_until(&mut c, id, idle)));
 
+    // The shell learns what became of its jobs, which dash does only at its
+    // next command: until then it refuses `exit` for a job it thinks stopped.
+    screen.line("wait");
     screen.line("exit");
     screen.ended();
     assert_eq!(runs_of(&mut c, id).unwrap().state, RunState::Ended);

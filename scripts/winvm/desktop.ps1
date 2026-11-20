@@ -496,7 +496,7 @@ $rows['2'] = 'Runs host\scripts\smoke.ps1 against the built app and the fixture 
     Check 2 'the smoke script: only PASS lines and all passed' ($code -eq 0 -and $said -contains 'all passed' -and -not ($said -match '^(FAIL|NOTE)')) "exit $code; $(@($said -match '^PASS').Count) PASS, $(@($said -match '^FAIL').Count) FAIL; $($quit -join '; '); row2-smoke.txt"
 }
 
-$rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must hang centred from the top edge of the main display''s work area at the size the arithmetic gives for what Windows reports, above every window, with no taskbar button, never the window in front. Pictures of its own window, collapsed and open. With the script''s Notepad in front and the app''s window under the tab: a point beside the tab belongs to the window below and a click there reaches it; the pointer on the tab opens the sheet without taking the keyboard and leaving folds it (the pointer moves over the tab and the app''s window only and is put back); the capture key opens it with the caret in its field, what is typed lands there, Escape folds it and Notepad has the keyboard again, and so does a click elsewhere. The icon is in the notification area, its menu opens and says Open, Settings and Quit. The app''s own window over the whole display hides the tab; back in its frame the tab shows again. At rest nothing moves: processor time and context switches of the app and its web views over half a minute, with the tab and with it switched off.', {
+$rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must hang centred from the top edge of the main display''s work area at the size the arithmetic gives for what Windows reports, above every window, with no taskbar button, never the window in front, and hidden while the app''s own window is in front (rule 1 of "Where Tasktap shows itself"): at a first start it is made hidden, and shows with another program in front. Pictures of its own window, collapsed and open. With the script''s Notepad in front and the app''s window under the tab: a point beside the tab belongs to the window below and a click there reaches it; the pointer on the tab opens the sheet without taking the keyboard and leaving folds it (the pointer moves over the tab and the app''s window only and is put back); the capture key opens it with the caret in its field, what is typed lands there, Escape folds it and Notepad has the keyboard again, and so does a click elsewhere. The icon is in the notification area, its menu opens and says Open, Settings and Quit. The app''s own window over the whole display hides the tab; back in its frame and with Notepad in front the tab shows again. At rest nothing moves: processor time and context switches of the app and its web views over half a minute, with the tab and with it switched off.', {
     New-Item -ItemType Directory -Force "$tmp\data3", "$tmp\project3" | Out-Null
     $window = Start-Own @{ TASKTAP_DATA = "$tmp\data3"; TASKTAP_PICK = "$tmp\project3" } 420
     if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 3 'the app shows no window'; End-Own 'row3-app.txt'; return }
@@ -504,8 +504,12 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $made = @($seen | Where-Object { $_ -match '"made":' })[-1]
     if (-not $made) { $made = Until '"made":' 15 }
     $page = Soon 'typeof __records' 'object' 20 'notch'
-    $t = Tab-Soon { param($t) $t.shown }
-    Check 3 'the tab''s window is made after the workspace has drawn, with the notch''s own page in it, and is shown' ("$made" -match '"made":true' -and $page -eq 'object' -and $t.shown) "the app: $made; the page's records: $page; shown: $($t.shown)"
+    # Rule 1 of "Where Tasktap shows itself" (docs/rebuild-plan.md): Tasktap's window in front, no tab. At a first start
+    # the app gives its window the keyboard as it shows it, so the tab is made and hidden; with Notepad in front (below)
+    # it shows. (Until 2026-11-20 this asked for the tab shown here, which the rule has not allowed since 2026-11-19.)
+    $t = Tab-Soon { param($t) $t.window }
+    $front = [Tasktap.Desk]::GetForegroundWindow() -eq $window
+    Check 3 'the tab''s window is made after the workspace has drawn, with the notch''s own page in it, and shown only while the app''s window is not in front' ("$made" -match '"made":true' -and $page -eq 'object' -and $t.window -and [bool]$t.shown -ne $front) "the app: $made; the page's records: $page; the app's window in front: $front; the tab shown: $($t.shown)"
     if (-not $t -or -not $t.window) { End-Own 'row3-app.txt'; return }
     $tab = [IntPtr][long]$t.window
     # Where the arithmetic puts it, worked out here from what Windows reports of the main display.
@@ -531,6 +535,8 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     if (-not $notepad) { Say 'FAIL' 3 'not run further: Notepad could not be put in front'; End-Own 'row3-app.txt'; return }
     $null = [Tasktap.Desk]::SetWindowPos($notepad.Handle, [IntPtr]::Zero, $edge + 4, $screen.Bounds.Top + $bar, 760, 440, 0x0014)
     Start-Sleep -Milliseconds 600
+    $t = Tab-Soon { param($t) $t.shown }
+    Check 3 'with another program in front the tab shows' ([bool]$t.shown) "the tab shown: $($t.shown); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle)"
     Say 'LOOK' 3 'the tab collapsed, with nothing running: its own window, and as it stands on the screen over the app''s window and Notepad' (Tab-Picture $tab 'row3-tab-collapsed')
     $was = [Tasktap.Desk+Point]::new()
     $null = [Tasktap.Desk]::GetCursorPos([ref]$was)
@@ -631,8 +637,10 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $hidden = Tab-Soon { param($t) -not $t.shown }
     Check 3 'the tab hides while a window fills the whole display' (-not $hidden.shown -and $hidden.hidden) "the tab shown: $($hidden.shown); Windows says to hide: $($hidden.hidden)"
     Send 'fullscreen off'
+    # Back in its frame the app's window is still in front, which keeps the tab away (rule 1): Notepad is put in front.
+    $null = Front $notepad.Handle
     $shown = Tab-Soon { param($t) $t.shown }
-    Check 3 'and shows again when it no longer does' ($shown.shown -and -not $shown.hidden) "the tab shown: $($shown.shown)"
+    Check 3 'and shows again when it no longer does and another program is in front' ($shown.shown -and -not $shown.hidden) "the tab shown: $($shown.shown); Windows says to hide: $($shown.hidden); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle)"
     [Tasktap.Desk]::Close($notepad.Handle)
     # At rest. The app's own processes and the web views under it: processor time and how often the system let
     # their threads run, over half a minute with the tab collapsed and again with the tab switched off.
@@ -1061,8 +1069,9 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
     First-Start 9 -New
     Start-Sleep -Seconds 2
     # Open Workspace by its key and the sheet's Return, with real keys; then the dialog, a window of the app's process.
+    # Which step it stopped at is kept for the check's line: until 2026-11-20 a round could not tell.
     function Ask-Folder {
-        if (-not (Front $window)) { return }
+        if (-not (Front $window)) { $script:stopped = 'the app''s window could not be put in front'; return }
         [Tasktap.Desk]::Chord([byte[]](0x11, 0x10, 0x4F))
         $sheet = Soon "document.querySelector('.sheet')?.innerText ?? ''" 'Choose a folder' 10
         [Tasktap.Desk]::Chord([byte[]](0x0D))
@@ -1071,6 +1080,7 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
             $dialog = [Tasktap.Desk]::Windows() | Where-Object { $_.ProcessId -eq $proc.Id -and $_.Class -eq '#32770' } | Select-Object -First 1
             if ($dialog) { Start-Sleep -Milliseconds 1200; return $dialog }
         }
+        $script:stopped = "no dialog 10 s after Return; the sheet said: $("$sheet".Replace("`n", ' / ')); the window in front is the app's: $([Tasktap.Desk]::GetForegroundWindow() -eq $window)"
     }
     function Gone($dialog, $tries = 40) {
         for ($i = 0; $i -lt $tries; $i++) {
@@ -1080,7 +1090,7 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
         $false
     }
     $dialog = Ask-Folder
-    Check 9 'Ctrl+Shift+O and Return open the system''s own folder dialog' ($null -ne $dialog) "its title: $($dialog.Title)"
+    Check 9 'Ctrl+Shift+O and Return open the system''s own folder dialog' ($null -ne $dialog) $(if ($dialog) { "its title: $($dialog.Title)" } else { $script:stopped })
     if (-not $dialog) { End-Own 'row9-app.txt'; return }
     $owner = [Tasktap.Desk]::GetWindow($dialog.Handle, 4)
     $takes = [Tasktap.Desk]::IsWindowEnabled($window)

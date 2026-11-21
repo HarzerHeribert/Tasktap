@@ -132,6 +132,10 @@ jobs:
       # recorder's defect was of that kind).
       - name: What goes with a part of a page goes at once, in Chromium and WebKit
         run: node scripts/late-cleanup-check.cjs
+      # The window can be up before the core is (a first start held up by a virus scan): the page says "Starting…",
+      # claims nothing it does not know, and keeps a task started meanwhile for the core.
+      - name: While the core starts, the page claims nothing and keeps what is started
+        run: node scripts/starting-check.cjs
       - name: Settings › Projects at every size of window and text
         run: node scripts/projects-shots.cjs "$RUNNER_TEMP/pages/projects" --check --sizes
       - name: Placing by a model, its sheet and its order

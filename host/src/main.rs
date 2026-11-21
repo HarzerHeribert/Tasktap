@@ -51,11 +51,13 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
+/// The app's own state. The core and the host's connection to it are there once the core has started, which the
+/// app does not wait for: its windows show what their pages draw meanwhile, and what needs the core waits for it.
 struct Host {
-    core: Arc<Core>,
-    link: Arc<Link>,
+    core: OnceLock<Arc<Core>>,
+    link: OnceLock<Arc<Link>>,
     /// Each page's connection to the core, by window label.
-    pages: Mutex<HashMap<String, Stream>>,
+    pages: Mutex<Pages<Stream>>,
     /// The question `glance` names, which affirm and deny act on.
     question: Mutex<Option<QuestionId>>,
 }
@@ -75,27 +77,110 @@ fn log(value: Value) {
 /// The app, for window events that carry none, set once its state is managed; and when it started, for the launch
 /// measure.
 static APP: OnceLock<AppHandle> = OnceLock::new();
+/// The app once the core has started: what the host's connection hears is acted on from then on, as it was when the
+/// app waited for the core before its event loop ran.
+fn up() -> &'static AppHandle {
+    let app = APP.wait();
+    app.state::<Host>().link.wait();
+    app
+}
 static START: OnceLock<Instant> = OnceLock::new();
 fn since_start() -> u128 {
     START.get().map_or(0, |s| s.elapsed().as_millis())
 }
 
-/// Opens this page's connection; the core's bytes reach the page on `frames` as they arrive,
-/// whole frames or not. An empty message means the connection ended.
-#[tauri::command]
-fn bridge_open(
-    webview: tauri::Webview,
-    frames: Channel<InvokeResponseBody>,
-    host: tauri::State<Host>,
-) -> Result<(), String> {
-    let label = webview.label().to_owned();
-    let (stream, first) = host.core.connect(Role::Page, &format!("tasktap-app {label}")).map_err(|e| e.to_string())?;
-    let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
-    if let Some(old) = host.pages.lock().unwrap().insert(label, stream) {
-        let _ = old.shutdown(Shutdown::Both);
+/// Each page's connection to the core, by window label. A page asks for one as it loads, and it is made once the core
+/// is there, which at a start may be a while: only the page that asked last for a label holds that label's
+/// connection, and none is held for a window that is gone.
+struct Pages<T> {
+    held: HashMap<String, T>,
+    asked: HashMap<String, u64>,
+    next: u64,
+}
+
+impl<T> Default for Pages<T> {
+    fn default() -> Self {
+        Pages { held: HashMap::new(), asked: HashMap::new(), next: 0 }
     }
-    let _ = frames.send(InvokeResponseBody::Raw(first));
+}
+
+impl<T> Pages<T> {
+    /// A page asks for its connection: the number that connection is held under.
+    fn ask(&mut self, label: &str) -> u64 {
+        self.next += 1;
+        self.asked.insert(label.to_owned(), self.next);
+        self.next
+    }
+
+    /// Holds the connection made for ask `n`, giving back the one it replaces; or, when a page asked for the label
+    /// since (reloaded, or its window made again), gives it back itself, to be closed.
+    fn hold(&mut self, label: &str, n: u64, connection: T) -> Result<Option<T>, T> {
+        match self.asked.get(label) == Some(&n) {
+            true => Ok(self.held.insert(label.to_owned(), connection)),
+            false => Err(connection),
+        }
+    }
+
+    /// The window of ask `n` is gone: the connection held for it, to be closed.
+    fn gone(&mut self, label: &str, n: u64) -> Option<T> {
+        if self.asked.get(label) != Some(&n) {
+            return None;
+        }
+        self.asked.remove(label);
+        self.held.remove(label)
+    }
+
+    /// The window is gone: its connection, to be closed.
+    fn forget(&mut self, label: &str) -> Option<T> {
+        self.held.remove(label)
+    }
+
+    fn get_mut(&mut self, label: &str) -> Option<&mut T> {
+        self.held.get_mut(label)
+    }
+}
+
+/// Opens this page's connection; the core's bytes reach the page on `frames` as they arrive,
+/// whole frames or not. An empty message means the connection ended. Made on a thread of its own once the core is
+/// there, which at a start may be a while: the page waits for its welcome, and the app does not.
+#[tauri::command]
+fn bridge_open(webview: tauri::Webview, frames: Channel<InvokeResponseBody>, app: AppHandle) -> Result<(), String> {
+    let label = webview.label().to_owned();
+    let asked = app.state::<Host>().pages.lock().unwrap().ask(&label);
     std::thread::spawn(move || {
+        let host = app.state::<Host>();
+        let opened = host.core.wait().connect(Role::Page, &format!("tasktap-app {label}"));
+        let Ok((stream, first)) = opened else {
+            // As a refused connection always ended: the page starts over a moment later.
+            let _ = frames.send(InvokeResponseBody::Raw(Vec::new()));
+            return;
+        };
+        let Ok(mut reader) = stream.try_clone() else {
+            let _ = frames.send(InvokeResponseBody::Raw(Vec::new()));
+            return;
+        };
+        // Held first, then the window looked at: a window closed before the hold is found gone, one closed after it
+        // lets go of it as its page is forgotten. Either way no connection the core would keep streams for is held
+        // for a window that is gone.
+        let held = host.pages.lock().unwrap().hold(&label, asked, stream);
+        let replaced = match held {
+            Ok(replaced) => replaced,
+            // A page that asked since holds the label's connection: this one is no one's.
+            Err(superseded) => {
+                let _ = superseded.shutdown(Shutdown::Both);
+                return;
+            }
+        };
+        if let Some(old) = replaced {
+            let _ = old.shutdown(Shutdown::Both);
+        }
+        if app.get_webview_window(&label).is_none() {
+            if let Some(stream) = host.pages.lock().unwrap().gone(&label, asked) {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            return;
+        }
+        let _ = frames.send(InvokeResponseBody::Raw(first));
         let mut buf = vec![0u8; 64 << 10];
         while let Ok(n @ 1..) = reader.read(&mut buf) {
             if frames.send(InvokeResponseBody::Raw(buf[..n].to_vec())).is_err() {
@@ -110,7 +195,7 @@ fn bridge_open(
 /// A page whose window is gone lets go of its connection, so the core stops holding its streams
 /// for it and answers its terminals' questions again while no window is attached (design §9).
 fn forget_page(app: &AppHandle, label: &str) {
-    if let Some(stream) = app.state::<Host>().pages.lock().unwrap().remove(label) {
+    if let Some(stream) = app.state::<Host>().pages.lock().unwrap().forget(label) {
         let _ = stream.shutdown(Shutdown::Both);
     }
 }
@@ -198,13 +283,14 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         #[cfg(target_os = "macos")]
         "host.layout" => Ok(Value::Object(native::layout())),
         // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).
-        "host.open" => {
-            let host = app.state::<Host>();
-            let mut roots: Vec<_> =
-                host.link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
-            roots.push(host.core.data.join("worktrees"));
-            open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
-        }
+        "host.open" => match started(app) {
+            Some((core, link)) => {
+                let mut roots: Vec<_> = link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
+                roots.push(core.data.join("worktrees"));
+                open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
+            }
+            None => Err(STARTING.into()),
+        },
         "host.capture_key" => keys::call(app, args),
         // The keys that answer a waiting question from any app: the ones in use, or one changed (keys.rs).
         "host.answer_key" => keys::answer_call(app, args),
@@ -225,8 +311,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             Err("Showing a page here is not ready yet".into())
         }
         "host.frame" => {
-            let host = app.state::<Host>();
-            let (link, worktrees) = (host.link.clone(), host.core.data.join("worktrees"));
+            let Some((core, link)) = started(app) else { return reply_to(&id, Err(STARTING.into())) };
+            let worktrees = core.data.join("worktrees");
             frames::base(move || {
                 let mut roots: Vec<_> = link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
                 roots.push(worktrees.clone());
@@ -240,6 +326,11 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         }
         name => Err(format!("this host has no {name}")),
     };
+    reply_to(&id, outcome)
+}
+
+/// What a page's `host.*` call is answered with, as a frame.
+fn reply_to(id: &Value, outcome: Result<Value, String>) -> String {
     match outcome {
         Ok(ok) => json!({"t": "reply", "id": id, "ok": ok}),
         Err(message) => json!({"t": "reply", "id": id, "err": {"code": "unknown", "message": message}}),
@@ -252,12 +343,22 @@ fn debug_report(label: String, data: Value) {
     log(json!({"event": "report", "label": label, "data": data}));
 }
 
+/// The core and the host's connection to it, once the core has started.
+fn started(app: &AppHandle) -> Option<(Arc<Core>, Arc<Link>)> {
+    let host = app.state::<Host>();
+    Some((host.core.get()?.clone(), host.link.get()?.clone()))
+}
+
+/// What a call that needs the core is told while it starts.
+const STARTING: &str = "Tasktap's core is still starting";
+
 /// Affirm and deny act on the question `glance` names, from any app.
 fn input(app: &AppHandle, action: &str) {
     let host = app.state::<Host>();
     let Some(question) = *host.question.lock().unwrap() else { return };
+    let Some(link) = host.link.get() else { return };
     let action = action.to_owned();
-    host.link.call("input", json!({"action": action, "question": question}), move |outcome| {
+    link.call("input", json!({"action": action, "question": question}), move |outcome| {
         log(json!({"event": "input", "action": action, "outcome": outcome}))
     });
 }
@@ -267,7 +368,7 @@ fn input(app: &AppHandle, action: &str) {
 fn asks(app: &AppHandle) -> Option<presence::Asks> {
     let host = app.state::<Host>();
     let id = (*host.question.lock().unwrap())?;
-    let known = host.link.questions.lock().unwrap().get(&id).cloned();
+    let known = host.link.get().and_then(|link| link.questions.lock().unwrap().get(&id).cloned());
     Some(known.unwrap_or(presence::Asks { id: id.uuid().to_string(), session: None, terminal: false, confirm: true }))
 }
 
@@ -276,8 +377,10 @@ fn heard(app: &AppHandle, heard: core::Heard) {
     match heard {
         core::Heard::Questions => {
             presence::question(app, asks(app));
-            let open: Vec<String> =
-                app.state::<Host>().link.questions.lock().unwrap().values().map(|q| q.id.clone()).collect();
+            let open: Vec<String> = match app.state::<Host>().link.get() {
+                Some(link) => link.questions.lock().unwrap().values().map(|q| q.id.clone()).collect(),
+                None => Vec::new(),
+            };
             notify::settle(&open);
         }
         core::Heard::Notify(args) => notify::asked(&args),
@@ -500,11 +603,14 @@ fn command(app: &AppHandle, line: &str) {
         "call" => {
             let (name, args) = rest.split_once(' ').unwrap_or((rest, "{}"));
             let name = name.to_owned();
-            app.state::<Host>().link.call(
-                &name.clone(),
-                serde_json::from_str(args).unwrap_or_default(),
-                move |outcome| log(json!({"event": "reply", "name": name, "outcome": outcome})),
-            );
+            match app.state::<Host>().link.get() {
+                Some(link) => {
+                    link.call(&name.clone(), serde_json::from_str(args).unwrap_or_default(), move |outcome| {
+                        log(json!({"event": "reply", "name": name, "outcome": outcome}))
+                    })
+                }
+                None => log(json!({"event": "reply", "name": name, "refused": STARTING})),
+            }
         }
         "quit" => {
             workspace::quit();
@@ -571,7 +677,7 @@ fn main() {
         let link = Link::start(
             core.clone(),
             |g| {
-                let app = APP.wait();
+                let app = up();
                 let _ = app.run_on_main_thread(move || glance(app, g));
             },
             // The capture key is registered once the core's records say which it is, and again
@@ -579,7 +685,7 @@ fn main() {
             // so that the person can choose another in Settings. The updater asks GitHub by itself
             // only while the person lets it.
             |prefs| {
-                let app = APP.wait();
+                let app = up();
                 update::allow(prefs.checks);
                 keys::talk(prefs.talk);
                 let _ = app.run_on_main_thread(move || {
@@ -588,7 +694,7 @@ fn main() {
                 });
             },
             |told| {
-                let app = APP.wait();
+                let app = up();
                 let _ = app.run_on_main_thread(move || heard(app, told));
             },
         )?;
@@ -715,6 +821,14 @@ fn main() {
                     }
                 });
             }
+            // The app's state, there before any window: the core and the link join it once the core has started.
+            app.manage(Host {
+                core: OnceLock::new(),
+                link: OnceLock::new(),
+                pages: Mutex::default(),
+                question: Mutex::default(),
+            });
+            let _ = APP.set(app.handle().clone());
             // Opened by the system at login: no window, only the notch (on Windows the tab, made now as the window's
             // first picture would have made it) and the icon. The capture key and the icon bring the window.
             if login::started_at_login() {
@@ -724,14 +838,34 @@ fn main() {
             } else {
                 workspace::show(app.handle(), None)?;
             }
-            let (core, link) = starting.join().expect("the core's start panicked")?;
-            log(json!({"event": "ready", "data": core.data}));
-            app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
-            let _ = APP.set(app.handle().clone());
-            // Said once the window is there: what the first start did with Tasktap Next's folder.
-            if let Some(words) = moved.filter(|_| !passive) {
-                let _ = app.run_on_main_thread(move || takeover::tell(&words));
-            }
+            // The core may take a while to start (a first start's copy of it, a virus scanner's first look at it): nothing
+            // here waits for it, so the event loop runs and the window shows as soon as its page has drawn, or after
+            // 3 s. A core that cannot start ends the app as it always has, with why on standard error.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || match starting.join() {
+                Ok(Ok((core, link))) => {
+                    log(json!({"event": "ready", "data": core.data}));
+                    // The link first: a page connects once the core is there, and finds the link there too.
+                    let host = handle.state::<Host>();
+                    let _ = host.link.set(link);
+                    let _ = host.core.set(core);
+                    // Said once the window is there: what the first start did with Tasktap Next's folder.
+                    if let Some(words) = moved.filter(|_| !passive) {
+                        let _ = handle.run_on_main_thread(move || takeover::tell(&words));
+                    }
+                }
+                // Why, and then out through the app's own exit, as a quit goes: the window's frame is kept and, on
+                // Windows, the icon taken away.
+                Ok(Err(e)) if !core::abandoned() => {
+                    eprintln!("Tasktap failed to start: {e}");
+                    handle.exit(101);
+                }
+                Ok(Err(_)) => {}
+                Err(_) => {
+                    eprintln!("Tasktap failed to start: the core's start panicked");
+                    handle.exit(101);
+                }
+            });
             Ok(())
         })
         .build(context)
@@ -751,10 +885,14 @@ fn main() {
             api.prevent_exit()
         }
         RunEvent::ExitRequested { .. } => {
+            // A core still starting is ended: none starts after the app that asked for it has gone. Here already,
+            // and not only at the end, since over SSH (no desktop) the event loop is never seen to end.
+            core::abandon();
             workspace::quit();
             log(json!({"event": "quitting"}))
         }
         RunEvent::Exit => {
+            core::abandon();
             #[cfg(windows)]
             edge::end();
             log(json!({"event": "quit"}))
@@ -766,6 +904,35 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_closed_while_its_page_waited_for_the_core_keeps_no_connection() {
+        let mut pages = Pages::default();
+        let asked = pages.ask("workspace");
+        // Closed before the connection is held: forgetting the page finds nothing, the look after the hold the window
+        // gone.
+        assert_eq!(pages.forget("workspace"), None);
+        assert_eq!(pages.hold("workspace", asked, 1), Ok(None));
+        assert_eq!(pages.gone("workspace", asked), Some(1));
+        assert_eq!(pages.get_mut("workspace"), None);
+    }
+
+    #[test]
+    fn only_the_page_that_asked_last_holds_its_windows_connection() {
+        let mut pages = Pages::default();
+        let first = pages.ask("workspace");
+        let reloaded = pages.ask("workspace");
+        // The page reloaded while both waited for the core: the first page's connection, made last, is not held.
+        assert_eq!(pages.hold("workspace", reloaded, 2), Ok(None));
+        assert_eq!(pages.hold("workspace", first, 1), Err(1));
+        assert_eq!(pages.get_mut("workspace"), Some(&mut 2));
+        // A window made again holds its own, and gives back the one it replaces; the look for the earlier window
+        // finding it gone takes nothing from the new one.
+        let again = pages.ask("workspace");
+        assert_eq!(pages.hold("workspace", again, 3), Ok(Some(2)));
+        assert_eq!(pages.gone("workspace", reloaded), None);
+        assert_eq!(pages.get_mut("workspace"), Some(&mut 3));
+    }
 
     #[test]
     fn a_passive_run_is_never_given_the_microphone_and_no_run_anything_else() {

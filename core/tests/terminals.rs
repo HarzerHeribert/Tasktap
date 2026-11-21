@@ -807,8 +807,13 @@ fn a_console_says_through_its_job_what_runs_in_it() {
     let runs = runs_until(&mut c, id, ping);
     assert_eq!(runs.state, RunState::Running, "{:?}", runs.what);
     assert!(ping(&runs), "{:?}", runs.what);
+    // Ctrl+C once ping has answered once. It is in the job from the moment
+    // it is made, and a program still starting up can miss the console's
+    // Ctrl+C and run its minute (seen once, on a busy ARM64 VM).
+    screen.until("TTL=");
     screen.write(b"\x03");
-    assert!(idle(&runs_until(&mut c, id, idle)));
+    let after = runs_until(&mut c, id, idle);
+    assert!(idle(&after), "after Ctrl+C: {:?}", after.what);
     // Started to run on beside the prompt: it runs.
     screen.line("start /b ping -n 60 127.0.0.1 > nul");
     let runs = runs_until(&mut c, id, ping);

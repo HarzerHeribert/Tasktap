@@ -11,7 +11,7 @@ use std::os::unix::{
     process::CommandExt,
 };
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tasktap_proto::{
     encode_control, Auth, CallId, Control, Decoder, DeviceId, Frame, Glance, Hello, Outcome, PrefKey, PrefValue,
@@ -89,6 +89,79 @@ fn dial(data: &Path) -> io::Result<Stream> {
     return Stream::connect(data.join("core.sock"));
     #[cfg(windows)]
     return Stream::connect(data);
+}
+
+/// A core this app is starting, until it says it listens; or none to start any more, the app having quit first.
+enum Start {
+    Idle,
+    Running(Child),
+    Abandoned,
+}
+
+/// The core's start as the app's quit sees it. Nothing waits while holding it: the quit runs on the main thread.
+struct Starting(Mutex<Start>);
+
+impl Starting {
+    const fn new() -> Starting {
+        Starting(Mutex::new(Start::Idle))
+    }
+
+    /// Spawns with `spawn` unless the app has quit, outside the lock: a virus scanner can hold up a new program's
+    /// first start, and the quit must not wait for it. A child spawned as the app quit is ended at once.
+    fn spawn(&self, spawn: impl FnOnce() -> io::Result<Child>) -> io::Result<()> {
+        let quit = || io::Error::other("the app quit before the core started");
+        if self.abandoned() {
+            return Err(quit());
+        }
+        let mut child = spawn()?;
+        let mut start = self.0.lock().unwrap();
+        if matches!(*start, Start::Abandoned) {
+            drop(start);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(quit());
+        }
+        *start = Start::Running(child);
+        Ok(())
+    }
+
+    /// The child once it said it listens, or ended, to be reaped; none when the app quit meanwhile.
+    fn take(&self) -> Option<Child> {
+        let mut start = self.0.lock().unwrap();
+        match std::mem::replace(&mut *start, Start::Idle) {
+            Start::Running(child) => Some(child),
+            other => {
+                *start = other;
+                None
+            }
+        }
+    }
+
+    /// Ends a child that has not yet said it listens, and any start after this; its end is waited for elsewhere.
+    fn abandon(&self) {
+        let was = std::mem::replace(&mut *self.0.lock().unwrap(), Start::Abandoned);
+        if let Start::Running(mut child) = was {
+            let _ = child.kill();
+            std::thread::spawn(move || child.wait());
+        }
+    }
+
+    fn abandoned(&self) -> bool {
+        matches!(*self.0.lock().unwrap(), Start::Abandoned)
+    }
+}
+
+static START: Starting = Starting::new();
+
+/// Ends a core this app started that has not yet said it listens, and any start after this: the app is quitting,
+/// and no core is to start after it has gone. A core that listens already is left to idle out as always.
+pub fn abandon() {
+    START.abandon();
+}
+
+/// Whether the app gave up the core's start as it quit.
+pub fn abandoned() -> bool {
+    START.abandoned()
 }
 
 pub struct Core {
@@ -189,16 +262,20 @@ impl Core {
         serve.process_group(0);
         #[cfg(windows)]
         crate::native::detach(&mut serve);
-        let mut child = serve.spawn()?;
+        START.spawn(|| serve.spawn())?;
         drop(serve);
         let mut said = String::new();
+        let read = BufReader::new(reader).read_line(&mut said);
+        // Reaped here when it exits, so it never lingers as a zombie of the host; ended already if the app quit.
+        let Some(mut child) = START.take() else {
+            return Err(io::Error::other("the app quit before the core listened"));
+        };
+        std::thread::spawn(move || child.wait());
         // On Windows a pipe whose other end closed is an error, not an end.
-        match BufReader::new(reader).read_line(&mut said) {
+        match read {
             Err(e) if e.kind() != io::ErrorKind::BrokenPipe => return Err(e),
             _ => {}
         }
-        // Reaped here when it exits, so it never lingers as a zombie of the host.
-        std::thread::spawn(move || child.wait());
         match said.trim_end() {
             "ready" => Ok(()),
             "" => Err(io::Error::other("the core ended before it listened")),
@@ -483,6 +560,50 @@ impl Link {
             && self.writer.lock().unwrap().as_mut().is_some_and(|w| w.write_all(&bytes).is_ok());
         if let Some(then) = (!sent).then(|| self.waiting.lock().unwrap().remove(&id)).flatten() {
             then(Outcome::Err(tasktap_proto::Error::new(tasktap_proto::Code::Gone, "no core connection")))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A program that runs until it is ended.
+    fn lasting() -> io::Result<Child> {
+        #[cfg(unix)]
+        return Command::new("sleep").arg("30").spawn();
+        #[cfg(windows)]
+        return Command::new("ping").args(["-n", "30", "127.0.0.1"]).stdout(Stdio::null()).spawn();
+    }
+
+    #[test]
+    fn the_quit_never_waits_for_a_spawn_under_way_and_ends_what_it_spawned() {
+        let starting = Arc::new(Starting::new());
+        let spawned = Arc::new(Mutex::new(None));
+        let (s, made) = (starting.clone(), spawned.clone());
+        // A spawn the system holds up, as a virus scanner does a new program's first start.
+        let spawning = std::thread::spawn(move || {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_millis(1500));
+                let child = lasting()?;
+                *made.lock().unwrap() = Some(child.id());
+                Ok(child)
+            })
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        let asked = Instant::now();
+        starting.abandon();
+        let waited = asked.elapsed();
+        assert!(waited < Duration::from_millis(500), "the quit waited {waited:?} for the spawn");
+        assert!(spawning.join().unwrap().is_err(), "a start after the quit goes on");
+        assert!(starting.abandoned() && starting.take().is_none());
+        // What the spawn made after the quit was ended, and reaped.
+        #[cfg(unix)]
+        {
+            let pid = spawned.lock().unwrap().expect("the spawn ran");
+            let alive = Command::new("kill").args(["-0", &pid.to_string()]).stderr(Stdio::null()).status();
+            assert!(!alive.unwrap().success(), "process {pid} runs on");
         }
     }
 }

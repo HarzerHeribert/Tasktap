@@ -223,7 +223,7 @@ async function answerKeys(browser, url, system) {
   };
   await tries('KeyN', 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key.', 'a key with no modifier');
   await tries('Control+Alt+KeyT', 'That key is taken by the system or another app.', 'a key another app holds');
-  await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to put a thought in.', 'the capture key');
+  await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to start a task.', 'the capture key');
   await tries('Control+Alt+KeyK', 'Tasktap already uses that combination to answer Yes.', 'the Yes key');
   await tries(mac ? 'Alt+Space' : 'Control+Space', 'Tasktap already uses that combination as the key to hold while you talk.', 'the key held to talk');
   // Tasktap's own window's keys, named; and the system's command modifier alone, which every app has.
@@ -263,7 +263,7 @@ async function answerKeys(browser, url, system) {
   };
   await talkTries(mac ? 'Control+Alt+KeyN' : 'Alt+Shift+KeyN', 'Tasktap already uses that combination to answer No.', 'the No key');
   await talkTries('Control+Shift+KeyQ', 'Tasktap already uses that combination to go to an agent’s question.', 'the key recorded to go to the question');
-  await talkTries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to put a thought in.', 'the capture key');
+  await talkTries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to start a task.', 'the capture key');
   await talkTries('Control+Shift+KeyG', 'That key is taken by the system or another app.', 'a key another app holds');
   await talkTries(mac ? 'Meta+KeyT' : 'Control+Shift+KeyT', `Tasktap uses ${mac ? '⌘T' : 'Ctrl+Shift+T'} for New terminal.`, `${mac ? '⌘T' : 'Ctrl+Shift+T'}`);
   await talkTries(mac ? 'Meta+KeyA' : 'Control+KeyA', `A text field uses ${mac ? '⌘A' : 'Ctrl+A'} for Select all.`, `${mac ? '⌘A' : 'Ctrl+A'}, a text field's own`);

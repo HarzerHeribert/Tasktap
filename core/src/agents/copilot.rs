@@ -292,7 +292,7 @@ impl Agent for Copilot {
     /// Settings says so.
     fn note(&self) -> Option<&'static str> {
         Some(
-            "It asks to trust each copy of the project a thought runs in: \
+            "Copilot asks to trust each copy of the project a task runs in: \
              Copilot has no way to be told so for one run, and Tasktap leaves its settings as they are.",
         )
     }

@@ -47,7 +47,7 @@ pub const APP_KEYS: &[AppKey] = &[
     app("settings", "⌘,", "Settings", true),
     app("back", "⌘[", "Back", true),
     app("session", "⌘I", "Details", true),
-    app("section-thoughts", "⌘1", "Thoughts in Settings", false),
+    app("section-thoughts", "⌘1", "Tasks in Settings", false),
     app("section-agents", "⌘2", "Agents in Settings", false),
     app("section-projects", "⌘3", "Projects in Settings", false),
     app("section-voice", "⌘4", "Voice in Settings", false),

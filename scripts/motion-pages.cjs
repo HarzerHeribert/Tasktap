@@ -360,7 +360,7 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     no: { control: !win, alt: true, shift: win, meta: false, code: 'KeyN' }, talk: { control: win, alt: !win, shift: false, meta: false, code: 'Space' },
   };
   const PREF = { capture: 'capture_key', question: 'question_key', yes: 'yes_key', no: 'no_key', talk: 'talk_key' };
-  const DOES = { capture: 'to put a thought in', question: 'to go to an agent’s question', yes: 'to answer Yes', no: 'to answer No', talk: 'as the key to hold while you talk' };
+  const DOES = { capture: 'to start a task', question: 'to go to an agent’s question', yes: 'to answer Yes', no: 'to answer No', talk: 'as the key to hold while you talk' };
   const stored = (w) => ((records.prefs || []).find((p) => p.id === PREF[w]) || {}).value;
   const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
   const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
@@ -532,7 +532,7 @@ const TERMS = {
   route: {
     instructions: fs.readFileSync(path.join(root, 'core/src/route/instructions.md'), 'utf8'),
     sends: [
-      'the thought, as you said or typed it',
+      'the task, as you said or typed it',
       'of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by and one line about it',
       'of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working',
       'of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)',

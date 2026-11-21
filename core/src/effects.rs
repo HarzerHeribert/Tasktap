@@ -924,7 +924,7 @@ fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -
         return Some(settled(core, attempt, done));
     }
     let Some((repo, workdir, title)) = worktree_of(core, thought) else {
-        let gone = "the thought's copy is gone".to_owned();
+        let gone = "the task's copy is gone".to_owned();
         return Some(settled(core, attempt, Err(gone)));
     };
     // A discard that finds all of it kept already reports it kept.
@@ -991,7 +991,7 @@ fn survey(core: &mut Core, thought: ThoughtId) {
 /// lost, and otherwise records the changes it found there.
 fn tidy(core: &mut Core, attempt: AttemptId, thought: ThoughtId) {
     let Some((repo, workdir, _)) = worktree_of(core, thought) else {
-        let gone = "the thought's copy is gone".to_owned();
+        let gone = "the task's copy is gone".to_owned();
         drop(settled(core, attempt, Err(gone)));
         return;
     };

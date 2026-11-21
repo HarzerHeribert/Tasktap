@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -85,8 +85,9 @@ const RESOURCE: &str = "https://api.openai.com/v1";
 /// The first registration's entry point; never kept.
 const FIRST_CLIENT: &str = "dynamic_agent_client";
 const CALLBACK: &str = "/auth/callback";
-/// Longest the browser is waited for, and one connection to the listener.
-const WAIT: Duration = Duration::from_secs(5 * 60);
+/// Seconds the browser is waited for, and longest one connection to the
+/// listener takes.
+const WAIT: u32 = 5 * 60;
 const ONE: Duration = Duration::from_secs(2);
 /// Longest one call of the sign-in takes, a renewal's among them.
 const CALL: Duration = Duration::from_secs(15);
@@ -131,24 +132,32 @@ pub struct ChatGpt {
     stale: Arc<AtomicBool>,
     waiting: Option<Waiting>,
     attempts: u64,
+    /// How long a second of the wait for the browser lasts: shorter only in
+    /// a test.
+    second: Duration,
 }
 
 /// A sign-in that waits for the browser: its number, what ends the wait,
-/// and the preference as it was before, which a cancel puts back.
+/// the preference as it was before, which a cancel puts back, and, for one
+/// asked under a kept client id, the registration with that id forgotten,
+/// which a cancel before the browser came back keeps.
 struct Waiting {
     number: u64,
     stop: mpsc::Sender<()>,
     before: Option<Seen>,
+    unknown: Option<(PathBuf, Registration)>,
+    called: Arc<AtomicBool>,
 }
 
-impl Default for ChatGpt {
-    fn default() -> Self {
+impl ChatGpt {
+    pub fn new(second: Duration) -> ChatGpt {
         ChatGpt {
             vault: secrets::vault(),
             held: Default::default(),
             stale: Default::default(),
             waiting: None,
             attempts: 0,
+            second,
         }
     }
 }
@@ -640,20 +649,44 @@ pub fn sign_in(cx: &mut Cx, _: Empty) -> Result<String, Error> {
     let (stop, stopped) = mpsc::channel();
     core.chatgpt.attempts += 1;
     let number = core.chatgpt.attempts;
+    // OpenAI tells the person of a client id it no longer knows (they
+    // removed Tasktap in ChatGPT's settings) on its own page, and sends the
+    // browser nowhere: an attempt under a kept one that ends with no
+    // callback, by its time or a cancel, forgets it, and the next registers
+    // anew. The host id stays.
+    let unknown = (attempt.registration.client.is_some()).then(|| {
+        let forgotten = Registration {
+            client: None,
+            ..attempt.registration.clone()
+        };
+        (data.clone(), forgotten)
+    });
+    let called = Arc::new(AtomicBool::new(false));
     core.chatgpt.waiting = Some(Waiting {
         number,
         stop,
         before,
+        unknown: unknown.clone(),
+        called: called.clone(),
     });
+    let wait = core.chatgpt.second * WAIT;
     let (vault, held) = (core.chatgpt.vault.clone(), core.chatgpt.held.clone());
     let work = move || {
         // The host id is kept from its first use.
-        register(&data, &attempt.registration);
-        let back = match listen(listener, &attempt.state, &stopped) {
+        if attempt.registration.client.is_none() {
+            register(&data, &attempt.registration);
+        }
+        let back = match listen(listener, &attempt.state, &stopped, wait) {
             Ok(back) => back,
             Err(None) => return None,
-            Err(Some(why)) => return Some(Ended::Failed(why)),
+            Err(Some(why)) => {
+                if let Some((data, forgotten)) = &unknown {
+                    register(data, forgotten);
+                }
+                return Some(Ended::Failed(why));
+            }
         };
+        called.store(true, Ordering::Relaxed);
         let done = signed_in(
             &*vault, &held, &openai, &attempt, &redirect, &back, &data, &stopped,
         );
@@ -700,8 +733,18 @@ pub fn sign_in(cx: &mut Cx, _: Empty) -> Result<String, Error> {
 pub fn sign_out(cx: &mut Cx, _: Empty) -> Option<Control> {
     let (link, id) = (cx.link.clone(), cx.id);
     let core = &mut *cx.core;
-    if let Some(Waiting { stop, before, .. }) = core.chatgpt.waiting.take() {
+    if let Some(waiting) = core.chatgpt.waiting.take() {
+        let Waiting {
+            stop,
+            before,
+            unknown,
+            called,
+            ..
+        } = waiting;
         let _ = stop.send(());
+        if let Some((data, forgotten)) = unknown.filter(|_| !called.load(Ordering::Relaxed)) {
+            register(&data, &forgotten);
+        }
         core.events.notify_one();
         put(core, before);
         return Some(call::ChatgptSignOut::reply(id, Ok(())));
@@ -729,17 +772,18 @@ fn stopped(stop: &mpsc::Receiver<()>) -> bool {
 }
 
 /// Waits for the browser to come back with this attempt's `state`, until
-/// [`WAIT`] or a word on `stop`, looked at between connections: what it
+/// `wait` or a word on `stop`, looked at between connections: what it
 /// brought. One that does not bring it is answered and ends nothing.
 /// `Err(None)`: stopped.
 fn listen(
     listener: TcpListener,
     state: &str,
     stop: &mpsc::Receiver<()>,
+    wait: Duration,
 ) -> Result<HashMap<String, String>, Option<String>> {
     let failed = |e: std::io::Error| Some(format!("the browser could not be listened for: {e}"));
     listener.set_nonblocking(true).map_err(failed)?;
-    let until = Instant::now() + WAIT;
+    let until = Instant::now() + wait;
     loop {
         if stopped(stop) {
             return Err(None);

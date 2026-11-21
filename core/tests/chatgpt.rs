@@ -83,6 +83,9 @@ struct State {
     refuse_renewal: bool,
     /// It no longer knows the client ids it issued.
     refuse_client: bool,
+    /// It no longer knows the client ids it issued, and says so on its own
+    /// page, sending the browser nowhere.
+    reject_client: bool,
     /// Milliseconds it takes to answer a renewal, and a code's exchange.
     renew_delay: u64,
     code_delay: u64,
@@ -273,6 +276,15 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
                     "authorization_endpoint": format!("{base}/api/accounts/authorize"),
                     "revocation_endpoint": format!("{base}/api/accounts/oauth/revoke") }),
         ),
+        ("GET", "/api/accounts/authorize")
+            if s.reject_client
+                && q.get("client_id")
+                    .is_some_and(|c| c != "dynamic_agent_client") =>
+        {
+            s.opened.push(q.clone());
+            let page = "<p>This app is not known to ChatGPT.</p>".to_owned();
+            ("400 Bad Request".into(), "text/html", page, None)
+        }
         ("GET", "/api/accounts/authorize") => {
             // A first registration, or a sign-in under a client id it issued.
             let client = q.get("client_id").cloned().unwrap_or_default();
@@ -634,9 +646,14 @@ struct Placing {
 
 impl Placing {
     fn new(prefix: &str) -> Placing {
+        Placing::with(prefix, &[])
+    }
+
+    /// The same, the core started with `extra`.
+    fn with(prefix: &str, extra: &[&str]) -> Placing {
         let data = Folder::new(prefix);
         let openai = StandIn::start();
-        let core = Placing::core(&data, &openai);
+        let core = Placing::core(&data, &openai, extra);
         let mut w = core.watch();
         let mut add = |name: &str| {
             let folder = data.0.join(name);
@@ -662,7 +679,7 @@ impl Placing {
         }
     }
 
-    fn core(data: &Folder, openai: &StandIn) -> Core {
+    fn core(data: &Folder, openai: &StandIn, extra: &[&str]) -> Core {
         let path = path_with(&agents(&data.0));
         let refuses = data.0.join("vault-refuses");
         let env = [
@@ -670,7 +687,7 @@ impl Placing {
             ("TASKTAP_CHATGPT", &openai.base),
             ("TASKTAP_VAULT_REFUSES", refuses.to_str().unwrap()),
         ];
-        Core::start_env(&data.0, &[], &env)
+        Core::start_env(&data.0, extra, &env)
     }
 
     /// The credential store refuses to keep anything, or keeps again.
@@ -1224,6 +1241,7 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
 
     // OpenAI no longer knows the client id it issued: the sign-in says so,
     // and the next registers anew, with the same host id.
+    let clients = p.openai.with(|s| s.clients.len());
     p.openai.with(|s| s.refuse_client = true);
     let address = p.start();
     p.browse(&address);
@@ -1238,7 +1256,7 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
     let last = opened.last().unwrap();
     assert_eq!(last["client_id"], "dynamic_agent_client");
     assert_eq!(last["ext_agent_host_id"], opened[0]["ext_agent_host_id"]);
-    assert_eq!(p.openai.with(|s| s.clients.len()), 2);
+    assert_eq!(p.openai.with(|s| s.clients.len()), clients + 1);
     p.sign_out();
     // Only the core writes the sign-in's record.
     let refused = p.w.refused::<call::Delete>(&tasktap_proto::Delete::Prefs {
@@ -1260,7 +1278,7 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
     } = p;
     drop(w);
     core.stop();
-    let core = Placing::core(&data, &openai);
+    let core = Placing::core(&data, &openai, &[]);
     let mut w = core.watch();
     let none = PrefValue::Chatgpt(None);
     assert_eq!(w.model.prefs.get(&PrefKey::Chatgpt), Some(&none));
@@ -1270,4 +1288,43 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
         fields(address.split_once('?').unwrap().1)["client_id"],
         client
     );
+}
+
+#[test]
+fn a_client_id_openai_no_longer_knows_is_forgotten_when_the_browser_never_comes_back() {
+    // A second of 10 ms: the browser is waited for 3 s.
+    let mut p = Placing::with("chatgpt-unknown", &["--second-ms", "10"]);
+    p.sign_in();
+    p.sign_out();
+    let host = p.openai.with(|s| s.opened[0]["ext_agent_host_id"].clone());
+    for cancelled in [true, false] {
+        // The person removed Tasktap in ChatGPT's settings: OpenAI's page
+        // says so, and sends the browser nowhere.
+        p.openai.with(|s| s.reject_client = true);
+        let address = p.start();
+        let (status, back, _) = get(&address);
+        assert_eq!((status, back), (400, None));
+        match cancelled {
+            true => p.sign_out(),
+            false => {
+                let ended = p.ended();
+                let why = "no answer came from the browser within 5 minutes";
+                assert_eq!(
+                    (ended.state, ended.error.as_deref()),
+                    (SignIn::Failed, Some(why))
+                );
+            }
+        }
+        // The next sign-in registers anew, under the same host id, and
+        // signs in.
+        p.openai.with(|s| s.reject_client = false);
+        let clients = p.openai.with(|s| s.clients.len());
+        p.sign_in();
+        let last = p.openai.with(|s| s.opened.last().cloned().unwrap());
+        assert_eq!(last["client_id"], "dynamic_agent_client");
+        assert_eq!(last["ext_agent_host_id"], host);
+        assert_eq!(p.openai.with(|s| s.clients.len()), clients + 1);
+        p.sign_out();
+    }
+    p.openai.no_problems();
 }

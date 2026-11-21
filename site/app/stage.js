@@ -26,7 +26,7 @@
       project(P.cuegrid, 'cuegrid', '/Users/example/projects/cuegrid'),
       project(P.fieldnotes, 'fieldnotes', '/Users/example/projects/fieldnotes'),
       project(P.ledger, 'ledger-api', '/Users/example/work/ledger-api'),
-      { ...project(P.scratch, 'Scratch', '/Users/example/Scratch'), kind: 'scratch', git: false, isolate: 'never', open: false },
+      { ...project(P.scratch, 'Scratchpad', '/Users/example/Scratch'), kind: 'scratch', git: false, isolate: 'never', open: false },
     ],
     agents: [agent('claude', '2.1.326'), agent('codex', '0.169.0')],
     prefs: [
@@ -146,6 +146,26 @@
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
     if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
+    // The sign-in with ChatGPT (core chatgpt.rs): the address of OpenAI's page, and the wait for the browser, one at a
+    // time; the check pushes how it ends. Signing out takes the record and ChatGPT's row of the agreement away, and an
+    // agreement left with no row goes with it.
+    if (name === 'chatgpt.sign_in' || name === 'chatgpt.sign_out') {
+      const set = (key, value) => {
+        rev++;
+        records.prefs = (records.prefs || []).filter((p) => p.id !== key).concat(value === undefined ? [] : [{ id: key, value, rev }]);
+        push({ t: 'change', rev, sets: [{ c: 'prefs', ...(value === undefined ? { del: [key] } : { put: [{ id: key, value, rev }] }) }] });
+      };
+      const now = (key) => (records.prefs || []).find((p) => p.id === key)?.value;
+      if (name === 'chatgpt.sign_out') {
+        const by = now('route_by'), left = by?.agents.filter((a) => a.agent !== 'chatgpt');
+        if (by) set('route_by', left.length ? { ...by, agents: left } : undefined);
+        set('chatgpt', null);
+        return reply(id, null);
+      }
+      if (now('chatgpt')?.state === 'waiting') return toCore({ t: 'reply', id, err: { code: 'conflict', message: 'a sign-in with ChatGPT is waiting for the browser already' } });
+      set('chatgpt', { state: 'waiting', model: null, name: null, error: null });
+      return reply(id, 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake');
+    }
     if (name === 'speech.terms') return reply(id, terms.speech);
     const pref = (key, value) => {
       rev++;
@@ -213,8 +233,9 @@
       return reply(id, null);
     }
     // `asks`: a thought left to the router is asked about, as the match on names asks when it is unsure: the thought,
-    // then (`asks.ms` later, 300 by default) "Where should this go?" with the folders `asks.choices` names. Answered by
-    // a choice it starts there; by Keep for later it is kept.
+    // then (`asks.ms` later, 300 by default) "Which project is this task for?" with the folders `asks.choices` names
+    // ("Where should the agent work?" with none, where no project is known). Answered by a choice it starts there; by
+    // Keep for later it is kept.
     if (name === 'thought.capture' && records.asks && !args.project_id && !args.card_id && args.mode !== 'note') {
       const now = Date.now(), thought = { id: args.id, rev: ++rev, text: args.text, strokes: [], source: args.source || 'typed', mode: 'ask', phase: 'captured', status: 'needs_you',
         reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: 1 },
@@ -223,7 +244,9 @@
       reply(id, null);
       const projects = (records.projects || []).filter((p) => p.open && p.kind === 'folder');
       const choices = (records.asks.choices || projects.slice(0, 3).map((p) => p.name)).slice(0, 3);
-      const q = { id: `019a8b6c-7d10-7000-a000-${String(++rev).padStart(12, '0')}`, rev, thought_id: args.id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null,
+      const known = projects.length || (records.cards || []).length;
+      const q = { id: `019a8b6c-7d10-7000-a000-${String(++rev).padStart(12, '0')}`, rev, thought_id: args.id, session_id: null, turn: null, source: 'router',
+        prompt: known ? 'Which project is this task for?' : 'Where should the agent work?', detail: null,
         reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices, places: choices.map((n) => ({ project: (projects.find((p) => p.name === n) || {}).id })), notes: records.asks.notes || choices.map(() => '') };
       setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'questions', put: [{ ...q, rev }] }] }), records.asks.ms ?? 300);
       window.__fake.asked = q;
@@ -257,7 +280,9 @@
       if (!row.on) return;
       const found = (records.found || []).filter((c) => !(records.cards || []).some((x) => x.id === c.id));
       found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), 90 * (i + 1)));
-      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now() }] }] }), 90 * (found.length + 1));
+      // `lookEnds`: how a search in a folder ends instead (its `state` and `note`, as the core records them).
+      const end = row.kind === 'folder' ? records.lookEnds : undefined;
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now(), ...end }] }] }), 90 * (found.length + 1));
     };
     if (name === 'look.add') {
       const had = (records.looks || []).find((l) => (args.agent && l.agent === args.agent) || (args.folder && l.folder === args.folder));
@@ -325,6 +350,9 @@
       if (args.stop) (records.terminals || []).filter((t) => t.project_id === args.id && t.state === 'running').forEach(end);
       return reply(id, null);
     }
+    // A command of an agent that holds what Tasktap sets for its runs is refused in the core's sentence, and nothing is
+    // stored.
+    if (name === 'put' && args.c === 'prefs' && args.id === 'agent_commands' && startRefused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: startRefused(args.patch) } });
     // A key the rule of a shortcut refuses is refused in the core's sentence, and nothing is stored.
     if (name === 'put' && args.c === 'prefs' && args.id === 'talk_key' && args.patch && refused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: refused(args.patch) } });
     if (name === 'put' && args.c === 'prefs') {
@@ -379,6 +407,17 @@
   const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
   const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
   const answers = () => ({ question: keyOf('question'), yes: keyOf('yes'), no: keyOf('no'), takes });
+  /** Why the commands that start Claude Code and Codex cannot be, as the core's `agents::judge` says it, in small: an
+   *  argument after the last word that is the agent's program that Tasktap sets itself, alone or with its value. */
+  const startRefused = (all) => {
+    const sets = { claude: ['Claude Code', ['-p', '--print', '-c', '--continue', '-r', '--resume', '--session-id', '--settings', '--model', '--']], codex: ['Codex', ['-C', '--cd', 'e', 'exec', 'review', 'resume', '-m', '--model', '--']] };
+    for (const { agent, command } of all) {
+      const [name, flags] = sets[agent] ?? [agent, []], words = command.split(/\s+/), at = words.lastIndexOf(agent);
+      const flag = at < 0 ? null : flags.find((f) => words.slice(at + 1).some((w) => w === f || (f.length > 2 && f.startsWith('--') && w.startsWith(`${f}=`))));
+      if (flag) return `Tasktap sets ${flag} itself for ${name}: take ${flag} out of the command`;
+    }
+    return null;
+  };
   /** Why `key` cannot be the key `which` beside Tasktap's own window, as the core's `own_key` says it. */
   const sys = win ? 'windows' : 'mac';
   const own = (which, key) => {

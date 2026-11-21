@@ -789,14 +789,16 @@ fn main() {
                         let _ = handle.run_on_main_thread(move || takeover::tell(&words));
                     }
                 }
+                // Why, and then out through the app's own exit, as a quit goes: the window's frame is kept and, on
+                // Windows, the icon taken away.
                 Ok(Err(e)) if !core::abandoned() => {
                     eprintln!("Tasktap failed to start: {e}");
-                    std::process::exit(101);
+                    handle.exit(101);
                 }
                 Ok(Err(_)) => {}
                 Err(_) => {
                     eprintln!("Tasktap failed to start: the core's start panicked");
-                    std::process::exit(101);
+                    handle.exit(101);
                 }
             });
             Ok(())

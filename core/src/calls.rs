@@ -363,7 +363,7 @@ fn update(cx: &mut Cx, a: tasktap_proto::Assign) -> Result<(), Error> {
         (Some(project), None) => Destination::New(project),
         (None, Some(card)) => Destination::Card(card),
         _ => {
-            let why = "a thought goes to one project: a workspace or one Tasktap knows";
+            let why = "a task goes to one project: a workspace or a project Tasktap knows";
             return Err(Error::new(Code::Invalid, why));
         }
     };
@@ -529,7 +529,7 @@ fn changes(cx: &mut Cx, args: tasktap_proto::ReadChanges) -> Option<Control> {
     let (project, workdir) = match found {
         Ok(Some(found)) => found,
         Ok(None) => {
-            let gone = "the thought has no copy, or its changes were kept or discarded";
+            let gone = "the task has no copy, or its changes were kept or discarded";
             return Some(call::ThoughtChanges::reply(
                 cx.id,
                 Err(Error::new(Code::Gone, gone)),

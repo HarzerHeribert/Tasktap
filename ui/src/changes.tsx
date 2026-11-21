@@ -100,7 +100,7 @@ export function Status({ t }: { t: Changed }) {
 
 /** The files git names in a refusal, or the core in a conflict, and where that run of names starts and ends. */
 function named(text: string) {
-  const git = /would be overwritten by \w+: (.+?) (?=Please |Aborting)/.exec(text), core = /conflict with this thought's in (.+?)(?= and \d+ more|\. |$)/.exec(text);
+  const git = /would be overwritten by \w+: (.+?) (?=Please |Aborting)/.exec(text), core = /conflict with this task's in (.+?)(?= and \d+ more|\. |$)/.exec(text);
   const m = git ?? core;
   return m && { at: m.index + m[0].length - m[1]!.length - (git ? 1 : 0), names: m[1]!.split(git ? /\s+/ : ', '), length: m[1]!.length };
 }

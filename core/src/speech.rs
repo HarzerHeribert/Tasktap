@@ -313,13 +313,13 @@ fn fits(core: &mut Core, target: &DictationTarget) -> Result<(), Error> {
             // One mechanism for speech into a field that holds text: the
             // text target, whose words the page places itself.
             if !capture.text.is_empty() {
-                let why = "a spoken thought's text is its transcript; \
+                let why = "a spoken task's text is its transcript; \
                            speech into a field that holds text has the target text";
                 return Err(Error::new(Code::Invalid, why));
             }
             crate::calls::check(core, capture)?;
             match effects::read(core, |tx| tx.thought(capture.id))? {
-                Some(_) => Err(Error::new(Code::Conflict, "a thought with this id exists")),
+                Some(_) => Err(Error::new(Code::Conflict, "a task with this id exists")),
                 None => Ok(()),
             }
         }

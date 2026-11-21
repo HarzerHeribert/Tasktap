@@ -52,13 +52,13 @@ const reason = (c: Card) => (c.why.includes('agent') && c.agents.length ? worked
 
 /** What Tasktap reads, said before it reads it: of an agent's history, and of a folder; and what of it goes anywhere. */
 // As the core says what it sends (core/src/route.rs, `SENDS`): of up to 8 projects, the name, the other names and one line.
-const MODEL = 'Only if you let a model place your thoughts does that model get, of up to 8 likely projects, the name, the other names it goes by and one line about each.';
+const MODEL = 'Only if you let a model place your tasks does that model get, of up to 8 likely projects, the name, the other names it goes by and one line about each.';
 const READS_AGENTS = (names: string[]) =>
   `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when; never what was said there. Of each folder that is a project it reads the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL}`;
 /** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */
 const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, never what was said there, and keeps what it learns on ${HERE}.`;
 const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
-const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} It opens nothing until a thought goes there.`;
+const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} Tasktap opens no project until a task goes there.`;
 
 // ——— What Tasktap knows ———
 
@@ -239,7 +239,7 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
     // It only reports (what it found stays in Setup and Settings): text typed in the Composer under it puts it away.
     <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} typed={dismiss} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
       <section class="found" aria-busy={busy}>
-        {all.length > 0 && <p class="found-o">None is open yet. A thought that names one opens it.</p>}
+        {all.length > 0 && <p class="found-o">No project is open yet. A task that names a project opens that project.</p>}
         {all.length > 0 && (
           <div class="fr-s">
             {all.map((c) => (
@@ -452,7 +452,7 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
             <Fact k={copies.length === 1 ? 'Another copy' : 'Other copies'}>
               {copies.map((x) => (
                 <span class="pj-l" key={x.id}><span class="mono">{shownPath(x.folder)}</span>{x.used && <span class="dim">{since(x.used)}</span>}
-                  <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: x.id, patch: { main: true } }).catch(fail)}>Send thoughts to this copy</button></span>
+                  <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: x.id, patch: { main: true } }).catch(fail)}>Send tasks to this copy</button></span>
               ))}
             </Fact>
           )}
@@ -462,7 +462,7 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
             </Fact>
           )}
           <Where c={c} ws={ws} />
-          <Fact k="In the sidebar"><span>{ws?.open ? 'Yes, open' : ws ? 'Closed. Name it in a thought to open it again.' : 'Not yet. Name it in a thought to open it.'}</span></Fact>
+          <Fact k="In the sidebar"><span>{ws?.open ? 'Yes, open' : ws ? 'Closed. A task that names this project opens it again.' : 'Not yet. A task that names this project opens it.'}</span></Fact>
           <div class="pj-a">
             <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: c.id, patch: { hidden: true } }).catch(fail)}>Not a project</button>
             <button type="button" class="btn" onClick={() => void call('delete', { c: 'cards', id: c.id }).catch(fail)}>Forget</button>

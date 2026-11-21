@@ -210,7 +210,7 @@ function Picker() {
   const closed = all.filter((p) => words.every((w) => `${p.name} ${p.folder}`.toLocaleLowerCase().includes(w)));
   return (
     <Frame size="md" title="Open a folder" acts={[{ k: '↩', label: 'Choose a folder…', do: () => void pickFolder(), kind: 'primary' }, cancel]}>
-      <p>It becomes a workspace. A thought goes to the folder it belongs to.</p>
+      <p>The folder you choose becomes a workspace. A task goes to the folder it belongs to.</p>
       {all.length > 0 && (
         <>
           {all.length > 6 && (

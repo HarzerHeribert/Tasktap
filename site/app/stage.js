@@ -295,7 +295,8 @@
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
       // `subMs`: the records come this long after the page asked (a core slow to answer at the first start).
-      const answer = () => (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev }));
+      // `subRefuse`: the core will not give them (the page's records never come).
+      const answer = () => (records.subRefuse ? refuse('failed', records.subRefuse) : (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev })));
       return void (records.subMs ? setTimeout(answer, records.subMs) : answer());
     }
     // What runs in a terminal, as the core says when it is closed (`terminal.runs`): what `runs` holds for it, else
@@ -373,7 +374,7 @@
     no: { control: !win, alt: true, shift: win, meta: false, code: 'KeyN' }, talk: { control: win, alt: !win, shift: false, meta: false, code: 'Space' },
   };
   const PREF = { capture: 'capture_key', question: 'question_key', yes: 'yes_key', no: 'no_key', talk: 'talk_key' };
-  const DOES = { capture: 'to put a thought in', question: 'to go to an agent’s question', yes: 'to answer Yes', no: 'to answer No', talk: 'as the key to hold while you talk' };
+  const DOES = { capture: 'to start a task', question: 'to go to an agent’s question', yes: 'to answer Yes', no: 'to answer No', talk: 'as the key to hold while you talk' };
   const stored = (w) => ((records.prefs || []).find((p) => p.id === PREF[w]) || {}).value;
   const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
   const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
@@ -411,6 +412,8 @@
     return key;
   };
   const hostValue = (name, a) => {
+    // The page's word that it has drawn, which shows the window: when, and what its status line said then.
+    if (name === 'host.ready') return ((window.__fake.ready ??= { at: performance.now(), rail: document.querySelector('.rail-l')?.textContent ?? null }), null);
     if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
     if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
     if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());
@@ -473,7 +476,11 @@
     async invoke(cmd, args) {
       if (cmd === 'bridge_open') {
         channel = args.frames.id;
-        setTimeout(() => toCore({ t: 'welcome', v: welcome.v, core: 'fake-core', build: 'harness', as: 'device', calls: welcome.calls }), 0);
+        // `holdWelcome`: the core has not answered yet (a first start held up, a slow machine) until the check calls
+        // window.__fake.welcome(); `welcomeMs`: it answers that many milliseconds after the page connected.
+        const hello = () => toCore({ t: 'welcome', v: welcome.v, core: 'fake-core', build: 'harness', as: 'device', calls: welcome.calls });
+        if (records.holdWelcome) window.__fake.welcome = hello;
+        else setTimeout(hello, records.welcomeMs || 0);
         return null;
       }
       if (cmd === 'bridge_send') { frames(args instanceof Uint8Array ? args : new Uint8Array(args)); return null; }
@@ -590,6 +597,14 @@
     cap.style.cssText = '';
   };
 
+  /** The notch folds a question nobody touched after ten seconds (ui/src/notch/main.tsx, UNTOUCHED), which on the page
+   *  would take the question away from a visitor who reads it under Reduce Motion or pauses on it. In the app the
+   *  pointer resting on the notch holds it open; so here, once it is open: the question stays for as long as it is shown. */
+  async function rest(g) {
+    for (let i = 0; i < 25 && !isOpen(); i++) await wait(40, g);
+    fake.emit({ do: 'hover-enter' });
+  }
+
   /** Back to nothing running, folded. */
   async function clear(g) {
     if (isOpen()) tab().click();
@@ -673,9 +688,11 @@
       ids.question = uid();
       change(put('questions', question()), put('thoughts', running({ status: 'needs_you' })), glance({ needs_you: 1, question: ids.question }));
       tell('ask', 'needs');
+      await rest(g);
       await wait(5600, g);
       await press(document.querySelector('#sheet [data-question] .ans kbd'), g);
       key(document.querySelector('#sheet [data-question]'), '1');
+      fake.emit({ do: 'hover-exit' });
       answered();
       await wait(3000, g);
     },
@@ -688,7 +705,9 @@
       }
       change(put('thoughts', finished({})), put('sessions', session('idle', ['Ran npm test -- rehearsal'])), put('results', result()), glance({ done: 1 }));
       tell('result', 'done');
-      await wait(1500, g);
+      // A beat with the folded notch saying so, then the pointer on it opens the result: shorter than the fold between
+      // rounds, so the step never stands longer on a shut notch than the loop does between rounds.
+      await wait(600, g);
       fake.emit({ do: 'hover-enter' });
       await wait(5600, g);
       await press(document.querySelector('#sheet .result .act kbd'), g);
@@ -745,6 +764,7 @@
       else if (step === 'ask') {
         ids.question = uid();
         change(put('questions', question()), put('thoughts', running({ status: 'needs_you' })), put('sessions', session('working', ['Checking the layout at 390 px'])), glance({ needs_you: 1, question: ids.question }));
+        await rest(g);
       } else if (step === 'result') {
         change(put('thoughts', finished({})), put('sessions', session('idle', ['Ran npm test -- rehearsal'])), put('results', result()), glance({ done: 1 }));
         fake.emit({ do: 'hover-enter' });

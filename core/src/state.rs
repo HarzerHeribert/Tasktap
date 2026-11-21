@@ -583,7 +583,7 @@ impl Machine<'_, '_> {
                 self.capture(capture, agent, some(attempt)?)
             }
             (E::Capture { .. }, _, Some(_), ..) => Err(Error::Conflict(
-                "the thought id was used for another capture",
+                "this task's id was used for another capture",
             )),
             // route clear; a router question answered; the person picks:
             // captured → routed, and the hold starts. A router's answer
@@ -737,7 +737,7 @@ impl Machine<'_, '_> {
             // open questions a new one is refused (design §6). Only the
             // router asks as the router, and never through this row.
             (E::Ask { question: q, .. }, ..) if q.source == QuestionSource::Router => {
-                Err(Error::Invalid("only Tasktap asks where a thought goes"))
+                Err(Error::Invalid("only Tasktap asks where a task goes"))
             }
             (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
                 Error::Conflict("the request key was used for another question"),
@@ -802,9 +802,7 @@ impl Machine<'_, '_> {
             (E::Settle { .. }, _, Some(P::Done | P::Failed), ..)
                 if occupied && pending(&thought) =>
             {
-                Err(Error::Conflict(
-                    "a thought settles once its session has ended",
-                ))
+                Err(Error::Conflict("a task settles once its session has ended"))
             }
             (E::Settle { .. }, _, Some(P::Done | P::Failed), ..)
                 if settling && pending(&thought) =>
@@ -1412,7 +1410,7 @@ impl Machine<'_, '_> {
                     t.project_id = Some(project);
                     project
                 }
-                (None, None) => return Err(Error::Invalid("a thought starts in a folder")),
+                (None, None) => return Err(Error::Invalid("a task starts in a folder")),
             };
             let p = self.tx.project(project)?.ok_or(Error::Gone)?;
             let (cwd, worktree) = self.place(&t, &p, target.as_ref(), attempt)?;
@@ -1420,7 +1418,7 @@ impl Machine<'_, '_> {
                 .as_ref()
                 .map(|s| s.agent.clone())
                 .or_else(|| t.agent.clone())
-                .ok_or(Error::Invalid("a thought starts with an agent"))?;
+                .ok_or(Error::Invalid("a task starts with an agent"))?;
             // A resume keeps its conversation's model: not every agent's
             // tool does that by itself.
             let kept = target.as_ref().and_then(|s| s.model.clone());

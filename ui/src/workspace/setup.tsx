@@ -46,7 +46,7 @@ function useSteps(): Step[] {
     steps.push({
       id: 'placing', label: 'Let an agent choose the project',
       says: state === 'on' && asks ? `By ${agentName(asks)}${more > 0 ? `, then ${more} more` : ''}` : state === 'again' ? 'The terms changed. Agree again to keep it on.'
-        : answered ? 'Skipped' : 'For thoughts that name no project',
+        : answered ? 'Skipped' : 'For tasks that name no project',
       done: answered && state !== 'again', act: state === 'again' ? 'Agree again' : answered ? 'Change' : 'Choose',
       // The entry point placing has today (consent.tsx), as it is.
       go: () => open({ kind: 'placing' }),
@@ -161,7 +161,7 @@ function SpeechSetup() {
   useEffect(() => void model().catch(() => {}), []);
   const act = (what: 'install' | 'stop') => (say(''), void model(what).catch((e: unknown) => say(e instanceof Error ? e.message : String(e))));
   const other: Act = { k: 'S', label: service ? 'The speech service…' : 'Use a speech service…', do: () => open({ kind: 'speech' }) };
-  const hold = `Hold ${keyName(talkKey())}, or the microphone, and say the thought.`;
+  const hold = `Hold ${keyName(talkKey())}, or the microphone, and say the task.`;
   const here = !!l?.supported;
   const facts: ComponentChildren[] = [
     hold,

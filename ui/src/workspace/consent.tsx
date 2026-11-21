@@ -103,7 +103,7 @@ function useRanks() {
 const MOVES = `${mac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓'} or a drag moves a row, Space switches it.`;
 
 /** What the group is called, in Settings › Projects, in About and on its sheet. */
-export const FINDING = 'Finding the project for a thought';
+export const FINDING = 'Finding the project for a task';
 
 /** Settings › Projects, first: while placing is agreed to, the same group as its sheet, changed in place, and the way
  *  to what is sent; else that only thoughts naming their project are placed, and the way to agree. What it says is
@@ -115,8 +115,8 @@ export function Finding() {
   const on = rows.filter((r) => r.on).map((r) => agentName(r.agent));
   if (agreed && tools.length)
     return (
-      <Row name={FINDING} hint={on.length ? `Names in your words come first; ${on.length > 1 ? 'the first of these to answer' : on[0]} places the rest, and reads every long thought for its summary.`
-        : 'Every agent here is switched off, so only thoughts that name their project are placed; Tasktap asks you about the rest.'}>
+      <Row name={FINDING} hint={on.length ? `Names in your words come first; ${on.length > 1 ? 'the first of these to answer' : on[0]} places the rest, and reads every long task for its summary.`
+        : 'Every agent here is switched off, so only tasks that name their project are placed; Tasktap asks you about the rest.'}>
         <Ranks rows={rows} set={set} />
         <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
         <button type="button" class="btn" onClick={sheet}>What is sent…</button>
@@ -124,9 +124,9 @@ export function Finding() {
       </Row>
     );
   return (
-    <Row name={FINDING} hint={state === 'again' ? 'Until you agree again, only thoughts that name their project are placed; Tasktap asks you about the rest.'
-      : `A thought that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ' until an agent is signed in under Agents' : ''}.`}>
-      {state === 'again' ? <span class="v warn">The terms changed. Agree again to keep it on.</span> : <span class="v">Off: only thoughts that name their project</span>}
+    <Row name={FINDING} hint={state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
+      : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ' until an agent is signed in under Agents' : ''}.`}>
+      {state === 'again' ? <span class="v warn">The terms changed. Agree again to keep it on.</span> : <span class="v">Off: only tasks that name their project</span>}
       {tools.length > 0 && <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : 'Let your agents help…'}</button>}
     </Row>
   );
@@ -158,18 +158,18 @@ export function PlacingSheet({ back }: { back?: boolean }) {
   return (
     <Frame size="md" title={FINDING} acts={acts}>
       <div class="terms">
-        {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Now your agents are asked one after another, so until you agree again, only thoughts that name their project are placed.</p>}
-        <p>Say a thought without naming its project, and one of your own agents finds where it belongs; for a long thought it also writes a summary for the agent that runs it. Your own words always go along.</p>
+        {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Now your agents are asked one after another, so until you agree again, only tasks that name their project are placed.</p>}
+        <p>Give a task without naming its project, and one of your own agents finds where the task belongs; for a long task that agent also writes a summary for the agent that runs the task. Your own words always go along.</p>
         {!t ? <p>Asking what is sent…</p> : !tools.length ? <p>No agent that can do this is signed in yet. Sign one in under Settings › Agents, then come back.</p> : (
           <>
-            <p>Each such thought goes to the first agent below that answers, one at a time, under the sign-in it already has. It is sent:</p>
+            <p>Each such task goes to the first agent below that answers, one at a time, under the sign-in it already has. It is sent:</p>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
             <Ranks rows={rows} set={set} />
             <div class="rank-f">
               <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
               <span class="hint">{MOVES}</span>
             </div>
-            <p class="hint">A short thought that names its project is placed on {HERE} and sent nowhere; a long one is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each thought it is asked as a conversation in its history.'}</p>
+            <p class="hint">A short task that names its project is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
           </>

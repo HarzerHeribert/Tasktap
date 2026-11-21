@@ -559,7 +559,7 @@ async function main() {
     // Not now. A cap shows only where its key works.
     {
       const { projects } = require('./projects-fixtures.cjs');
-      const NOTES = ['named in it', 'where your last thought went', 'worked on last'];
+      const NOTES = ['named in it', 'where your last task went', 'worked on last'];
       const asking = async (o = {}, extra = {}) => {
         const page = await open(browser, { label: 'workspace', records: { ...scene('normal'), asks: { notes: NOTES, ...o }, ...extra }, url: server.url, dpr: 1 });
         await page.focus(FIELD);

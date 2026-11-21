@@ -12,7 +12,13 @@
 //   out before the core is there or more than once, or is kept for later rather than placed (on Home, in the New Task
 //   sheet and in the notch);
 // - with the core answering as it does (at once, or within the page's own 1.5 s), the window is shown saying
-//   "Starting…"; or a core slower than that does not have the window shown saying it.
+//   "Starting…"; or a core slower than that does not have the window shown saying it;
+// - before the core has answered the empty field's line rolls (the person's effects are not known yet), the microphone
+//   says it is off or why, or the Composer's bottom row is laid out otherwise than once the core has answered (the
+//   usual case: the chip's usual words, one agent), on Home and in the notch;
+// - a task held for a core whose records then never come stays held (busy for ever), not given back to the field;
+//   a second Start during the wait sends the task twice; the words typed during the wait are asked about more than
+//   once when the core comes.
 // usage: node scripts/starting-check.cjs [--dist folder]   (ui/dist must be built)
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
@@ -113,6 +119,62 @@ async function home(browser, url) {
   await page.waitForTimeout(800);
   expect((await captures(page)) === 1 && (await page.evaluate(() => window.__fake.sent?.mode)) !== 'note', `the notch, Start while the core has not answered: ${await captures(page)} captures, mode ${await page.evaluate(() => window.__fake.sent?.mode)}`);
   for (const e of page.errors) failures.push(`[${ENGINE}] the notch during the wait: page: ${e}`);
+  await page.context().close();
+
+  // No roll before the core has answered, however long the field has the keyboard in front: no timer, no copy.
+  for (const label of ['workspace', 'notch']) {
+    page = await open(browser, { label, records: { ...scene('normal'), holdWelcome: true }, url, dpr: 1 });
+    if (label === 'notch') (await page.evaluate((g) => window.__fake.emit(g), GEO), await page.evaluate(() => window.__fake.emit({ do: 'capture' })));
+    else await page.evaluate(() => window.__fake.emit({ do: 'where', front: true, notch: false }));
+    await page.waitForSelector('#capture-input');
+    await page.focus('#capture-input');
+    const quiet = await page.evaluate(() => new Promise((done) => {
+      let copies = 0, timer = false;
+      new MutationObserver((m) => m.forEach((r) => r.addedNodes.forEach((n) => n.classList?.contains('cap-lines') && copies++))).observe(document.body, { childList: true, subtree: true });
+      const look = setInterval(() => (timer ||= window.__lines.rolling), 100);
+      setTimeout(() => (clearInterval(look), done({ copies, timer, line: document.querySelector('#capture-input').placeholder })), 6000);
+    }));
+    expect(!quiet.copies && !quiet.timer && quiet.line === "What's next?", `${label}, the field holding the keyboard for 6 s while the core has not answered: ${quiet.copies} rolls, the timer ${quiet.timer ? 'ran' : 'did not run'}, the line "${quiet.line}"`);
+    // The microphone says nothing it does not know: not off, no reason.
+    const mic = await page.evaluate(() => { const m = document.querySelector('.capture .mic'); return [m?.hasAttribute('data-off'), m?.getAttribute('title')].join(' | '); });
+    expect(mic === 'false | ', `${label} while the core has not answered: the microphone is "${mic}" (off | its words), not neutral`);
+    // The bottom row, where each control stands in it, during the wait and once the core has answered.
+    const row = () => page.evaluate(() => {
+      const r = document.querySelector('.capture .cap-row:not(.hear):not(.cap-list)'), o = r.getBoundingClientRect();
+      return ['#dest-chip', '.cap-agent', '.mic', '.key'].map((s) => { const e = r.querySelector(s)?.getBoundingClientRect(); return e ? `${s} ${(e.x - o.x).toFixed(1)}+${e.width.toFixed(1)}` : `${s} none`; }).join(', ');
+    });
+    const during = await row();
+    await welcome(page);
+    await until(() => page.evaluate(() => !!document.querySelector('.capture .cap-agent:not([data-starting])')), (v) => v);
+    await page.waitForTimeout(300);
+    const after = await row();
+    expect(during === after, `${label}: the Composer's bottom row moved when the core answered: during "${during}", after "${after}"`);
+    for (const e of page.errors) failures.push(`[${ENGINE}] ${label}, no roll before the core: page: ${e}`);
+    await page.context().close();
+  }
+
+  // A task held for records that never come is given back to the field, and nothing stays busy.
+  page = await open(browser, { label: 'workspace', records: { ...scene('normal'), holdWelcome: true, subRefuse: 'the store is locked' }, url, dpr: 1 });
+  await page.focus('#capture-input');
+  await page.keyboard.type('fix the export in ledger-api');
+  await page.keyboard.press('Enter');
+  await welcome(page);
+  const back = await until(() => page.evaluate(() => [document.querySelector('#capture-input').value, document.querySelector('.home form.capture').getAttribute('aria-busy')].join(' | ')), (v) => v.startsWith('fix the export'));
+  expect(back === 'fix the export in ledger-api | false' && (await captures(page)) === 0, `the core's records refused with a task held: the field and the Composer say "${back}", ${await captures(page)} captures`);
+  await page.context().close();
+
+  // Start pressed twice during the wait sends the task once; the words typed meanwhile are asked about once.
+  page = await open(browser, { label: 'workspace', records: { ...scene('normal'), holdWelcome: true }, url, dpr: 1 });
+  await page.focus('#capture-input');
+  await page.keyboard.type('fix the export in ledger-api');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('and the timer too');
+  await welcome(page);
+  await until(() => captures(page), (n) => n > 0);
+  await page.waitForTimeout(800);
+  const hints = await page.evaluate(() => window.__fake.calls.filter((c) => c === 'route.hint').length);
+  expect((await captures(page)) === 1 && hints <= 1, `Start twice during the wait: ${await captures(page)} captures went out, and ${hints} questions where the typed words go, not one and at most one`);
   await page.context().close();
 
   // 5: the window is shown (host.ready) with the counts when the core answers at once or within the page's 1.5 s,

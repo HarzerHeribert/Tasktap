@@ -174,6 +174,10 @@ fn configuration(post: &Request) -> Option<String> {
 /// Makes the call and returns the server's answer. `wait` is what a
 /// [`command::Signal::Stop`] is sent on to end it.
 pub fn send(post: &Request, wait: Wait) -> Result<Answer, Failed> {
+    // curl takes a time of 0 for no limit at all.
+    if post.limit < Duration::from_millis(1) {
+        return Err(Failed::Slow);
+    }
     let unusable = || Failed::Other("the request cannot be written for curl".into());
     let configuration = configuration(post).ok_or_else(unusable)?;
     let mut curl = Command::new(curl());
@@ -214,5 +218,25 @@ pub fn send(post: &Request, wait: Wait) -> Result<Answer, Failed> {
         Some(28) => Err(Failed::Slow),
         Some(35 | 51 | 58 | 60 | 77) => Err(Failed::Untrusted(why)),
         _ => Err(Failed::Other(why)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_time_left_is_no_call_at_all() {
+        // Nothing listens on port 9: a call that was made is unreachable.
+        let request = Request {
+            url: "http://127.0.0.1:9/",
+            key: None,
+            body: Body::None,
+            limit: Duration::ZERO,
+        };
+        assert_eq!(
+            send(&request, std::sync::mpsc::channel()),
+            Err(Failed::Slow)
+        );
     }
 }

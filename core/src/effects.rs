@@ -568,6 +568,10 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             Box::new(move || checks::ask(agent, &how, text, schema, &folder, (hear, heard)))
         }
         Asker::ChatGpt(model) => {
+            // The sign-in first, renewed where it has to be: that runs to its
+            // end whatever this placing's time.
+            let (gave, renewed) = mpsc::channel();
+            crate::chatgpt::renew(core, gave);
             let asking = core.chatgpt.asking();
             let (model, text) = (model.clone(), crate::route::asked(&chain.asked));
             Box::new(move || {
@@ -580,7 +584,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                     }
                 });
                 drop(hear);
-                asking.ask(&model, &text, limit, (stop, wait))
+                asking.ask(&model, &text, limit, renewed, (stop, wait))
             })
         }
     };
@@ -622,7 +626,6 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                 }
                 format!("{name}: {words}")
             }
-            (Err(Failed::SignedOut), _) => crate::chatgpt::ended(core),
             (Err(Failed::Gone | Failed::Limit(..)), Asker::ChatGpt(_)) => {
                 format!("{name}: it gave no answer")
             }

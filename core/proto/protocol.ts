@@ -1644,9 +1644,11 @@ meta: boolean, code: string, };
 /**
  * `waiting`: for the person, in their browser. `no_plan`: signed in,
  * but the use of the person's ChatGPT plan was not allowed, so nothing
- * was kept. `signed_out`: OpenAI refused to renew the sign-in.
+ * was kept. `no_model`: signed in, but the account is not offered the
+ * model placing asks for, so the sign-in was ended. `signed_out`:
+ * OpenAI refused to renew the sign-in.
  */
-export type SignIn = "waiting" | "signed_in" | "failed" | "no_plan" | "signed_out";
+export type SignIn = "waiting" | "signed_in" | "failed" | "no_plan" | "no_model" | "signed_out";
 
 /**
  * A terminal size: `[cols, rows]`.

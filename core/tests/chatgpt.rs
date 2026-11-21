@@ -5,11 +5,14 @@
 //! No test reaches OpenAI: OpenAI's sign-in and Responses endpoints are a
 //! server of this file on this machine, which holds every request to what
 //! OpenAI's pages ask and writes down what it finds wrong, as
-//! `trials/siwc/standin.mjs` does; the core is pointed at it with
-//! `TASKTAP_CHATGPT`, which only a build with the test fixtures reads. Its
-//! tokens are made up. No test touches the real credential store: a core
-//! built with its fixtures keeps the sign-in in memory. The test is the
-//! browser: it follows the address the core answers with.
+//! `trials/siwc/standin.mjs` does, and hands out tokens of the length
+//! OpenAI's are (an access token of about 2,000 characters, a signed JWT as
+//! OpenAI's is). The core is pointed at it with `TASKTAP_CHATGPT`, which only
+//! a build with the test fixtures reads. No test touches the real
+//! credential store: a core built with its fixtures keeps the sign-in in
+//! memory, which refuses to keep anything while the file `TASKTAP_VAULT_REFUSES`
+//! names is there. The test is the browser: it follows the address the core
+//! answers with.
 
 mod common;
 
@@ -20,6 +23,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tasktap_core::route::{INSTRUCTIONS, SCHEMA, TERMS};
 use tasktap_proto::{
     AddProject, ChatGpt, Code, Empty, FixtureClock, Placed, Placer, PrefKey, PrefPatch, PrefValue,
@@ -44,14 +48,15 @@ struct Grant {
     challenge: String,
     redirect: String,
     nonce: String,
+    client: String,
     used: bool,
 }
 
 /// What the stand-in was asked and gave out, and what the test tells it.
 #[derive(Default)]
 struct State {
-    /// The client id it issues Tasktap.
-    issued: String,
+    /// The client ids it issued, one for each registration, the last last.
+    clients: Vec<String>,
     grants: HashMap<String, Grant>,
     /// Each refresh token it gave out, and whether it was used.
     refresh: HashMap<String, bool>,
@@ -72,8 +77,15 @@ struct State {
     expires_in: u64,
     wrong_nonce: bool,
     no_plan: bool,
+    /// The account's list has no gpt-6.2-sol.
+    no_sol: bool,
     deny: bool,
     refuse_renewal: bool,
+    /// It no longer knows the client ids it issued.
+    refuse_client: bool,
+    /// Milliseconds it takes to answer a renewal, and a code's exchange.
+    renew_delay: u64,
+    code_delay: u64,
     replies: VecDeque<Reply>,
 }
 
@@ -87,7 +99,6 @@ impl StandIn {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         let st = Arc::new(Mutex::new(State {
-            issued: "oaiapp_standin0123456789".into(),
             expires_in: 3600,
             ..State::default()
         }));
@@ -116,6 +127,17 @@ impl StandIn {
     fn no_problems(&self) {
         let problems = self.with(|s| s.problems.clone());
         assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    /// Until `ready` holds of what it saw, for at most 10 s.
+    fn until(&self, what: &str, ready: impl Fn(&State) -> bool) {
+        for _ in 0..200 {
+            if self.with(|s| ready(s)) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!("the stand-in never saw {what}");
     }
 }
 
@@ -157,6 +179,18 @@ fn fields(text: &str) -> HashMap<String, String> {
 
 fn mint(prefix: &str) -> String {
     format!("{prefix}{}", ThoughtId::mint().uuid().simple())
+}
+
+/// A token shaped as OpenAI's are: a JWT signed with RS256, whose 2048-bit
+/// signature alone is 342 characters.
+fn jwt(claims: &Value) -> String {
+    let signature: Vec<u8> = (0..256).map(|i| (i * 7 + 3) as u8).collect();
+    let head = b64(br#"{"alg":"RS256","kid":"stand-in","typ":"JWT"}"#);
+    format!(
+        "{head}.{}.{}",
+        b64(claims.to_string().as_bytes()),
+        b64(&signature)
+    )
 }
 
 /// Answers one request as OpenAI's sign-in or API would.
@@ -204,6 +238,21 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
         .unwrap_or_default()
         .trim_start_matches("Bearer ")
         .to_owned();
+    // A slow answer keeps nobody else waiting.
+    if path == "/api/accounts/oauth/token" {
+        let grant = form.get("grant_type").map(String::as_str);
+        let delay = st
+            .lock()
+            .map(|s| {
+                if grant == Some("refresh_token") {
+                    s.renew_delay
+                } else {
+                    s.code_delay
+                }
+            })
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(delay));
+    }
     let mut s = st.lock().unwrap();
     s.seen.push(format!("{method} {path}"));
     let s = &mut *s;
@@ -225,9 +274,22 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
                     "revocation_endpoint": format!("{base}/api/accounts/oauth/revoke") }),
         ),
         ("GET", "/api/accounts/authorize") => {
+            // A first registration, or a sign-in under a client id it issued.
+            let client = q.get("client_id").cloned().unwrap_or_default();
+            let first = client == "dynamic_agent_client";
+            match first {
+                true if q.get("agent_name_hint").map(String::as_str) != Some("Tasktap") => {
+                    found.push("authorize: agent_name_hint".into())
+                }
+                false if q.contains_key("agent_name_hint") => {
+                    found.push("authorize: agent_name_hint when signing in again".into())
+                }
+                false if !s.clients.contains(&client) => {
+                    found.push(format!("authorize: client_id {client}"))
+                }
+                _ => {}
+            }
             let want = [
-                ("client_id", "dynamic_agent_client"),
-                ("agent_name_hint", "Tasktap"),
                 ("response_type", "code"),
                 ("resource", "https://api.openai.com/v1"),
                 ("code_challenge_method", "S256"),
@@ -270,20 +332,31 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
             );
             if s.deny {
                 back.push_str("&error=access_denied");
+            } else if !first && s.refuse_client {
+                back.push_str("&error=invalid_client&error_description=Unknown+client.");
             } else {
+                let client = match first {
+                    true => {
+                        s.clients.push(mint("oaiapp_"));
+                        s.clients.last().unwrap().clone()
+                    }
+                    false => client,
+                };
                 let code = mint("code-");
                 s.secrets.push(code.clone());
                 let nonce = q.get("nonce").cloned().unwrap_or_default();
-                s.grants.insert(
-                    code.clone(),
-                    Grant {
-                        challenge,
-                        redirect: redirect.clone(),
-                        nonce,
-                        used: false,
-                    },
-                );
-                back.push_str(&format!("&code={code}&client_id={}", s.issued));
+                let grant = Grant {
+                    challenge,
+                    redirect: redirect.clone(),
+                    nonce,
+                    client: client.clone(),
+                    used: false,
+                };
+                s.grants.insert(code.clone(), grant);
+                back.push_str(&format!("&code={code}"));
+                if first {
+                    back.push_str(&format!("&client_id={client}"));
+                }
             }
             ("302 Found".into(), "text/plain", String::new(), Some(back))
         }
@@ -294,8 +367,9 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
             {
                 found.push("token: not form-encoded".into());
             }
-            if form.get("client_id") != Some(&s.issued) {
-                found.push(format!("token: client_id {:?}", form.get("client_id")));
+            let client = form.get("client_id").cloned().unwrap_or_default();
+            if !s.clients.contains(&client) {
+                found.push(format!("token: client_id {client}"));
             }
             if form.get("resource").map(String::as_str) != Some("https://api.openai.com/v1") {
                 found.push("token: resource".into());
@@ -305,7 +379,10 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
             }
             let grant = form.get("grant_type").cloned().unwrap_or_default();
             let tokens = |s: &mut State, nonce: Option<String>| {
-                let (access, refresh) = (mint("at-"), mint("rt-"));
+                let access = jwt(
+                    &json!({ "jti": mint(""), "aud": "https://api.openai.com/v1", "scp": "x".repeat(1400) }),
+                );
+                let refresh = format!("rt_{}", (0..6).map(|_| mint("")).collect::<String>());
                 s.access.push(access.clone());
                 s.refresh.insert(refresh.clone(), false);
                 let now = wall_ms() / 1000;
@@ -314,14 +391,9 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
                 } else {
                     nonce
                 };
-                let claims = json!({ "iss": base, "aud": s.issued, "sub": "user-standin", "email": "person@example.com",
+                let claims = json!({ "iss": base, "aud": client, "sub": "user-standin", "email": "person@example.com",
                                      "iat": now, "exp": now + 3600, "nonce": nonce });
-                let id = format!(
-                    "{}.{}.{}",
-                    b64(br#"{"alg":"RS256","kid":"k"}"#),
-                    b64(claims.to_string().as_bytes()),
-                    b64(b"signature")
-                );
+                let id = jwt(&claims);
                 s.secrets
                     .extend([access.clone(), refresh.clone(), id.clone()]);
                 let scope = match s.no_plan {
@@ -332,7 +404,7 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
                 };
                 let mut out = json!({ "access_token": access, "refresh_token": refresh, "token_type": "Bearer",
                                       "expires_in": s.expires_in, "scope": scope });
-                if nonce.is_some() || grant == "authorization_code" {
+                if grant == "authorization_code" {
                     out["id_token"] = id.into();
                 }
                 out
@@ -341,7 +413,7 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
                 "authorization_code" => {
                     let code = form.get("code").cloned().unwrap_or_default();
                     match s.grants.get_mut(&code) {
-                        Some(g) if !g.used => {
+                        Some(g) if !g.used && g.client == client => {
                             g.used = true;
                             let verifier = form.get("code_verifier").cloned().unwrap_or_default();
                             if b64(&Sha256::digest(verifier.as_bytes())) != g.challenge {
@@ -384,8 +456,9 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
             }
         }
         ("POST", "/api/accounts/oauth/revoke") => {
+            let client = form.get("client_id").cloned().unwrap_or_default();
             if form.get("token_type_hint").map(String::as_str) != Some("refresh_token")
-                || form.get("client_id") != Some(&s.issued)
+                || !s.clients.contains(&client)
             {
                 found.push("revoke: fields".into());
             }
@@ -396,14 +469,16 @@ fn serve(mut conn: TcpStream, base: &str, st: &Mutex<State>) {
         (_, p) if p.starts_with("/v1/") && !s.access.contains(&bearer) => {
             json("401 Unauthorized", json!({ "detail": "not signed in" }))
         }
-        ("GET", "/v1/models") => json(
-            "200 OK",
-            json!({ "models": [
-                { "slug": "internal-mini", "display_name": "Internal mini", "visibility": "hide" },
-                { "slug": "gpt-6-luna", "display_name": "GPT-6 Luna", "visibility": "list" },
-                { "slug": "gpt-6.2-sol", "display_name": "GPT-6.2 Sol", "visibility": "list" },
-            ] }),
-        ),
+        ("GET", "/v1/models") => {
+            let mut models = vec![
+                json!({ "slug": "internal-mini", "display_name": "Internal mini", "visibility": "hide" }),
+                json!({ "slug": "gpt-6-luna", "display_name": "GPT-6 Luna", "visibility": "list" }),
+            ];
+            if !s.no_sol {
+                models.push(json!({ "slug": "gpt-6.2-sol", "display_name": "GPT-6.2 Sol", "visibility": "list" }));
+            }
+            json("200 OK", json!({ "models": models }))
+        }
         ("POST", "/v1/responses") => {
             let body: Value = serde_json::from_str(&text).unwrap_or_default();
             if body["store"] != false || body["stream"] != true {
@@ -512,6 +587,30 @@ fn get(url: &str) -> (u16, Option<String>, String) {
     (status, location, page)
 }
 
+/// The port of the core's listener, from the address it answered with.
+fn port(address: &str) -> String {
+    let redirect = fields(address.split_once('?').unwrap().1)["redirect_uri"].clone();
+    redirect
+        .split(':')
+        .nth(2)
+        .unwrap()
+        .split('/')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
+/// Whether nothing listens on `port` any more, within `ms`.
+fn closed(port: &str, ms: u64) -> bool {
+    (0..ms / 50).any(|_| {
+        let refused = TcpStream::connect(format!("127.0.0.1:{port}")).is_err();
+        if !refused {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        refused
+    })
+}
+
 /// A model's answer, as the schema has it.
 fn answer(confidence: &str, to: &str, brief: &str) -> String {
     json!({ "quote": "", "confidence": confidence, "to": to, "candidates": [],
@@ -537,12 +636,7 @@ impl Placing {
     fn new(prefix: &str) -> Placing {
         let data = Folder::new(prefix);
         let openai = StandIn::start();
-        let path = path_with(&agents(&data.0));
-        let core = Core::start_env(
-            &data.0,
-            &[],
-            &[("PATH", &path), ("TASKTAP_CHATGPT", &openai.base)],
-        );
+        let core = Placing::core(&data, &openai);
         let mut w = core.watch();
         let mut add = |name: &str| {
             let folder = data.0.join(name);
@@ -565,6 +659,26 @@ impl Placing {
             data,
             openai,
             app,
+        }
+    }
+
+    fn core(data: &Folder, openai: &StandIn) -> Core {
+        let path = path_with(&agents(&data.0));
+        let refuses = data.0.join("vault-refuses");
+        let env = [
+            ("PATH", path.as_str()),
+            ("TASKTAP_CHATGPT", &openai.base),
+            ("TASKTAP_VAULT_REFUSES", refuses.to_str().unwrap()),
+        ];
+        Core::start_env(&data.0, &[], &env)
+    }
+
+    /// The credential store refuses to keep anything, or keeps again.
+    fn vault_refuses(&self, refuses: bool) {
+        let file = self.data.0.join("vault-refuses");
+        match refuses {
+            true => std::fs::write(file, "").unwrap(),
+            false => std::fs::remove_file(file).unwrap(),
         }
     }
 
@@ -643,6 +757,11 @@ impl Placing {
         assert_eq!(self.ended().state, SignIn::SignedIn);
     }
 
+    fn sign_out(&mut self) {
+        self.w.ok::<call::ChatgptSignOut>(&Empty {});
+        self.w.sync();
+    }
+
     fn capture(&mut self, text: &str) -> ThoughtId {
         let id = ThoughtId::mint();
         let capture = tasktap_proto::Capture {
@@ -658,6 +777,17 @@ impl Placing {
             !m.thought(id).route.as_ref().is_some_and(|r| r.pending)
         });
         self.w.model.thought(id).clone()
+    }
+
+    /// Who placed a thought ChatGPT is asked about first, and why the others
+    /// did not.
+    fn placed(&mut self, reply: Option<Reply>) -> (String, Option<String>) {
+        if let Some(reply) = reply {
+            self.openai.answers(reply);
+        }
+        let t = self.capture(SPOKEN);
+        let route = self.settled(t).route.unwrap();
+        (route.by, route.fallback)
     }
 
     /// The steps the fixture agent's tool runs when it is asked next.
@@ -729,14 +859,7 @@ fn signing_in_with_chatgpt_agrees_to_its_row_alone_and_places_by_one_direct_call
     );
     // The account's models were asked once; the listener is closed.
     assert_eq!(p.openai.seen("GET /v1/models"), 1);
-    let port = address
-        .split("127.0.0.1%3A")
-        .nth(1)
-        .unwrap()
-        .split('%')
-        .next()
-        .unwrap();
-    assert!(TcpStream::connect(format!("127.0.0.1:{port}")).is_err());
+    assert!(TcpStream::connect(format!("127.0.0.1:{}", port(&address))).is_err());
     // Never agreed before: placing is on, with ChatGPT's row alone.
     let row = Placer {
         agent: "chatgpt".into(),
@@ -786,34 +909,29 @@ fn signing_in_with_chatgpt_agrees_to_its_row_alone_and_places_by_one_direct_call
     p.openai.no_problems();
     p.kept_nowhere();
 
-    // Signing out ends the sign-in at OpenAI and takes the row out.
+    // Signing out ends the sign-in at OpenAI, and with no agreement before
+    // it, leaves none: placing is as it was, not answered.
     let refresh = p.openai.with(|s| s.refresh.keys().next().cloned().unwrap());
-    p.w.ok::<call::ChatgptSignOut>(&Empty {});
-    p.w.sync();
+    p.sign_out();
     assert_eq!(p.openai.with(|s| s.revoked.clone()), [refresh.as_str()]);
     assert_eq!(p.chatgpt(), None);
+    assert!(!p.w.model.prefs.contains_key(&PrefKey::RouteBy));
     // And deletes it: signing out again finds nothing to end.
-    p.w.ok::<call::ChatgptSignOut>(&Empty {});
+    p.sign_out();
     assert_eq!(p.openai.with(|s| s.revoked.clone()), [refresh.as_str()]);
     assert_eq!(p.openai.seen("GET /.well-known/openid-configuration"), 1);
-    assert_eq!(
-        p.route_by(),
-        Some(RouteBy {
-            agents: vec![],
-            terms: TERMS
-        })
-    );
     // Nothing is asked of ChatGPT any more.
-    let t = p.capture(SPOKEN);
-    let th = p.settled(t);
-    assert_eq!(th.route.unwrap().by, "local");
+    assert_eq!(p.placed(None).0, "local");
     assert_eq!(p.openai.seen("POST /v1/responses"), 1);
-    // The sign-in was deleted: the next one registers anew and asks for a
-    // new host id.
+    // Signing in again reuses the registration: OpenAI's client id and the
+    // host id, kept across the sign-out; nothing registers anew.
     p.sign_in();
     let opened = p.openai.with(|s| s.opened.clone());
-    assert_eq!(opened.len(), 2);
-    assert_ne!(
+    let client = p.openai.with(|s| s.clients.clone());
+    assert_eq!(client.len(), 1);
+    assert_eq!(opened[1]["client_id"], client[0]);
+    assert!(!opened[1].contains_key("agent_name_hint"));
+    assert_eq!(
         opened[0]["ext_agent_host_id"],
         opened[1]["ext_agent_host_id"]
     );
@@ -829,10 +947,8 @@ fn the_question_is_an_agents_and_what_chatgpt_cannot_answer_passes_to_the_next()
     // agent was: the instructions in their own field, the request after.
     p.agree(&["fixture", "chatgpt"]);
     p.script(&["exit:3".into()]);
-    p.openai
-        .answers(Reply::Answer(answer("clear", "p2", "Brief.")));
-    let t = p.capture(SPOKEN);
-    assert_eq!(p.settled(t).route.unwrap().by, "chatgpt");
+    let (by, _) = p.placed(Some(Reply::Answer(answer("clear", "p2", "Brief."))));
+    assert_eq!(by, "chatgpt");
     let agent = std::fs::read_to_string(p.data.0.join("route").join("asked")).unwrap();
     let body = p.openai.with(|s| s.bodies.pop().unwrap());
     let sent = format!(
@@ -869,12 +985,9 @@ fn the_question_is_an_agents_and_what_chatgpt_cannot_answer_passes_to_the_next()
         ),
     ];
     for (reply, said) in cases {
-        p.openai.answers(reply);
-        let t = p.capture(SPOKEN);
-        let th = p.settled(t);
-        let route = th.route.unwrap();
-        assert_eq!(route.by, "local");
-        let fallback = route.fallback.unwrap();
+        let (by, fallback) = p.placed(Some(reply));
+        assert_eq!(by, "local");
+        let fallback = fallback.unwrap();
         assert!(fallback.starts_with(said), "{fallback}");
     }
     // Before another: each of those passes the thought to the next.
@@ -884,11 +997,8 @@ fn the_question_is_an_agents_and_what_chatgpt_cannot_answer_passes_to_the_next()
         Reply::Refuse(403, "x"),
         Reply::Answer("[]".into()),
     ] {
-        p.openai.answers(reply);
         p.script(&[format!("print:{}", answer("clear", "p1", "Brief."))]);
-        let t = p.capture(SPOKEN);
-        let route = p.settled(t).route.unwrap();
-        assert_eq!((route.by.as_str(), route.fallback), ("fixture", None));
+        assert_eq!(p.placed(Some(reply)), ("fixture".into(), None));
     }
     p.openai.no_problems();
     p.kept_nowhere();
@@ -901,10 +1011,8 @@ fn a_sign_in_near_its_end_is_renewed_first_and_one_openai_refuses_signs_out() {
     p.openai.with(|s| s.expires_in = 300);
     p.sign_in();
     for _ in 0..2 {
-        p.openai
-            .answers(Reply::Answer(answer("clear", "p2", "Brief.")));
-        let t = p.capture(SPOKEN);
-        assert_eq!(p.settled(t).route.unwrap().by, "chatgpt");
+        let (by, _) = p.placed(Some(Reply::Answer(answer("clear", "p2", "Brief."))));
+        assert_eq!(by, "chatgpt");
     }
     // Each renewal sent the refresh token the one before it gave: the
     // stand-in refuses one used twice, and three were given out.
@@ -915,48 +1023,115 @@ fn a_sign_in_near_its_end_is_renewed_first_and_one_openai_refuses_signs_out() {
     assert_eq!(used, 2);
     p.openai.no_problems();
 
+    // A renewal slower than the placing's time: the placing passes the
+    // thought on, and the renewal runs to its end and keeps what replaces
+    // the refresh token, so the next placing renews with that, and nobody
+    // is signed out.
+    p.agree(&["chatgpt", "fixture"]);
+    p.openai.with(|s| s.renew_delay = 9000);
+    let (by, fallback) = p.placed(None);
+    assert_eq!(by, "local");
+    assert!(
+        fallback
+            .as_deref()
+            .is_some_and(|f| f.starts_with("chatgpt: no time was left to ask it")),
+        "{fallback:?}"
+    );
+    p.openai.until("the slow renewal answered", |s| {
+        s.refresh.values().filter(|used| **used).count() == 3
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    p.openai.with(|s| s.renew_delay = 0);
+    let (by, _) = p.placed(Some(Reply::Answer(answer("clear", "p2", "Brief."))));
+    assert_eq!(by, "chatgpt");
+    assert_eq!(p.state(), Some(SignIn::SignedIn));
+    p.openai.no_problems();
+
     // An hour left: no renewal. A question OpenAI then does not take the
-    // sign-in for renews it at once, for the next thought.
+    // sign-in for says so, and the next placing renews first.
+    p.agree(&["chatgpt"]);
     p.openai.with(|s| s.expires_in = 3600);
-    p.openai
-        .answers(Reply::Answer(answer("clear", "p2", "Brief.")));
-    let t = p.capture(SPOKEN);
-    assert_eq!(p.settled(t).route.unwrap().by, "chatgpt");
+    let (by, _) = p.placed(Some(Reply::Answer(answer("clear", "p2", "Brief."))));
+    assert_eq!(by, "chatgpt");
+    let renewals = p.openai.seen("POST /api/accounts/oauth/token");
+    // (What it renews to has five minutes, so the next renews again.)
     p.openai.with(|s| {
         s.access.clear();
         s.expires_in = 300;
     });
-    let t = p.capture(SPOKEN);
-    let fallback = p.settled(t).route.unwrap().fallback.unwrap();
+    let (_, fallback) = p.placed(None);
     let said = "chatgpt: ChatGPT did not take the sign-in, which is renewed for the next task";
-    assert!(fallback.starts_with(said), "{fallback}");
-    assert_eq!(p.openai.seen("POST /api/accounts/oauth/token"), 5);
-    p.openai
-        .answers(Reply::Answer(answer("clear", "p2", "Brief.")));
-    let t = p.capture(SPOKEN);
-    assert_eq!(p.settled(t).route.unwrap().by, "chatgpt");
+    assert!(
+        fallback.as_deref().is_some_and(|f| f.starts_with(said)),
+        "{fallback:?}"
+    );
+    let (by, _) = p.placed(Some(Reply::Answer(answer("clear", "p2", "Brief."))));
+    assert_eq!(by, "chatgpt");
+    assert_eq!(
+        p.openai.seen("POST /api/accounts/oauth/token"),
+        renewals + 1
+    );
+
+    // The credential store does not keep a renewed sign-in: this placing
+    // asks with it all the same, and the row says why it is not signed in.
+    p.vault_refuses(true);
+    let (by, _) = p.placed(Some(Reply::Answer(answer("clear", "p2", "Brief."))));
+    assert_eq!(by, "chatgpt");
+    p.w.until("the row says why", |m| !matches!(m.prefs.get(&PrefKey::Chatgpt), Some(PrefValue::Chatgpt(Some(c))) if c.state == SignIn::SignedIn));
+    let row = p.chatgpt().unwrap();
+    assert_eq!(row.state, SignIn::Failed);
+    assert!(
+        row.error
+            .as_deref()
+            .is_some_and(|e| e.contains("the credential store refused")),
+        "{row:?}"
+    );
+    p.vault_refuses(false);
     p.openai.no_problems();
 
-    // OpenAI refuses the next renewal: the row is signed out, why is said,
-    // and the next in the order places the thought.
+    // OpenAI refuses a renewal: the row is signed out, why is said, and the
+    // next in the order places the thought.
+    p.sign_in();
     p.agree(&["chatgpt", "fixture"]);
     p.openai.with(|s| s.refuse_renewal = true);
     p.script(&[format!("print:{}", answer("clear", "p1", "Brief."))]);
-    let t = p.capture(SPOKEN);
-    assert_eq!(p.settled(t).route.unwrap().by, "fixture");
+    assert_eq!(p.placed(None).0, "fixture");
+    p.w.until("signed out", |m| matches!(m.prefs.get(&PrefKey::Chatgpt), Some(PrefValue::Chatgpt(Some(c))) if c.state == SignIn::SignedOut));
+    let kept = p.route_by().unwrap();
+    assert_eq!(kept.agents[0].agent, "chatgpt");
+    // A sign-in begun then and cancelled puts back what was there: the
+    // row kept for the next sign-in, and why it is not signed in.
+    p.start();
+    p.sign_out();
     assert_eq!(p.state(), Some(SignIn::SignedOut));
-    let by = p.route_by().unwrap();
-    assert_eq!(by.agents[0].agent, "chatgpt");
+    assert_eq!(p.route_by(), Some(kept));
     // ChatGPT alone, signed out: the thought says so.
     p.agree(&["chatgpt"]);
-    let t = p.capture(SPOKEN);
-    let route = p.settled(t).route.unwrap();
     assert_eq!(
-        (route.by.as_str(), route.fallback.as_deref()),
-        ("local", Some("ChatGPT is not signed in"))
+        p.placed(None),
+        ("local".into(), Some("ChatGPT is not signed in".into()))
     );
-    assert_eq!(p.openai.seen("POST /v1/responses"), 5);
     p.kept_nowhere();
+}
+
+#[test]
+fn signing_out_while_a_thought_is_placed_leaves_the_row_as_signing_out_left_it() {
+    let mut p = Placing::new("chatgpt-meanwhile");
+    p.sign_in();
+    // The agent first takes its time; meanwhile the person signs out.
+    p.agree(&["fixture", "chatgpt"]);
+    p.script(&["sleep:2000".into(), "exit:3".into()]);
+    let t = p.capture(SPOKEN);
+    p.sign_out();
+    let fallback = p.settled(t).route.unwrap().fallback.unwrap();
+    assert!(
+        fallback.ends_with("chatgpt: ChatGPT is not signed in"),
+        "{fallback}"
+    );
+    p.w.sync();
+    assert_eq!(p.chatgpt(), None);
+    assert_eq!(p.openai.seen("POST /v1/responses"), 0);
+    p.openai.no_problems();
 }
 
 #[test]
@@ -974,8 +1149,7 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
     let (status, _, _) = get(&back);
     assert_eq!(status, 200);
     assert_eq!(p.ended().state, SignIn::SignedIn);
-    p.w.ok::<call::ChatgptSignOut>(&Empty {});
-    p.w.sync();
+    p.sign_out();
 
     // An ID token of another attempt, a person who declines, and one who
     // does not allow the use of their plan.
@@ -1003,41 +1177,69 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
     let address = p.start();
     p.browse(&address);
     assert_eq!(p.ended().state, SignIn::NoPlan);
-    // None of them agreed to anything or kept a sign-in.
-    assert_eq!(
-        p.route_by(),
-        Some(RouteBy {
-            agents: vec![],
-            terms: TERMS
-        })
-    );
-    assert_eq!(p.openai.seen("GET /v1/models"), 1);
-
-    // Cancelled, the wait ends and the listener closes.
-    p.openai.with(|s| s.no_plan = false);
+    // An account whose list has no gpt-6.2-sol: the sign-in ends at OpenAI.
+    p.openai.with(|s| (s.no_plan, s.no_sol) = (false, true));
+    let revoked = p.openai.with(|s| s.revoked.len());
     let address = p.start();
-    p.w.ok::<call::ChatgptSignOut>(&Empty {});
-    p.w.sync();
-    assert_eq!(p.chatgpt(), None);
-    let (_, back, _) = get(&address);
-    let port = back
-        .unwrap()
-        .split(':')
-        .nth(2)
-        .unwrap()
-        .split('/')
-        .next()
-        .unwrap()
-        .to_owned();
-    // It looks for the word every 50 ms.
-    let closed = (0..40).any(|_| {
-        let refused = TcpStream::connect(format!("127.0.0.1:{port}")).is_err();
-        if !refused {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+    p.browse(&address);
+    assert_eq!(p.ended().state, SignIn::NoModel);
+    p.openai
+        .until("the tokens ended", |s| s.revoked.len() == revoked + 1);
+    // None of them agreed to anything or kept a sign-in.
+    assert!(!p.w.model.prefs.contains_key(&PrefKey::RouteBy));
+    p.openai.with(|s| s.no_sol = false);
+
+    // Cancelled, the wait ends and the listener closes, also while a client
+    // holds a connection open a byte at a time.
+    let address = p.start();
+    let port = port(&address);
+    let at = format!("127.0.0.1:{port}");
+    let drip = std::thread::spawn(move || {
+        let mut c = TcpStream::connect(at).unwrap();
+        for b in b"GET /auth/callback?state=x HTTP/1.1\r\nHost: x\r\n".iter() {
+            if c.write_all(&[*b]).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(300));
         }
-        refused
     });
-    assert!(closed, "the listener is still open");
+    std::thread::sleep(Duration::from_millis(300));
+    p.sign_out();
+    assert_eq!(p.state(), Some(SignIn::NoModel));
+    assert!(closed(&port, 3000), "the listener is still open");
+    drop(drip);
+    // Cancelled once the code was exchanged: what OpenAI gave is ended there.
+    p.openai.with(|s| s.code_delay = 1500);
+    let revoked = p.openai.with(|s| s.revoked.len());
+    let address = p.start();
+    p.browse(&address);
+    p.sign_out();
+    p.openai.until("the cancelled sign-in ended", |s| {
+        s.revoked.len() == revoked + 1
+    });
+    p.openai.with(|s| s.code_delay = 0);
+    std::thread::sleep(Duration::from_millis(300));
+    p.w.sync();
+    assert_eq!(p.state(), Some(SignIn::NoModel));
+
+    // OpenAI no longer knows the client id it issued: the sign-in says so,
+    // and the next registers anew, with the same host id.
+    p.openai.with(|s| s.refuse_client = true);
+    let address = p.start();
+    p.browse(&address);
+    let ended = p.ended();
+    assert_eq!(
+        (ended.state, ended.error.as_deref()),
+        (SignIn::Failed, Some("invalid_client: Unknown client."))
+    );
+    p.openai.with(|s| s.refuse_client = false);
+    p.sign_in();
+    let opened = p.openai.with(|s| s.opened.clone());
+    let last = opened.last().unwrap();
+    assert_eq!(last["client_id"], "dynamic_agent_client");
+    assert_eq!(last["ext_agent_host_id"], opened[0]["ext_agent_host_id"]);
+    assert_eq!(p.openai.with(|s| s.clients.len()), 2);
+    p.sign_out();
     // Only the core writes the sign-in's record.
     let refused = p.w.refused::<call::Delete>(&tasktap_proto::Delete::Prefs {
         id: PrefKey::Chatgpt,
@@ -1046,7 +1248,8 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
     p.openai.no_problems();
     p.kept_nowhere();
 
-    // A core that stops while a sign-in waits leaves none waiting.
+    // A core that stops while a sign-in waits leaves none waiting, and the
+    // next core signs in under the registration kept.
     p.start();
     let Placing {
         _core: core,
@@ -1057,8 +1260,14 @@ fn a_sign_in_that_does_not_finish_says_why_and_keeps_nothing() {
     } = p;
     drop(w);
     core.stop();
-    let core = Core::start_env(&data.0, &[], &[("TASKTAP_CHATGPT", &openai.base)]);
-    let w = core.watch();
+    let core = Placing::core(&data, &openai);
+    let mut w = core.watch();
     let none = PrefValue::Chatgpt(None);
     assert_eq!(w.model.prefs.get(&PrefKey::Chatgpt), Some(&none));
+    let address = w.ok::<call::ChatgptSignIn>(&Empty {});
+    let client = openai.with(|s| s.clients.last().cloned().unwrap());
+    assert_eq!(
+        fields(address.split_once('?').unwrap().1)["client_id"],
+        client
+    );
 }

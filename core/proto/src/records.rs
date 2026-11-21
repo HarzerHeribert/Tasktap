@@ -756,8 +756,10 @@ pub struct ChatGpt {
 words! {
     /// `waiting`: for the person, in their browser. `no_plan`: signed in,
     /// but the use of the person's ChatGPT plan was not allowed, so nothing
-    /// was kept. `signed_out`: OpenAI refused to renew the sign-in.
-    pub enum SignIn { Waiting, SignedIn, Failed, NoPlan, SignedOut }
+    /// was kept. `no_model`: signed in, but the account is not offered the
+    /// model placing asks for, so the sign-in was ended. `signed_out`:
+    /// OpenAI refused to renew the sign-in.
+    pub enum SignIn { Waiting, SignedIn, Failed, NoPlan, NoModel, SignedOut }
 }
 
 /// An agent the person added (design §7): any program that takes what it is

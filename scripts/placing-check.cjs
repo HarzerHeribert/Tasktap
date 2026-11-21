@@ -67,7 +67,7 @@ async function main(out, dist) {
         order: [kids.findIndex((k) => k.matches('ul.sends')), offer, kids.findIndex((k) => k.matches('.ranks'))], offer: kids[offer]?.textContent };
     });
     expect(sign.first === 'ChatGPT' && sign.button === 'Sign in with ChatGPT', `ChatGPT's row comes first, with its button: ${JSON.stringify(sign)}`);
-    expect(sign.offer === 'Sign in with ChatGPT and gpt-6.2-sol finds the project for a task in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.', `what signing in does: "${sign.offer}"`);
+    expect(sign.offer === 'Sign in with ChatGPT and a task that names no project goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.', `what signing in does: "${sign.offer}"`);
     expect(sign.order[0] >= 0 && sign.order[0] < sign.order[1] && sign.order[1] < sign.order[2], `what is sent, then that, then the button: ${sign.order}`);
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f .key')?.textContent)) === 'Allow', 'Return allows');
     await fits(page, 'the sheet');
@@ -172,8 +172,15 @@ async function main(out, dist) {
       const b = [...document.querySelectorAll(`${w} .btn`)].find((x) => x.textContent === l);
       return b ? (b.click(), true) : false;
     }, [label, where]);
-    await click('Sign in with ChatGPT');
+    // Pressed twice before the core has answered: one sign-in, and nothing said of the second press.
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.sheet .btn')].find((x) => x.textContent === 'Sign in with ChatGPT');
+      b.click();
+      b.click();
+    });
     await page.waitForTimeout(300);
+    const once = await page.evaluate(() => ({ calls: window.__fake.calls.filter((c) => c === 'chatgpt.sign_in').length, error: document.querySelector('.err')?.textContent ?? '' }));
+    expect(once.calls === 1 && !once.error, `pressed twice, one sign-in and no error: ${JSON.stringify(once)}`);
     const waiting = await page.evaluate(() => ({ opened: window.__fake.opened.map((o) => o.target), said: document.querySelector('.sheet .terms > p[role=status]')?.textContent,
       button: document.querySelector('.sheet .rank.sign .btn')?.textContent }));
     expect(waiting.opened.join() === 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake', `OpenAI's page opens in the browser: ${waiting.opened}`);
@@ -193,19 +200,24 @@ async function main(out, dist) {
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f').textContent)).includes('Turn off'), 'placing is on: the sheet turns it off');
     await fits(page, 'the sheet signed in with ChatGPT');
     await shoot(page, out, 'placing-chatgpt-signed-in');
-    // Signed out: its row is the button again, and its row of the agreement is gone.
+    // Signed out: its row is the button again, and as no agreement was there before the sign-in, none is: the agents
+    // are proposed again, each on, and nothing is stored until the person allows it.
     await click('Sign out');
     await page.waitForTimeout(300);
-    expect(await rows(page) === 'Claude Code off, Codex off, Antigravity off', `signed out, the agents as they were: ${await rows(page)}`);
+    expect(await rows(page) === '1Claude Code, 2Codex, 3Antigravity', `signed out, placing as it was before: ${await rows(page)}`);
+    expect(await stored(page) === 'null' && (await page.evaluate(() => document.querySelector('.sheet .sh-f').textContent)).includes('Allow'), 'no agreement is left, and Allow asks for one');
     expect(await page.evaluate(() => document.querySelector('.sheet .rank.sign .btn')?.textContent) === 'Sign in with ChatGPT', 'and ChatGPT\'s button is back');
     // Why a sign-in did not finish, or ended, is said above the button, in the words given.
     const ends = [
       [{ state: 'failed', model: null, name: null, error: 'access_denied' }, 'The sign-in with ChatGPT did not finish: access_denied.'],
       [{ state: 'no_plan', model: null, name: null, error: null }, 'ChatGPT signed you in, but did not allow Tasktap to use your plan. Sign in again and allow the use of your plan.'],
-      [{ state: 'signed_out', model: null, name: null, error: null }, 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.'],
+      [{ state: 'no_model', model: null, name: null, error: null }, 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.'],
+      // OpenAI signed Tasktap out: the core keeps ChatGPT's row for the next sign-in.
+      [{ state: 'signed_out', model: null, name: null, error: null }, 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.',
+        { route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 3 } }],
     ];
-    for (const [i, [value, said]] of ends.entries()) {
-      await prefs(600 + i, { chatgpt: value });
+    for (const [i, [value, said, more]] of ends.entries()) {
+      await prefs(600 + i, { chatgpt: value, ...more });
       await page.waitForTimeout(200);
       const shown = await page.evaluate(() => ({ warn: document.querySelector('.sheet .terms > p[role=alert]')?.textContent, button: document.querySelector('.sheet .rank.sign .btn')?.textContent }));
       expect(shown.warn === said && shown.button === 'Sign in with ChatGPT', `${value.state}: "${shown.warn}", and the button again`);
@@ -216,7 +228,7 @@ async function main(out, dist) {
     await page.evaluate(() => window.__ws.open({ kind: 'settings', at: 'projects' }));
     await page.waitForTimeout(500);
     const there = await page.evaluate(() => document.querySelector('.settings .rank.sign .x')?.textContent);
-    expect(there === ends[2][1], `Settings' row says why: "${there}"`);
+    expect(there === ends[ends.length - 1][1], `Settings' row says why: "${there}"`);
     await click('Sign in with ChatGPT', '.settings');
     await page.waitForTimeout(300);
     expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'placing', 'its button opens the placing sheet');

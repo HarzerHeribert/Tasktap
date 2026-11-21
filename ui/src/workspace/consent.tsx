@@ -91,6 +91,8 @@ function Ranks({ rows, set, lead }: { rows: Rank[]; set: (rows: Rank[]) => void;
 }
 
 const signOut = () => void call('chatgpt.sign_out', {}).catch(fail);
+/** A sign-in with ChatGPT asked for and not answered yet. */
+let signing = false;
 
 /** ChatGPT's row while it is not signed in: its name and the button that signs in with ChatGPT, or Cancel while the
  *  browser is waited for. `sign`: what the button does; in the sheet, which says above it what is sent to OpenAI, it
@@ -169,8 +171,13 @@ export function PlacingSheet({ back }: { back?: boolean }) {
   const [reads, setReads] = useState(false);
   useEffect(() => void loadTerms(), []);
   const c = chatgptRow(pref('chatgpt')), asks = t?.tools.find((x) => x.agent === CHATGPT)?.model;
-  // Pressed here, below what is sent and to whom: the agreement for ChatGPT's row (core chatgpt.rs `agree`).
-  const signIn = () => void call('chatgpt.sign_in', {}).then((target) => call('host.open', { target })).catch(fail);
+  // Pressed here, below what is sent and to whom: the agreement for ChatGPT's row (core chatgpt.rs `agree`). Once:
+  // a second press while the first is on its way does nothing.
+  const signIn = () => {
+    if (signing) return;
+    signing = true;
+    void call('chatgpt.sign_in', {}).then((target) => call('host.open', { target })).catch(fail).finally(() => (signing = false));
+  };
   const done = () => (back ? open({ kind: 'settings', at: 'projects' }) : dismiss());
   const put = (patch: RouteBy | null) => void call('put', { c: 'prefs', id: 'route_by', patch }).then(done, fail);
   const no = () => {

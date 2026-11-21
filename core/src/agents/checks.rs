@@ -33,8 +33,6 @@ pub enum Failed {
     /// Its tool said the person's plan or key has reached its usage limit,
     /// and when it is back where it said; with its words.
     Limit(super::quota::Back, String),
-    /// The sign-in it was asked under has ended: ChatGPT's (`chatgpt.rs`).
-    SignedOut,
     Why(String),
 }
 

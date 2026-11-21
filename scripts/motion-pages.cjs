@@ -132,20 +132,23 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
     if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
-    // The sign-in with ChatGPT (core chatgpt.rs): the address of OpenAI's page, and the wait for the browser; the check
-    // pushes how it ends. Signing out, or cancelling, takes the record and ChatGPT's row of the agreement away.
+    // The sign-in with ChatGPT (core chatgpt.rs): the address of OpenAI's page, and the wait for the browser, one at a
+    // time; the check pushes how it ends. Signing out takes the record and ChatGPT's row of the agreement away, and an
+    // agreement left with no row goes with it.
     if (name === 'chatgpt.sign_in' || name === 'chatgpt.sign_out') {
       const set = (key, value) => {
         rev++;
-        records.prefs = (records.prefs || []).filter((p) => p.id !== key).concat({ id: key, value, rev });
-        push({ t: 'change', rev, sets: [{ c: 'prefs', put: [{ id: key, value, rev }] }] });
+        records.prefs = (records.prefs || []).filter((p) => p.id !== key).concat(value === undefined ? [] : [{ id: key, value, rev }]);
+        push({ t: 'change', rev, sets: [{ c: 'prefs', ...(value === undefined ? { del: [key] } : { put: [{ id: key, value, rev }] }) }] });
       };
+      const now = (key) => (records.prefs || []).find((p) => p.id === key)?.value;
       if (name === 'chatgpt.sign_out') {
-        const by = (records.prefs || []).find((p) => p.id === 'route_by')?.value;
-        if (by) set('route_by', { ...by, agents: by.agents.filter((a) => a.agent !== 'chatgpt') });
+        const by = now('route_by'), left = by?.agents.filter((a) => a.agent !== 'chatgpt');
+        if (by) set('route_by', left.length ? { ...by, agents: left } : undefined);
         set('chatgpt', null);
         return reply(id, null);
       }
+      if (now('chatgpt')?.state === 'waiting') return toCore({ t: 'reply', id, err: { code: 'conflict', message: 'a sign-in with ChatGPT is waiting for the browser already' } });
       set('chatgpt', { state: 'waiting', model: null, name: null, error: null });
       return reply(id, 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake');
     }

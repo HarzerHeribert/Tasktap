@@ -6,13 +6,16 @@
 //! The sign-in: the core listens on 127.0.0.1 at a port the system picks,
 //! `chatgpt.sign_in` answers with the address of OpenAI's authorisation
 //! page, which the host opens in the system's browser, and the browser comes
-//! back to the listener with a one-time code, exchanged with PKCE. Tasktap
-//! registers itself with OpenAI as "Tasktap" each time it signs in. The ID
-//! token that comes with the tokens is checked: from OpenAI's sign-in, for
-//! the client OpenAI issued, not expired, of this attempt. At most five
-//! minutes of waiting and one sign-in at a time; the listener closes after.
-//! The account's models are asked once, and the model placing asks for is
-//! kept: [`MODEL`] where the list shows it, else the first it shows.
+//! back to the listener with a one-time code, exchanged with PKCE. The first
+//! time, Tasktap registers itself with OpenAI as "Tasktap"; the client id
+//! OpenAI issues and the host id Tasktap made are no secrets and are kept in
+//! `<data>/chatgpt.json` across sign-outs, so a sign-in after registers
+//! nothing anew unless OpenAI refuses the kept client id. The ID token that
+//! comes with the tokens is checked: from OpenAI's sign-in, for the client
+//! OpenAI issued, not expired, of this attempt. At most five minutes of
+//! waiting and one sign-in at a time; the listener closes after. The
+//! account's models are asked once: placing asks [`MODEL`], and an account
+//! whose list does not offer it is not signed in.
 //!
 //! The sign-in is kept in the system's credential store (`secrets.rs`), as a
 //! speech service's key is: never in the database, a record, a reply or a
@@ -21,14 +24,20 @@
 //! row of placing and puts it first ([`agree`]); signing out takes it out.
 //!
 //! There is no timer: a placing that finds the access token (an hour) with
-//! under ten minutes left renews it first and stores the refresh token
-//! that replaces the old one (30 days) at once, one renewal at a time. A
-//! refused renewal deletes the sign-in, and the preference says OpenAI
-//! signed Tasktap out. `chatgpt.sign_out` ends the sign-in at OpenAI too.
+//! under ten minutes left renews it first, one renewal at a time, and keeps
+//! the refresh token that replaces the old one (30 days). A renewal has a
+//! time of its own and runs to its end whatever the placing's time, since
+//! OpenAI replaces the refresh token at every use and one given up on would
+//! be lost; the placing passes the thought on when its own time is up. A
+//! renewal OpenAI refuses deletes the sign-in, and the preference says
+//! OpenAI signed Tasktap out. `chatgpt.sign_out` ends the sign-in at OpenAI
+//! too.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -52,14 +61,18 @@ use crate::{effects, route};
 
 /// ChatGPT's id where an agreement and a thought's `route` name who placed.
 pub const ID: &str = "chatgpt";
-/// The model placing asks for where the account's list shows it (the
-/// owner's decision of 2026-11-21: the newest, 14 of 14 right).
+/// The model placing asks for (the owner's decision of 2026-11-21: the
+/// newest, 14 of 14 right), and no other.
 pub const MODEL: &str = "gpt-6.2-sol";
 /// The reasoning effort it is asked with, as Codex is.
 const EFFORT: &str = "low";
 /// Longest a placing may take, as long as the slowest agent's; what is
 /// left of [`route::BUDGET`] bounds it.
 pub const LIMIT: Duration = Duration::from_secs(15);
+/// Least time worth a call to OpenAI: with less left, a placing passes on.
+const LEAST: Duration = Duration::from_millis(500);
+/// Why a placing passed the thought on, as an agent's says it.
+const LATE: &str = "no time was left to ask it";
 /// What the person sees Tasktap called while approving it, and in ChatGPT's
 /// settings after.
 const NAME: &str = "Tasktap";
@@ -72,15 +85,21 @@ const RESOURCE: &str = "https://api.openai.com/v1";
 /// The first registration's entry point; never kept.
 const FIRST_CLIENT: &str = "dynamic_agent_client";
 const CALLBACK: &str = "/auth/callback";
-/// Longest the browser is waited for.
+/// Longest the browser is waited for, and one connection to the listener.
 const WAIT: Duration = Duration::from_secs(5 * 60);
-/// Longest one call of the sign-in takes.
+const ONE: Duration = Duration::from_secs(2);
+/// Longest one call of the sign-in takes, a renewal's among them.
 const CALL: Duration = Duration::from_secs(15);
 /// Milliseconds an access token has left when a placing renews it first.
 const RENEW: u64 = 10 * 60 * 1000;
 /// Characters of the kept sign-in in one entry of the credential store: a
 /// name holds at most 512 (`secrets::plain`), and Windows 2560 bytes.
 const PART: usize = 500;
+/// Entries of a kept sign-in: the first says how many follow and what they
+/// are, and is written last; at most 15 follow.
+const PARTS: usize = 16;
+/// The file in the data folder that keeps what Tasktap registered as.
+const REGISTRATION: &str = "chatgpt.json";
 
 /// Where OpenAI's sign-in and API are; a build with the test fixtures takes
 /// a stand-in on this machine from `TASKTAP_CHATGPT`.
@@ -104,19 +123,30 @@ fn openai() -> OpenAi {
 /// The sign-in that waits for the browser, and what placings share.
 pub struct ChatGpt {
     vault: Arc<dyn Vault>,
-    /// One renewal at a time: a refresh token is good once.
-    renewing: Arc<Mutex<()>>,
-    /// The sign-in waiting for the browser, by its number, and what ends
-    /// its wait.
-    waiting: Option<(u64, mpsc::Sender<()>)>,
+    /// The sign-in as last read from or kept in the credential store. Its
+    /// lock keeps one renewal at a time: a refresh token is good once.
+    held: Arc<Mutex<Held>>,
+    /// OpenAI did not take the sign-in for a question: the next placing
+    /// renews it first.
+    stale: Arc<AtomicBool>,
+    waiting: Option<Waiting>,
     attempts: u64,
+}
+
+/// A sign-in that waits for the browser: its number, what ends the wait,
+/// and the preference as it was before, which a cancel puts back.
+struct Waiting {
+    number: u64,
+    stop: mpsc::Sender<()>,
+    before: Option<Seen>,
 }
 
 impl Default for ChatGpt {
     fn default() -> Self {
         ChatGpt {
             vault: secrets::vault(),
-            renewing: Default::default(),
+            held: Default::default(),
+            stale: Default::default(),
             waiting: None,
             attempts: 0,
         }
@@ -132,14 +162,13 @@ impl ChatGpt {
     /// What a placing asks ChatGPT with, off the core's thread.
     pub fn asking(&self) -> Asking {
         Asking {
-            vault: self.vault.clone(),
-            renewing: self.renewing.clone(),
+            stale: self.stale.clone(),
         }
     }
 }
 
-/// The sign-in as the credential store keeps it, in parts of [`PART`].
-#[derive(Serialize, Deserialize)]
+/// The sign-in as the credential store keeps it.
+#[derive(Clone, Serialize, Deserialize)]
 struct Kept {
     /// The client id OpenAI issued Tasktap when it registered.
     client: String,
@@ -149,80 +178,172 @@ struct Kept {
     until: u64,
 }
 
+/// The kept sign-in once it was read: none, or one.
+#[derive(Default)]
+struct Held {
+    read: bool,
+    kept: Option<Kept>,
+}
+
+impl Held {
+    fn get(&mut self, vault: &dyn Vault) -> Result<Option<Kept>, String> {
+        if !self.read {
+            self.kept = kept(vault)?;
+            self.read = true;
+        }
+        Ok(self.kept.clone())
+    }
+
+    fn set(&mut self, kept: Option<Kept>) {
+        (self.read, self.kept) = (true, kept);
+    }
+}
+
 fn part(i: usize) -> String {
     format!("{ID}.{i}")
 }
 
-fn kept(vault: &dyn Vault) -> Result<Option<Kept>, String> {
-    let mut text = String::new();
-    for i in 0.. {
-        match vault.get(&part(i))? {
-            Some(part) => text.push_str(&part),
-            None => break,
-        }
-    }
-    let read = unb64(&text).and_then(|bytes| serde_json::from_slice(&bytes).ok());
-    Ok(read.filter(|_| !text.is_empty()))
+/// The first 8 bytes of a text's SHA-256, in hex: what tells a whole record.
+fn digest(text: &str) -> String {
+    let all = Sha256::digest(text.as_bytes());
+    all[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The kept sign-in. One that does not read whole (a part missing, parts of
+/// two sign-ins, a first part never written) is none, and its parts go.
+fn kept(vault: &dyn Vault) -> Result<Option<Kept>, String> {
+    let whole = |head: &str| -> Result<Option<Kept>, String> {
+        let Some((n, sum)) = head.split_once('-') else {
+            return Ok(None);
+        };
+        let n = n.parse().ok().filter(|n| (1..PARTS).contains(n));
+        let Some(n) = n else { return Ok(None) };
+        let mut text = String::new();
+        for i in 1..=n {
+            match vault.get(&part(i))? {
+                Some(part) => text.push_str(&part),
+                None => return Ok(None),
+            }
+        }
+        if digest(&text) != sum {
+            return Ok(None);
+        }
+        Ok(unb64(&text).and_then(|bytes| serde_json::from_slice(&bytes).ok()))
+    };
+    let read = match vault.get(&part(0))? {
+        Some(head) => whole(&head)?,
+        None if vault.get(&part(1))?.is_none() => return Ok(None),
+        None => None,
+    };
+    if read.is_none() {
+        remove(vault)?;
+    }
+    Ok(read)
+}
+
+/// Keeps a sign-in: the parts first, any a longer one left behind removed,
+/// the first part last, so that one stopped half-way never reads whole.
 fn keep(vault: &dyn Vault, kept: &Kept) -> Result<(), String> {
     let json = serde_json::to_vec(kept).map_err(|e| e.to_string())?;
     let text = b64(&json);
     let parts: Vec<_> = text.as_bytes().chunks(PART).collect();
+    if parts.len() >= PARTS {
+        return Err("the sign-in is too large to keep".into());
+    }
     for (i, bytes) in parts.iter().enumerate() {
-        vault.set(&part(i), &String::from_utf8_lossy(bytes))?;
+        vault.set(&part(i + 1), &String::from_utf8_lossy(bytes))?;
     }
-    remove(vault, parts.len())
-}
-
-/// Removes the parts from `from` on: a shorter sign-in leaves none behind.
-fn remove(vault: &dyn Vault, from: usize) -> Result<(), String> {
-    let mut i = from;
-    while vault.get(&part(i))?.is_some() {
+    for i in parts.len() + 1..PARTS {
         vault.remove(&part(i))?;
-        i += 1;
     }
-    Ok(())
+    vault.set(&part(0), &format!("{}-{}", parts.len(), digest(&text)))
 }
 
-/// Deletes the sign-in; with `end`, ends it at OpenAI first, as far as
-/// OpenAI can be reached, as the revocation endpoint it publishes allows.
-fn forget(vault: &dyn Vault, openai: &OpenAi, end: bool) -> Result<(), String> {
-    if let Some(Kept {
+/// Removes every part a sign-in can have, whatever is missing among them.
+fn remove(vault: &dyn Vault) -> Result<(), String> {
+    (0..PARTS).try_for_each(|i| vault.remove(&part(i)))
+}
+
+/// Ends a refresh token at OpenAI, at the revocation endpoint OpenAI's
+/// configuration names, as far as OpenAI can be reached.
+fn revoke(openai: &OpenAi, client: &str, refresh: &str) {
+    let url = format!("{}/.well-known/openid-configuration", openai.auth);
+    let found = json_call(&Request {
+        url: &url,
+        key: None,
+        body: Body::None,
+        limit: CALL,
+    });
+    let own = format!("{}/", openai.auth);
+    if let Ok((200, config)) = found
+        && config["issuer"] == openai.auth
+        && let Some(url) = config["revocation_endpoint"].as_str()
+        && url.starts_with(&own)
+    {
+        let fields = [
+            ("token", refresh),
+            ("token_type_hint", "refresh_token"),
+            ("client_id", client),
+        ];
+        let request = Request {
+            url,
+            key: None,
+            body: Body::Fields(&fields),
+            limit: CALL,
+        };
+        let _ = http::send(&request, mpsc::channel());
+    }
+}
+
+/// Deletes the sign-in, ended at OpenAI first.
+fn forget(vault: &dyn Vault, held: &mut Held, openai: &OpenAi) -> Result<(), String> {
+    if let Ok(Some(Kept {
         client,
         refresh: Some(refresh),
         ..
-    }) = kept(vault).ok().flatten().filter(|_| end)
+    })) = held.get(vault)
     {
-        let url = format!("{}/.well-known/openid-configuration", openai.auth);
-        let found = json_call(&Request {
-            url: &url,
-            key: None,
-            body: Body::None,
-            limit: CALL,
-        });
-        let own = format!("{}/", openai.auth);
-        if let Ok((200, config)) = found
-            && config["issuer"] == openai.auth
-            && let Some(url) = config["revocation_endpoint"].as_str()
-            && url.starts_with(&own)
-        {
-            let fields = [
-                ("token", refresh.as_str()),
-                ("token_type_hint", "refresh_token"),
-                ("client_id", &client),
-            ];
-            let body = Body::Fields(&fields);
-            let request = Request {
-                url,
-                key: None,
-                body,
-                limit: CALL,
-            };
-            let _ = http::send(&request, mpsc::channel());
-        }
+        revoke(openai, &client, &refresh);
     }
-    remove(vault, 0)
+    held.set(None);
+    remove(vault)
+}
+
+/// What Tasktap registered as at OpenAI, kept across sign-outs: the host id
+/// it made once, and the client id OpenAI issued it. Neither is a secret.
+#[derive(Clone, Serialize, Deserialize)]
+struct Registration {
+    host: String,
+    client: Option<String>,
+}
+
+/// The registration kept in `data`, or a new host id.
+fn registration(data: &Path) -> Registration {
+    let file = std::fs::read(data.join(REGISTRATION)).ok();
+    let kept = file.and_then(|bytes| serde_json::from_slice::<Registration>(&bytes).ok());
+    let host = |r: &Registration| r.host.starts_with("urn:uuid:");
+    kept.filter(host).unwrap_or_else(|| Registration {
+        host: host_id(),
+        client: None,
+    })
+}
+
+/// Keeps the registration, whole or not at all; one not kept only means
+/// Tasktap registers again next time.
+fn register(data: &Path, registration: &Registration) {
+    if let Ok(json) = serde_json::to_vec(registration) {
+        let _ = crate::agents::checks::whole(&data.join(REGISTRATION), &json);
+    }
+}
+
+/// "urn:uuid:" and a version 4 UUID, which the first half of a fresh secret
+/// is: a host id that stands for nothing of the person's.
+fn host_id() -> String {
+    let hex: String = (Secret::mint().0[..16].iter())
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let (a, b, c) = (&hex[..8], &hex[8..12], &hex[12..16]);
+    format!("urn:uuid:{a}-{b}-{c}-{}-{}", &hex[16..20], &hex[20..])
 }
 
 /// The model placing asks ChatGPT for, while signed in.
@@ -256,31 +377,34 @@ fn agree(tx: &mut Tx, model: &str) -> store::Result<()> {
     tx.put_pref(&PrefValue::RouteBy(Some(RouteBy { agents, terms })))
 }
 
-/// Signing out takes ChatGPT's row out of the agreement.
+/// Signing out takes ChatGPT's row out of the agreement. Where it was the
+/// only row, there is no agreement left: placing is as it was before the
+/// sign-in, not answered.
 fn unagree(tx: &mut Tx) -> store::Result<()> {
     if let Some(PrefValue::RouteBy(Some(mut by))) = tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
         by.agents.retain(|p| p.agent != ID);
-        tx.put_pref(&PrefValue::RouteBy(Some(by)))?;
+        match by.agents.is_empty() {
+            true => drop(tx.delete_pref(PrefKey::RouteBy)?),
+            false => tx.put_pref(&PrefValue::RouteBy(Some(by)))?,
+        }
     }
     Ok(())
 }
 
-/// Puts the `chatgpt` preference; with a model, ChatGPT's row is agreed to.
-fn seen(core: &mut Core, seen: Option<Seen>) {
-    let agreed = seen.as_ref().and_then(|s| s.model.clone());
-    let signed_out = seen.is_none();
+/// Writes the preference, and the agreement with it as `row` says.
+fn write(core: &mut Core, seen: Option<Seen>, row: impl FnOnce(&mut Tx) -> store::Result<()>) {
     let wrote = effects::write(core, |tx| {
         let put = tx.put_pref(&PrefValue::Chatgpt(seen));
-        let row = match (agreed, signed_out) {
-            (Some(model), _) => agree(tx, &model),
-            (None, true) => unagree(tx),
-            (None, false) => Ok(()),
-        };
-        put.and(row).map_err(effects::stored)
+        put.and_then(|()| row(tx)).map_err(effects::stored)
     });
     if let Err(e) = wrote {
         effects::stop(e.message)
     }
+}
+
+/// Writes the preference alone.
+fn put(core: &mut Core, seen: Option<Seen>) {
+    write(core, seen, |_| Ok(()))
 }
 
 fn state(state: SignIn) -> Seen {
@@ -289,6 +413,13 @@ fn state(state: SignIn) -> Seen {
         model: None,
         name: None,
         error: None,
+    }
+}
+
+fn failed_with(why: String) -> Seen {
+    Seen {
+        error: Some(why),
+        ..state(SignIn::Failed)
     }
 }
 
@@ -302,34 +433,140 @@ pub fn start(core: &mut Core) -> Result<(), String> {
         ..
     }))) = stored
     {
-        let put = |tx: &mut Tx| tx.put_pref(&PrefValue::Chatgpt(None));
-        effects::write(core, |tx| put(tx).map_err(effects::stored)).map_err(|e| e.message)?;
+        put(core, None);
     }
     Ok(())
 }
 
-/// A placing found the sign-in ended: its renewal was refused, and it is
-/// deleted. The preference says OpenAI signed Tasktap out; the agreement
-/// keeps ChatGPT's row for when the person signs in again. Why the placing
-/// passed the thought on, as its `route` says it.
-pub fn ended(core: &mut Core) -> String {
-    seen(core, Some(state(SignIn::SignedOut)));
-    format!("{ID}: ChatGPT signed Tasktap out")
+/// What a placing finds of the sign-in, renewed first where it has to be.
+enum Renewal {
+    /// The access token to ask with.
+    Fresh(String),
+    /// Renewed, but the credential store did not keep it, for this reason:
+    /// this placing asks with it, and it is not signed in after.
+    NotKept(String, String),
+    /// No sign-in is kept: signed out meanwhile, or one that did not read
+    /// whole, or ended with no way to renew it.
+    None,
+    /// OpenAI refused to renew the sign-in that was kept: it is deleted.
+    Refused,
+    /// Why there is no access token now, as the thought says it.
+    Failed(String),
 }
 
-/// One sign-in's values: PKCE's verifier (S256), the state its callback
-/// must bring back and the nonce its ID token must hold. 244 random bits
-/// each, 43 characters.
+/// The sign-in, renewed when its access token has under ten minutes left,
+/// or with `force`, in a call of its own time ([`CALL`]); the refresh token
+/// that replaces the old one is kept at once.
+fn renewal(vault: &dyn Vault, held: &Mutex<Held>, openai: &OpenAi, force: bool) -> Renewal {
+    let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+    let kept = match held.get(vault) {
+        Ok(Some(kept)) => kept,
+        Ok(None) => return Renewal::None,
+        Err(why) => return Renewal::Failed(format!("the sign-in could not be read ({why})")),
+    };
+    let now = effects::wall().get();
+    if !force && kept.until > now + RENEW {
+        return Renewal::Fresh(kept.access);
+    }
+    let Some(refresh) = kept.refresh.clone() else {
+        return match kept.until > now {
+            true => Renewal::Fresh(kept.access),
+            false => {
+                forget(vault, &mut held, openai).map_or_else(Renewal::Failed, |()| Renewal::None)
+            }
+        };
+    };
+    let fields = [
+        ("grant_type", "refresh_token"),
+        ("client_id", &kept.client),
+        ("refresh_token", &refresh),
+        ("resource", RESOURCE),
+    ];
+    match token(openai, &fields, CALL) {
+        Ok(tokens) => {
+            let renewed = Kept {
+                access: tokens["access_token"].as_str().unwrap_or_default().into(),
+                refresh: tokens["refresh_token"]
+                    .as_str()
+                    .map(Into::into)
+                    .or(kept.refresh),
+                until: until(&tokens),
+                client: kept.client,
+            };
+            match keep(vault, &renewed) {
+                Ok(()) => {
+                    held.set(Some(renewed.clone()));
+                    Renewal::Fresh(renewed.access)
+                }
+                // The old refresh token is used up: what is kept of it goes.
+                Err(why) => {
+                    held.set(None);
+                    let _ = remove(vault);
+                    Renewal::NotKept(renewed.access, why)
+                }
+            }
+        }
+        Err(Refused(_)) => {
+            held.set(None);
+            let _ = remove(vault);
+            Renewal::Refused
+        }
+        Err(Unanswered(why)) => Renewal::Failed(format!(
+            "the sign-in with ChatGPT could not be renewed ({why})"
+        )),
+    }
+}
+
+/// Starts what a placing needs first, off the core's thread: the sign-in,
+/// renewed where it has to be. It runs to its end whatever the placing's
+/// time, and tells the placing on `gave`, if it still waits, the access
+/// token or why there is none. What the person should see of it goes into
+/// the preference, never over what a sign-out left there.
+pub fn renew(core: &mut Core, gave: mpsc::Sender<Result<String, String>>) {
+    let (vault, held) = (core.chatgpt.vault.clone(), core.chatgpt.held.clone());
+    let stale = core.chatgpt.stale.clone();
+    let work = move || {
+        let force = stale.swap(false, Ordering::Relaxed);
+        let renewal = renewal(&*vault, &held, &openai(), force);
+        let _ = gave.send(match &renewal {
+            Renewal::Fresh(access) | Renewal::NotKept(access, _) => Ok(access.clone()),
+            Renewal::None => Err("ChatGPT is not signed in".into()),
+            Renewal::Refused => Err("ChatGPT signed Tasktap out".into()),
+            Renewal::Failed(why) => Err(why.clone()),
+        });
+        renewal
+    };
+    crate::calls::aside(core, work, |core, renewal| {
+        if effects::read(core, model).ok().flatten().is_none() {
+            return;
+        }
+        match renewal {
+            Some(Renewal::Refused) => put(core, Some(state(SignIn::SignedOut))),
+            Some(Renewal::NotKept(_, why)) => {
+                let why = format!("the system's credential store did not keep it ({why})");
+                put(core, Some(failed_with(why)));
+            }
+            Some(Renewal::None) => put(core, None),
+            _ => {}
+        }
+    });
+}
+
+/// One sign-in's values: what Tasktap is registered as, PKCE's verifier
+/// (S256), the state its callback must bring back and the nonce its ID
+/// token must hold, 244 random bits each, 43 characters.
 struct Attempt {
+    registration: Registration,
     verifier: String,
     state: String,
     nonce: String,
 }
 
 impl Attempt {
-    fn new() -> Attempt {
+    fn new(registration: Registration) -> Attempt {
         let random = || b64(&Secret::mint().0);
         Attempt {
+            registration,
             verifier: random(),
             state: random(),
             nonce: random(),
@@ -339,24 +576,14 @@ impl Attempt {
     /// OpenAI's authorisation page for this attempt. It holds no token.
     fn address(&self, openai: &OpenAi, redirect: &str) -> String {
         let challenge = b64(&Sha256::digest(self.verifier.as_bytes()));
-        // "urn:uuid:" and a version 4 UUID, which the first half of a
-        // fresh secret is: a host id that stands for nothing of the person's.
-        let hex: String = Secret::mint().0[..16]
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        let (a, b, c, d, e) = (
-            &hex[..8],
-            &hex[8..12],
-            &hex[12..16],
-            &hex[16..20],
-            &hex[20..],
-        );
-        let host = format!("urn:uuid:{a}-{b}-{c}-{d}-{e}");
-        let params = [
-            ("client_id", FIRST_CLIENT),
-            ("agent_name_hint", NAME),
-            ("ext_agent_host_id", &host),
+        let client = self.registration.client.as_deref();
+        let mut params = vec![("client_id", client.unwrap_or(FIRST_CLIENT))];
+        // A first registration names the app; signing in again does not.
+        if client.is_none() {
+            params.push(("agent_name_hint", NAME));
+        }
+        params.extend([
+            ("ext_agent_host_id", self.registration.host.as_str()),
             ("response_type", "code"),
             ("redirect_uri", redirect),
             ("scope", SCOPES),
@@ -365,7 +592,7 @@ impl Attempt {
             ("nonce", &self.nonce),
             ("code_challenge_method", "S256"),
             ("code_challenge", &challenge),
-        ];
+        ]);
         let query: Vec<_> = (params.iter())
             .map(|(name, value)| format!("{name}={}", http::escaped(value)))
             .collect();
@@ -377,6 +604,7 @@ impl Attempt {
 enum Ended {
     SignedIn { model: String, name: String },
     NoPlan,
+    NoModel,
     Failed(String),
 }
 
@@ -400,77 +628,94 @@ pub fn sign_in(cx: &mut Cx, _: Empty) -> Result<String, Error> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(failed)?;
     let port = listener.local_addr().map_err(failed)?.port();
     let redirect = format!("http://127.0.0.1:{port}{CALLBACK}");
-    let (openai, attempt) = (openai(), Attempt::new());
+    let data = core.terminals.data().to_owned();
+    let (openai, attempt) = (openai(), Attempt::new(registration(&data)));
     let address = attempt.address(&openai, &redirect);
-    seen(core, Some(state(SignIn::Waiting)));
+    let before = effects::read(core, |tx| tx.pref(PrefKey::Chatgpt))?;
+    let before = match before.map(|p| p.value) {
+        Some(PrefValue::Chatgpt(seen)) => seen,
+        _ => None,
+    };
+    put(core, Some(state(SignIn::Waiting)));
     let (stop, stopped) = mpsc::channel();
     core.chatgpt.attempts += 1;
     let number = core.chatgpt.attempts;
-    core.chatgpt.waiting = Some((number, stop));
-    let vault = core.chatgpt.vault.clone();
+    core.chatgpt.waiting = Some(Waiting {
+        number,
+        stop,
+        before,
+    });
+    let (vault, held) = (core.chatgpt.vault.clone(), core.chatgpt.held.clone());
     let work = move || {
+        // The host id is kept from its first use.
+        register(&data, &attempt.registration);
         let back = match listen(listener, &attempt.state, &stopped) {
             Ok(back) => back,
             Err(None) => return None,
             Err(Some(why)) => return Some(Ended::Failed(why)),
         };
-        let done = signed_in(&*vault, &openai, &attempt, &redirect, &back);
-        Some(done.unwrap_or_else(Ended::Failed))
+        let done = signed_in(
+            &*vault, &held, &openai, &attempt, &redirect, &back, &data, &stopped,
+        );
+        done.unwrap_or_else(|why| Some(Ended::Failed(why)))
     };
-    let vault = core.chatgpt.vault.clone();
+    let (vault, held) = (core.chatgpt.vault.clone(), core.chatgpt.held.clone());
     crate::calls::aside(core, work, move |core, ended| {
         let ended = ended.flatten();
-        if core.chatgpt.waiting.as_ref().map(|w| w.0) != Some(number) {
-            // Cancelled: one that got through all the same is not kept.
+        if core.chatgpt.waiting.as_ref().map(|w| w.number) != Some(number) {
+            // Cancelled: one that got through all the same is ended at
+            // OpenAI and not kept.
             if let Some(Ended::SignedIn { .. }) = ended {
-                crate::calls::aside(core, move || remove(&*vault, 0), |_, _| {});
+                let forget = move || {
+                    let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+                    forget(&*vault, &mut held, &self::openai())
+                };
+                crate::calls::aside(core, forget, |_, _| {});
             }
             return;
         }
         core.chatgpt.waiting = None;
         core.events.notify_one();
-        let ended = ended.unwrap_or(Ended::Failed("the sign-in ended without an answer".into()));
-        seen(
-            core,
-            Some(match ended {
-                Ended::SignedIn { model, name } => Seen {
-                    model: Some(model),
+        match ended.unwrap_or(Ended::Failed("the sign-in ended without an answer".into())) {
+            Ended::SignedIn { model, name } => {
+                let seen = Seen {
+                    model: Some(model.clone()),
                     name: Some(name),
                     ..state(SignIn::SignedIn)
-                },
-                Ended::NoPlan => state(SignIn::NoPlan),
-                Ended::Failed(why) => Seen {
-                    error: Some(why),
-                    ..state(SignIn::Failed)
-                },
-            }),
-        );
+                };
+                write(core, Some(seen), |tx| agree(tx, &model));
+            }
+            Ended::NoPlan => put(core, Some(state(SignIn::NoPlan))),
+            Ended::NoModel => put(core, Some(state(SignIn::NoModel))),
+            Ended::Failed(why) => put(core, Some(failed_with(why))),
+        }
     });
     Ok(address)
 }
 
-/// `chatgpt.sign_out`: ends the wait for a sign-in, or the sign-in: at
-/// OpenAI, as far as it can be reached, and in the credential store.
-/// ChatGPT's row leaves the agreement.
+/// `chatgpt.sign_out`: ends the wait for a sign-in, which puts back what
+/// was there before it, or the sign-in: at OpenAI, as far as it can be
+/// reached, and in the credential store. ChatGPT's row leaves the
+/// agreement. What Tasktap registered as at OpenAI is kept.
 pub fn sign_out(cx: &mut Cx, _: Empty) -> Option<Control> {
     let (link, id) = (cx.link.clone(), cx.id);
     let core = &mut *cx.core;
-    if let Some((_, stop)) = core.chatgpt.waiting.take() {
+    if let Some(Waiting { stop, before, .. }) = core.chatgpt.waiting.take() {
         let _ = stop.send(());
         core.events.notify_one();
-        seen(core, None);
+        put(core, before);
         return Some(call::ChatgptSignOut::reply(id, Ok(())));
     }
-    let Asking { vault, renewing } = core.chatgpt.asking();
+    let (vault, held) = (core.chatgpt.vault.clone(), core.chatgpt.held.clone());
     let work = move || {
-        let _one = renewing.lock().unwrap_or_else(PoisonError::into_inner);
-        forget(&*vault, &openai(), true)
+        let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+        forget(&*vault, &mut held, &openai())
     };
     crate::calls::aside(core, work, move |core, done| {
         let lost = || Err("the credential store ended without an answer".to_owned());
         let result = done.unwrap_or_else(lost);
         if result.is_ok() {
-            seen(core, None);
+            write(core, None, unagree);
         }
         let result = result.map_err(|why| Error::new(Code::Failed, why));
         link.send(&call::ChatgptSignOut::reply(id, result));
@@ -478,9 +723,15 @@ pub fn sign_out(cx: &mut Cx, _: Empty) -> Option<Control> {
     None
 }
 
+/// Whether a word came on `stop`, or nobody can send one any more.
+fn stopped(stop: &mpsc::Receiver<()>) -> bool {
+    stop.try_recv() != Err(TryRecvError::Empty)
+}
+
 /// Waits for the browser to come back with this attempt's `state`, until
-/// [`WAIT`] or a word on `stop`: what it brought. One that does not bring
-/// it is answered and ends nothing. `Err(None)`: stopped.
+/// [`WAIT`] or a word on `stop`, looked at between connections: what it
+/// brought. One that does not bring it is answered and ends nothing.
+/// `Err(None)`: stopped.
 fn listen(
     listener: TcpListener,
     state: &str,
@@ -490,6 +741,13 @@ fn listen(
     listener.set_nonblocking(true).map_err(failed)?;
     let until = Instant::now() + WAIT;
     loop {
+        if stopped(stop) {
+            return Err(None);
+        }
+        if Instant::now() > until {
+            let why = "no answer came from the browser within 5 minutes";
+            return Err(Some(why.into()));
+        }
         match listener.accept() {
             Ok((conn, _)) => {
                 if let Some(back) = answer(conn, state) {
@@ -497,40 +755,36 @@ fn listen(
                 }
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                if stop.try_recv() != Err(TryRecvError::Empty) {
-                    return Err(None);
-                }
-                if Instant::now() > until {
-                    let why = "no answer came from the browser within 5 minutes";
-                    return Err(Some(why.into()));
-                }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(Duration::from_millis(50))
             }
             Err(e) => return Err(failed(e)),
         }
     }
 }
 
-/// Reads one request and answers it with a page: what the callback brought
-/// when it is this attempt's.
+/// Reads one request, in [`ONE`] at most however its bytes come, and
+/// answers it with a page: what the callback brought when it is this
+/// attempt's.
 fn answer(mut conn: TcpStream, state: &str) -> Option<HashMap<String, String>> {
     conn.set_nonblocking(false).ok()?;
-    conn.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    let (mut reader, mut line, mut head) = (
-        BufReader::new((&conn).take(16 << 10)),
-        String::new(),
-        String::new(),
-    );
-    reader.read_line(&mut line).ok()?;
-    // The rest of its head is read, so the browser is not cut off.
-    while reader.read_line(&mut head).is_ok_and(|n| n > 2) {
-        head.clear();
+    let until = Instant::now() + ONE;
+    let (mut head, mut chunk) = (Vec::new(), [0; 2048]);
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() || head.len() > 16 << 10 {
+            return None;
+        }
+        conn.set_read_timeout(Some(left)).ok()?;
+        match conn.read(&mut chunk) {
+            Ok(n @ 1..) => head.extend_from_slice(&chunk[..n]),
+            _ => return None,
+        }
     }
+    let head = String::from_utf8_lossy(&head);
+    let line = head.lines().next().unwrap_or_default();
     let target = line.strip_prefix("GET ").and_then(|l| l.split(' ').next());
-    let (path, query) = target
-        .unwrap_or_default()
-        .split_once('?')
-        .unwrap_or((target.unwrap_or_default(), ""));
+    let target = target.unwrap_or_default();
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let back: HashMap<_, _> = (query.split('&'))
         .filter_map(|pair| pair.split_once('='))
         .map(|(name, value)| (unescape(name), unescape(value)))
@@ -580,57 +834,133 @@ fn unescape(text: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// The rest of a sign-in once the browser came back: the code exchanged,
-/// the ID token checked, the models asked, the sign-in kept.
+/// What OpenAI says when it no longer knows a client id it issued.
+fn unknown(said: &str) -> bool {
+    ["invalid_client", "unauthorized_client"]
+        .iter()
+        .any(|code| said.starts_with(code))
+}
+
+/// The rest of a sign-in once the browser came back: the code exchanged
+/// under the client id kept or just issued, the ID token checked, the model
+/// asked for, the sign-in kept. Tokens it does not keep it ends at OpenAI:
+/// of an account not offered the model, or not allowing the use of its
+/// plan, or a sign-in cancelled meanwhile (`None`). A kept client id OpenAI
+/// refuses is forgotten, so that the next sign-in registers anew.
+#[allow(clippy::too_many_arguments)]
 fn signed_in(
     vault: &dyn Vault,
+    held: &Mutex<Held>,
     openai: &OpenAi,
     attempt: &Attempt,
     redirect: &str,
     back: &HashMap<String, String>,
-) -> Result<Ended, String> {
+    data: &Path,
+    stop: &mpsc::Receiver<()>,
+) -> Result<Option<Ended>, String> {
+    let refused = |said: String| {
+        if attempt.registration.client.is_some() && unknown(&said) {
+            let forgotten = Registration {
+                client: None,
+                ..attempt.registration.clone()
+            };
+            register(data, &forgotten);
+        }
+        said
+    };
     if let Some(error) = back.get("error") {
-        return Err(
-            match back.get("error_description").filter(|d| !d.is_empty()) {
-                Some(words) => format!("{error}: {words}"),
-                None => error.clone(),
-            },
-        );
+        let words = back.get("error_description").filter(|d| !d.is_empty());
+        let said = words.map_or(error.clone(), |words| format!("{error}: {words}"));
+        return Err(refused(said));
     }
     let code = back
         .get("code")
         .ok_or("the browser came back without a code")?;
-    let client = back
+    let issued = back
         .get("client_id")
         .filter(|c| !c.is_empty() && *c != FIRST_CLIENT);
-    let client = client.ok_or("the browser came back without the client id OpenAI issued")?;
+    let client = match (issued, &attempt.registration.client) {
+        (Some(issued), _) => issued.clone(),
+        (None, Some(kept)) => kept.clone(),
+        (None, None) => {
+            return Err("the browser came back without the client id OpenAI issued".into());
+        }
+    };
+    if issued.is_some() {
+        // Kept before the code is exchanged, so a failed exchange does not
+        // register Tasktap a second time.
+        let issued = Registration {
+            client: Some(client.clone()),
+            ..attempt.registration.clone()
+        };
+        register(data, &issued);
+    }
     let fields = [
         ("grant_type", "authorization_code"),
-        ("client_id", client),
+        ("client_id", &client),
         ("code", code),
         ("code_verifier", &attempt.verifier),
         ("redirect_uri", redirect),
         ("resource", RESOURCE),
     ];
-    let tokens = token(openai, &fields, CALL).map_err(|(Refused(why) | Unanswered(why))| why)?;
+    let tokens = match token(openai, &fields, CALL) {
+        Ok(tokens) => tokens,
+        Err(Refused(said)) => return Err(refused(said)),
+        Err(Unanswered(why)) => return Err(why),
+    };
+    let refresh = tokens["refresh_token"].as_str();
+    let end = || {
+        if let Some(refresh) = refresh {
+            revoke(openai, &client, refresh);
+        }
+    };
     let id_token = tokens["id_token"]
         .as_str()
         .ok_or("OpenAI answered without an ID token")?;
-    checked(openai, id_token, client, &attempt.nonce)?;
-    let scopes = tokens["scope"].as_str().unwrap_or_default();
-    if !scopes.split(' ').any(|s| s == PLAN) {
-        return Ok(Ended::NoPlan);
+    if let Err(why) = checked(openai, id_token, &client, &attempt.nonce) {
+        end();
+        return Err(why);
     }
+    let plan = tokens["scope"]
+        .as_str()
+        .unwrap_or_default()
+        .split(' ')
+        .any(|s| s == PLAN);
     let access = tokens["access_token"].as_str().unwrap_or_default();
-    let (model, name) = chosen(openai, access)?;
+    let offered = match plan {
+        true => offered(openai, access),
+        false => Ok(None),
+    };
+    let ended = match offered {
+        _ if stopped(stop) => None,
+        Ok(Some(name)) => Some(Ended::SignedIn {
+            model: MODEL.into(),
+            name,
+        }),
+        Ok(None) if plan => Some(Ended::NoModel),
+        Ok(None) => Some(Ended::NoPlan),
+        Err(why) => Some(Ended::Failed(why)),
+    };
+    if !matches!(ended, Some(Ended::SignedIn { .. })) {
+        end();
+        return Ok(ended);
+    }
     let kept = Kept {
         client: client.clone(),
         access: access.into(),
-        refresh: tokens["refresh_token"].as_str().map(Into::into),
+        refresh: refresh.map(Into::into),
         until: until(&tokens),
     };
-    keep(vault, &kept)?;
-    Ok(Ended::SignedIn { model, name })
+    let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Err(why) = keep(vault, &kept) {
+        let _ = remove(vault);
+        end();
+        return Err(format!(
+            "the system's credential store did not keep it ({why})"
+        ));
+    }
+    held.set(Some(kept));
+    Ok(ended)
 }
 
 /// The ID token, as it came straight from OpenAI's token endpoint over a
@@ -660,10 +990,9 @@ fn checked(openai: &OpenAi, token: &str, client: &str, nonce: &str) -> Result<()
     Err(why.into())
 }
 
-/// The model placing asks for, and the name the account's list shows for
-/// it: [`MODEL`] where the list shows it, else the first it shows. One
-/// request, made once at sign-in.
-fn chosen(openai: &OpenAi, access: &str) -> Result<(String, String), String> {
+/// Whether the account's list offers [`MODEL`], and the name it shows for
+/// it. One request, made once at sign-in.
+fn offered(openai: &OpenAi, access: &str) -> Result<Option<String>, String> {
     let url = format!("{}/models", openai.api);
     let request = Request {
         url: &url,
@@ -677,44 +1006,46 @@ fn chosen(openai: &OpenAi, access: &str) -> Result<(String, String), String> {
         return Err(format!("the list of ChatGPT's models did not load ({why})"));
     }
     let all = list["models"].as_array().or(list["data"].as_array());
-    let slug = |m: &Value| m["slug"].as_str().or(m["id"].as_str()).map(|s| cut(s, 100));
-    let shown: Vec<_> = (all.into_iter().flatten())
-        .filter(|m| slug(m).is_some() && m["visibility"].as_str().is_none_or(|v| v == "list"))
-        .collect();
-    let model = (shown.iter().find(|m| slug(m).as_deref() == Some(MODEL)))
-        .or(shown.first())
-        .ok_or("ChatGPT offers your account no model")?;
-    let slug = slug(model).unwrap_or_default();
-    let name = model["display_name"]
-        .as_str()
-        .filter(|n| !n.trim().is_empty());
-    let name = name.map_or(slug.clone(), |n| cut(n, 100));
-    Ok((slug, name))
+    let slug = |m: &Value| m["slug"].as_str().or(m["id"].as_str()).map(str::to_owned);
+    let shown = |m: &&Value| m["visibility"].as_str().is_none_or(|v| v == "list");
+    let model = (all.into_iter().flatten()).find(|m| shown(m) && slug(m).as_deref() == Some(MODEL));
+    Ok(model.map(|m| {
+        let name = m["display_name"].as_str().filter(|n| !n.trim().is_empty());
+        name.map_or(MODEL.into(), |n| cut(n, 100))
+    }))
 }
 
-/// What a placing asks ChatGPT with: the sign-in, and the lock that keeps
-/// one renewal at a time.
+/// What a placing asks ChatGPT with.
 pub struct Asking {
-    vault: Arc<dyn Vault>,
-    renewing: Arc<Mutex<()>>,
+    stale: Arc<AtomicBool>,
 }
 
 impl Asking {
-    /// Asks ChatGPT one placing question on the person's plan: the
-    /// instructions in a field of their own, `request` (route.rs `asked`)
-    /// as the one message, and the answer held to route.rs `SCHEMA`; within
-    /// `limit`, a renewal it needs first counted in it. The answer's JSON
-    /// text. A `Stop` on `wait` ends the call.
+    /// Asks ChatGPT one placing question on the person's plan, within
+    /// `limit`: the instructions in a field of their own, `request`
+    /// (route.rs `asked`) as the one message, and the answer held to
+    /// route.rs `SCHEMA`. The access token comes on `renewed`, from
+    /// [`renew`]; when it does not come in time, or no time is left for the
+    /// call, the thought is passed on. The answer's JSON text. A `Stop` on
+    /// `wait` ends the call.
     pub fn ask(
         &self,
         model: &str,
         request: &str,
         limit: Duration,
+        renewed: mpsc::Receiver<Result<String, String>>,
         wait: Wait,
     ) -> Result<String, Failed> {
         let began = Instant::now();
-        let openai = openai();
-        let kept = self.fresh(&openai, false, limit)?;
+        let access = match renewed.recv_timeout(limit) {
+            Ok(Ok(access)) => access,
+            Ok(Err(why)) => return Err(Failed::Why(why)),
+            Err(_) => return Err(Failed::Why(LATE.into())),
+        };
+        let left = limit.saturating_sub(began.elapsed());
+        if left < LEAST {
+            return Err(Failed::Why(LATE.into()));
+        }
         let schema: Value = serde_json::from_str(route::SCHEMA).unwrap_or_default();
         let body = json!({
             "model": model,
@@ -726,12 +1057,12 @@ impl Asking {
             "stream": true,
         });
         let body = http::plain_json(&body.to_string());
-        let url = format!("{}/responses", openai.api);
+        let url = format!("{}/responses", openai().api);
         let request = Request {
             url: &url,
-            key: Some(&kept.access),
+            key: Some(&access),
             body: Body::Json(&body),
-            limit: limit.saturating_sub(began.elapsed()),
+            limit: left,
         };
         let answer = http::send(&request, wait).map_err(|e| match e {
             http::Failed::Slow => format!(
@@ -749,11 +1080,8 @@ impl Asking {
         };
         let why = match answer.status {
             200 => return stream(&text),
-            // Renewed, or found ended, for the next thought, in what is left of
-            // the time and at least 2 s.
             401 => {
-                let left = limit.saturating_sub(began.elapsed());
-                self.fresh(&openai, true, left.max(Duration::from_secs(2)))?;
+                self.stale.store(true, Ordering::Relaxed);
                 "ChatGPT did not take the sign-in, which is renewed for the next task".into()
             }
             429 => format!(
@@ -764,45 +1092,6 @@ impl Asking {
             _ => format!("ChatGPT did not take the question ({})", words()),
         };
         Err(Failed::Why(why))
-    }
-
-    /// The sign-in, renewed first when its access token has under ten
-    /// minutes left, or with `force`; the refresh token that replaces the
-    /// old one is kept at once. A refused renewal deletes the sign-in.
-    fn fresh(&self, openai: &OpenAi, force: bool, limit: Duration) -> Result<Kept, Failed> {
-        let _one = self.renewing.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut kept = kept(&*self.vault)?.ok_or(Failed::SignedOut)?;
-        if !force && kept.until > effects::wall().get() + RENEW {
-            return Ok(kept);
-        }
-        let ended = |vault: &dyn Vault| {
-            forget(vault, openai, false).map_or_else(Failed::Why, |()| Failed::SignedOut)
-        };
-        let Some(refresh) = kept.refresh.clone() else {
-            return Err(ended(&*self.vault));
-        };
-        let fields = [
-            ("grant_type", "refresh_token"),
-            ("client_id", &kept.client),
-            ("refresh_token", &refresh),
-            ("resource", RESOURCE),
-        ];
-        match token(openai, &fields, limit) {
-            Ok(tokens) => {
-                kept.access = tokens["access_token"].as_str().unwrap_or_default().into();
-                kept.refresh = tokens["refresh_token"]
-                    .as_str()
-                    .map(Into::into)
-                    .or(kept.refresh);
-                kept.until = until(&tokens);
-                keep(&*self.vault, &kept)?;
-                Ok(kept)
-            }
-            Err(Refused(_)) => Err(ended(&*self.vault)),
-            Err(Unanswered(why)) => {
-                Err(format!("the sign-in with ChatGPT could not be renewed ({why})").into())
-            }
-        }
     }
 }
 
@@ -825,13 +1114,23 @@ fn token(openai: &OpenAi, fields: &[(&str, &str)], limit: Duration) -> Result<Va
         limit,
     };
     let (status, body) = json_call(&request).map_err(Unanswered)?;
+    let refresh = body["refresh_token"].as_str();
     match status {
-        // A token goes into curl's configuration: it must be one line.
-        200 if body["access_token"].as_str().is_some_and(secrets::plain) => Ok(body),
-        200 => Err(Unanswered("OpenAI answered without an access token".into())),
+        200 if body["access_token"].as_str().is_some_and(usable) && refresh.is_none_or(usable) => {
+            Ok(body)
+        }
+        200 => Err(Unanswered(
+            "OpenAI answered without a token Tasktap can send".into(),
+        )),
         400 | 401 => Err(Refused(said(&body, status))),
         _ => Err(Unanswered(said(&body, status))),
     }
+}
+
+/// Whether a token can be sent: of any length, as OpenAI's signed tokens
+/// are long, and with no control character, which no header holds.
+fn usable(token: &str) -> bool {
+    !token.is_empty() && !token.chars().any(char::is_control)
 }
 
 /// When the access token in `tokens` ends: an hour unless they say.
@@ -977,4 +1276,100 @@ fn unb64(text: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    /// A credential store in memory.
+    #[derive(Default)]
+    struct Store(Mutex<BTreeMap<String, String>>);
+
+    impl Vault for Store {
+        fn set(&self, name: &str, key: &str) -> Result<(), String> {
+            assert!(secrets::plain(name) && secrets::plain(key), "{name}");
+            self.0.lock().unwrap().insert(name.into(), key.into());
+            Ok(())
+        }
+
+        fn get(&self, name: &str) -> Result<Option<String>, String> {
+            Ok(self.0.lock().unwrap().get(name).cloned())
+        }
+
+        fn remove(&self, name: &str) -> Result<(), String> {
+            self.0.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+
+    impl Store {
+        fn names(&self) -> Vec<String> {
+            self.0.lock().unwrap().keys().cloned().collect()
+        }
+    }
+
+    /// A sign-in with tokens of the length OpenAI's are.
+    fn signed(n: u8) -> Kept {
+        Kept {
+            client: "oaiapp_0123456789".into(),
+            access: format!("eyJ{}", char::from(b'a' + n).to_string().repeat(2300)),
+            refresh: Some(format!("rt_{}", "r".repeat(200))),
+            until: 1,
+        }
+    }
+
+    #[test]
+    fn a_long_sign_in_is_kept_in_parts_and_read_back_whole() {
+        let store = Store::default();
+        assert!(kept(&store).unwrap().is_none());
+        keep(&store, &signed(0)).unwrap();
+        // The first part says how many follow and what they hold.
+        let head = store.get(&part(0)).unwrap().unwrap();
+        let n: usize = head.split_once('-').unwrap().0.parse().unwrap();
+        assert!(n >= 6, "{head}");
+        assert_eq!(kept(&store).unwrap().unwrap().access, signed(0).access);
+        // A shorter one leaves no part of the longer behind.
+        let short = Kept {
+            access: "eyJshort".into(),
+            ..signed(1)
+        };
+        keep(&store, &short).unwrap();
+        assert_eq!(store.names(), [part(0), part(1)]);
+        assert_eq!(kept(&store).unwrap().unwrap().access, "eyJshort");
+    }
+
+    #[test]
+    fn a_record_that_does_not_read_whole_is_no_sign_in_and_leaves_no_part() {
+        // A renewal stopped half-way: the new parts written, the first part
+        // still the old one's.
+        let store = Store::default();
+        keep(&store, &signed(0)).unwrap();
+        let old = store.get(&part(0)).unwrap().unwrap();
+        keep(&store, &signed(1)).unwrap();
+        store.set(&part(0), &old).unwrap();
+        assert!(kept(&store).unwrap().is_none());
+        assert_eq!(store.names(), Vec::<String>::new());
+        // A first sign-in stopped before its first part.
+        keep(&store, &signed(2)).unwrap();
+        store.remove(&part(0)).unwrap();
+        assert!(kept(&store).unwrap().is_none());
+        assert_eq!(store.names(), Vec::<String>::new());
+        // A part missing.
+        keep(&store, &signed(3)).unwrap();
+        store.remove(&part(3)).unwrap();
+        assert!(kept(&store).unwrap().is_none());
+        assert_eq!(store.names(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn removing_clears_every_part_whatever_the_gaps() {
+        let store = Store::default();
+        for i in [0, 3, 9, PARTS - 1] {
+            store.set(&part(i), "piece").unwrap();
+        }
+        remove(&store).unwrap();
+        assert_eq!(store.names(), Vec::<String>::new());
+    }
 }

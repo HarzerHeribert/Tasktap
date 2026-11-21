@@ -22,8 +22,9 @@ test('ChatGPT\'s row of placing is a button until it is signed in, waits for the
   assert.equal(out({ state: 'failed', error: 'no answer came from the browser within 5 minutes.' }), 'The sign-in with ChatGPT did not finish: no answer came from the browser within 5 minutes.');
   assert.equal(out({ state: 'no_plan' }), 'ChatGPT signed you in, but did not allow Tasktap to use your plan. Sign in again and allow the use of your plan.');
   assert.equal(out({ state: 'signed_out' }), 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.');
-  // What the sheet says above the button, by the model it would ask.
-  assert.equal(chatgptOffer('gpt-6.2-sol'), 'Sign in with ChatGPT and gpt-6.2-sol finds the project for a task in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.');
+  assert.equal(out({ state: 'no_model' }), 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.');
+  // What the sheet says above the button: where the task goes, and the model that finds its project.
+  assert.equal(chatgptOffer('gpt-6.2-sol'), 'Sign in with ChatGPT and a task that names no project goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.');
 });
 
 test('Setup\'s placing step is always there, and with nobody signed in it says how to sign someone in', () => {

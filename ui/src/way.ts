@@ -191,6 +191,8 @@ export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'wai
       return out(`The sign-in with ChatGPT did not finish: ${(c.error ?? 'no reason was given').replace(/\.+$/, '')}.`);
     case 'no_plan':
       return out('ChatGPT signed you in, but did not allow Tasktap to use your plan. Sign in again and allow the use of your plan.');
+    case 'no_model':
+      return out('Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.');
     case 'signed_out':
       return out('ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.');
     default:
@@ -198,9 +200,10 @@ export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'wai
   }
 }
 
-/** What the placing sheet says above the button that signs in with ChatGPT, by the model it would ask. */
+/** What the placing sheet says above the button that signs in with ChatGPT: where a task goes, and the model that
+ *  finds its project. */
 export const chatgptOffer = (model: string) =>
-  `Sign in with ChatGPT and ${model} finds the project for a task in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
+  `Sign in with ChatGPT and a task that names no project goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
 
 /** What Setup's placing step says: by whom tasks are placed (`asks`, then `more`), that the terms changed, that nobody
  *  who could place is signed in (`anyone`: ChatGPT or an agent), that the person skipped it, or what it is for. */

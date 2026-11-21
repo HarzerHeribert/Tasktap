@@ -36,10 +36,13 @@ export const invite = new Roll(
 );
 /** An input method's composition is under way in the field: its first letters are not the field's value yet. */
 let composing = false;
+void coreIn.then(() => askRoute(), () => {});
 const dictating = () => talk.asking || [...records.dictations.values()].some((x) => x.phase === 'recording' || x.phase === 'transcribing');
-/** Whether the line rolls in field `el` (the one with the keyboard, by default) now. */
+/** Whether the line rolls in field `el` (the one with the keyboard, by default) now: never before the core has
+ *  answered (the person's effects are not known yet), nor while the page is not shown (a display asleep). */
 export const rollsHere = (el = document.activeElement) =>
-  el instanceof HTMLTextAreaElement && el.id === 'capture-input' && rolls({ empty: !cap.draft, held: document.activeElement === el, front: inFront(), dictating: dictating(), composing, effects: effectsOf(pref('motion_ambient')) });
+  core.in && el instanceof HTMLTextAreaElement && el.id === 'capture-input'
+  && rolls({ empty: !cap.draft, held: document.activeElement === el, front: inFront(), shown: document.visibilityState === 'visible', dictating: dictating(), composing, effects: effectsOf(pref('motion_ambient')) });
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
  *  it, which Undo gives back with its words. How it came by its place is the thought's own to say (`placed`). */
@@ -165,7 +168,8 @@ function says(w: ReturnType<typeof where>, route: Route | undefined): [string, s
     case 'none':
       return ['No projects yet', 'saved for later'];
     case 'starting':
-      return ['', ''];
+      // Hidden (parts.css): the place its usual words take, so that nothing in its row moves when the core answers.
+      return ['Tasktap decides', 'by its words'];
   }
 }
 const named = (w: ReturnType<typeof where>, current = cap.current): Partial<CaptureArgs> => (w.by === 'router' ? { current } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' });
@@ -313,6 +317,8 @@ let hintTimer = 0;
 /** Asks the core where the text typed so far would go, a moment after typing stops. */
 function askRoute() {
   clearTimeout(hintTimer);
+  // Before the core has answered nothing is asked (the questions would all go at once when it comes); then once.
+  if (!core.in) return;
   const text = cap.draft.trim();
   if (!text) {
     cap.hint = null;
@@ -794,8 +800,16 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     const motion = matchMedia('(prefers-reduced-motion: reduce)'), field = area.current;
     addEventListener('focus', sync);
     addEventListener('blur', sync);
+    document.addEventListener('visibilitychange', sync);
     motion.addEventListener('change', sync);
-    return () => (removeEventListener('focus', sync), removeEventListener('blur', sync), motion.removeEventListener('change', sync), invite.stop(field));
+    return () => {
+      removeEventListener('focus', sync);
+      removeEventListener('blur', sync);
+      document.removeEventListener('visibilitychange', sync);
+      motion.removeEventListener('change', sync);
+      composing = false;
+      invite.stop(field);
+    };
   }, []);
   useLayoutEffect(() => {
     const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
@@ -866,10 +880,10 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
           // The foot: where it goes, who runs it, the microphone, and the key that says what Return does, in that order.
           <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false} data-starting={w.why === 'starting' || undefined}
-              title={`${back ? 'Your choice was for the thought before. ' : ''}${!all ? 'No project is known yet: a thought is saved for later until a folder is open. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
-                : model ? `${agentName(first(pref('route_by'), placers()))} reads the thought and places it. Click to choose the place yourself`
+              title={`${back ? 'Your choice was for the task before. ' : ''}${!all ? 'No project is known yet: a task is saved for later until a folder is open. Click to open a folder' : later ? 'Saved for later: nothing starts. Click to change'
+                : model ? `${agentName(first(pref('route_by'), placers()))} reads the task and chooses where the task goes. Click to choose the place yourself`
                   : w.why === 'words' || w.why === 'ask' ? 'Tasktap places it in the project its words name, and asks you where when they name none. Click (or ⌘K) to choose the place yourself'
-                    : w.why === 'only' ? 'The one folder open, so a thought that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
+                    : w.why === 'only' ? 'The one folder open, so a task that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
               onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
               {!later ? <I n={session ? 'term' : 'arrow'} /> : all ? <Mark s="later" label="" /> : <I n="folder" />}
@@ -878,8 +892,8 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
               <I n="chev" />
             </button>
             <AgentControl session={session} />
-            <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
-              title={service ? `Hold to talk, or hold ${keyName(talkKey())}. A click keeps it on until the next` : 'Voice needs setting up first'}
+            <button type="button" class="mic" data-off={(core.in && !service) || undefined} aria-label="Talk"
+              title={!core.in ? undefined : service ? `Hold to talk, or hold ${keyName(talkKey())}. A click keeps it on until the next` : 'Voice needs setting up first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
               <span><I n="mic" /></span><Key k={keyName(talkKey())} />
             </button>

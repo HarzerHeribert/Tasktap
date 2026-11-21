@@ -48,7 +48,7 @@ test('the form for an agent of the person\'s own says what its command lacks, in
   assert.equal(ownAgentLacks('x'.repeat(41), 'goose {prompt}'), 'Give the agent a name of up to 40 characters');
   assert.equal(ownAgentLacks('Goose', '  '), 'Goose needs a command');
   assert.equal(ownAgentLacks('Goose', '{prompt}'), 'The command of Goose needs a program before {prompt}');
-  assert.equal(ownAgentLacks('Goose', 'goose run'), 'The command of Goose needs {prompt} where the thought goes');
+  assert.equal(ownAgentLacks('Goose', 'goose run'), 'The command of Goose needs {prompt} where the task goes');
 });
 
 test('the two letters of a ring are no two agents alike', () => {

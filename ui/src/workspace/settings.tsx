@@ -31,7 +31,7 @@ import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
 import { agent, agentName, call, fail, loadTerms, openQuestions, page, placers, pref, records, redraw, sentence, ui } from './model.ts';
 
-export const SECTIONS = [['thoughts', 'Thoughts'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
+export const SECTIONS = [['thoughts', 'Tasks'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
 /** The section last shown: Settings opens there again unless a link asks for another. */
 export const shown = { at: 'thoughts' as Section };
@@ -51,7 +51,7 @@ const holds: [number, string][] = [[0, 'No wait'], [3, '3 seconds'], [5, '5 seco
 const sizes: [number, string][] = [12, 14, 15, 16, 18].map((n) => [n, String(n)]);
 const heights: [number, string][] = [[100, '1.0'], [110, '1.1'], [120, '1.2'], [130, '1.3']];
 const FONTS = ['Hack Nerd Font Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo'];
-const returns: [boolean, string][] = [[true, 'Sends the thought'], [false, 'Starts a new line']];
+const returns: [boolean, string][] = [[true, 'Sends the task'], [false, 'Starts a new line']];
 const keeps: [number, string][] = [[0, 'Never'], [30, '30 days'], [90, '90 days'], [365, 'A year']];
 const texts: [TextSize, string][] = [['small', 'Small'], ['default', 'Default'], ['large', 'Large']];
 /** The days finished thoughts are kept, as a person says them. */
@@ -181,15 +181,15 @@ function ThoughtsPane() {
     ['off', 'None']];
   // The stored key is not the one in use: the system refused it when the app started.
   const lost = capture !== undefined && stored && !same(stored, capture);
-  const KEY = 'Key to put a thought in, from any app', TAB = 'Display that shows Tasktap’s tab', ENDS = `${RETURN} key when writing a thought`;
-  const WAIT = 'Wait before an agent starts a thought', DELETE = 'Delete finished thoughts after';
+  const KEY = 'Key to start a task, from any app', TAB = 'Display that shows Tasktap’s tab', ENDS = `${RETURN} key when writing a task`;
+  const WAIT = 'Wait before an agent starts a task', DELETE = 'Delete finished tasks after';
   const held = hold?.id === 'hold' ? hold.value : 5;
   return (
     <>
       {!takes ? <Row name={KEY} hint={NO_KEYS}><span class="v">None for this copy</span></Row> : <Row name={KEY} hint={lost ? `${keyName(stored!)} is taken by another app or ${SYSTEM}, so ${capture ? `${keyName(capture)} still opens Tasktap; record a different one.` : `no key opens Tasktap; record a different one, or use ${keyName(USUAL)}.`}`
         : capture === null ? `${keyName(USUAL)} is taken by another app or ${SYSTEM}, so no key opens Tasktap; record a different one.`
-          : mac ? 'Press it in any app and the notch opens with a field for your thought.'
-            : tab?.display === 'off' ? 'Press it in any app and Tasktap’s window comes forward with a field for your thought.' : 'Press it in any app and the tab at the top of the screen opens for your thought.'}>
+          : mac ? 'Press it in any app and the notch opens with a field for a new task.'
+            : tab?.display === 'off' ? 'Press it in any app and Tasktap’s window comes forward with a field for a new task.' : 'Press it in any app and the tab at the top of the screen opens for a new task.'}>
         {capture !== undefined && <Recorder name={KEY} value={capture} own={!!stored} usual={USUAL} set={setCapture} />}
       </Row>}
       <LoginRow />
@@ -215,8 +215,8 @@ function ThoughtsPane() {
         : 'The agent starts as soon as the project is found, so there is no moment to take it back.'}>
         <Choice name={WAIT} value={held} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
       </Row>
-      <Row name={DELETE} hint={days ? 'Thoughts you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays.'
-        : 'Every finished thought stays, with its answers and the history of the terminal its agent ran in.'}>
+      <Row name={DELETE} hint={days ? 'Tasks you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays.'
+        : 'Every finished task stays, with its answers and the history of the terminal its agent ran in.'}>
         <Choice name={DELETE} value={days} all={keeps.some(([n]) => n === days) ? keeps : [...keeps, [days, `${days} days`]]} set={(v) => setPref({ id: 'keep_days', patch: v })} />
       </Row>
     </>
@@ -232,7 +232,7 @@ function VoicePane() {
   return (
     <>
       <Speech />
-      <Row name={TALKS} hint={set ? 'In Tasktap only: in an empty field, letting go sends the thought (E first keeps it to edit); in any other field, your words are typed.'
+      <Row name={TALKS} hint={set ? 'In Tasktap only: in an empty field, letting go sends your words as a task (E first keeps them to edit); elsewhere they are typed.'
         : 'Voice is not set up yet: choose above where your speech becomes text.'}>
         <Recorder name={TALKS} value={talkKey()} own={!!pref('talk_key')} usual={TALK} set={setTalk} />
       </Row>
@@ -350,11 +350,11 @@ function AboutPane() {
       <UpdateRow />
       <SetupRow />
       <h3>What leaves {HERE}</h3>
-      <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? ` (${agentName(usual.id)} unless you choose another)` : ''}, in a terminal on ${HERE} under that agent’s own sign-in.`}>
+      <Row name="Your tasks" hint={`Each goes to the agent that runs it${usual ? ` (${agentName(usual.id)} unless you choose another)` : ''}, in a terminal on ${HERE} under that agent’s own sign-in.`}>
         <span class="v">To the agent that runs them</span><To at="agents">Agents</To>
       </Row>
       <Row name={FINDING} hint={names.length
-        ? `${names[0]}’s model reads each thought naming no single project, and each long one for its summary, with likely projects’ names${names.length > 1 ? `; if it cannot, ${names.slice(1).join(', then ')}` : ''}.`
+        ? `${names[0]}’s model reads each task naming no single project, and each long task for its summary, with likely projects’ names${names.length > 1 ? `; if it cannot, ${names.slice(1).join(', then ')}` : ''}.`
         : `Your words are matched to your projects’ names on ${HERE}, and nothing is sent.`}>
         <span class="v">{names.length ? `To ${names.join(', ')}` : 'Nothing'}</span><To at="projects">Projects</To>
       </Row>
@@ -365,8 +365,8 @@ function AboutPane() {
         <span class="v">{asks ? 'A check for new versions' : 'Nothing'}</span>
       </Row>
       <h3>Kept on {HERE}</h3>
-      <Row name="Your thoughts and history" hint={`Kept ${KEPT}; ${days ? `a finished thought goes ${daysName(days)} after it ends` : 'finished ones stay until you choose a time under Thoughts'}.`}>
-        <span class="v">In Tasktap’s folder</span><To at="thoughts">Thoughts</To>
+      <Row name="Your tasks and history" hint={`Kept ${KEPT}; ${days ? `a finished task goes ${daysName(days)} after it ends` : 'finished tasks stay until you choose a time under Tasks'}.`}>
+        <span class="v">In Tasktap’s folder</span><To at="thoughts">Tasks</To>
       </Row>
       <Row name="Speech service key" hint={keys ? 'Tasktap reads it only to send a recording, and never shows it again.' : `A key you give a speech service is kept ${kept} and never shown again.`}>
         <span class="v">{keys ? KEYS_KEPT : 'None saved'}</span>

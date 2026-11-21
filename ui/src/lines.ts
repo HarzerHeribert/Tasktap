@@ -43,8 +43,8 @@ export function at(i: number, now: Now): number {
 export const text = (i: number, now: Now) => (LINES[at(i, now)] ?? '').replace('{key}', now.key ?? '');
 
 /** When the field rolls: every one of these holds. */
-export type Field = { empty: boolean; held: boolean; front: boolean; dictating: boolean; composing: boolean; effects: 'off' | 'still' | 'full' };
-export const rolls = (f: Field) => f.empty && f.held && f.front && !f.dictating && !f.composing && f.effects === 'full';
+export type Field = { empty: boolean; held: boolean; front: boolean; shown: boolean; dictating: boolean; composing: boolean; effects: 'off' | 'still' | 'full' };
+export const rolls = (f: Field) => f.empty && f.held && f.front && f.shown && !f.dictating && !f.composing && f.effects === 'full';
 
 /** The one owner of the roll's timer, for every Composer of a page: the field it rolls for (`who`), and the timer, which
  *  runs only while `run` is told it may, and goes the moment it is told otherwise, by that field, or the field goes

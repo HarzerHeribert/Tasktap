@@ -892,10 +892,10 @@ key_row() { echo "eval (r => [r.querySelector('.rec kbd')?.textContent ?? 'no ke
 choose_in() { js workspace "(r => ([...r.querySelectorAll('.seg button')].find((b) => b.textContent === '$2').click(), 1))($(setting "$1"))" >/dev/null; }
 pref() { echo "eval JSON.stringify(__ws.records.prefs.get('$1')?.value ?? null)"; }
 js workspace "(__ws.show('home'), __ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
-until_has workspace "text .set-pane" 5 "Return key when writing a thought" || fail "the Thoughts section shows its rows"
+until_has workspace "text .set-pane" 5 "Return key when writing a task" || fail "the Thoughts section shows its rows"
 # Return: as set, the Composer's key says what sends, and the field does it.
-choose_in "Return key when writing a thought" "Starts a new line"
-until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .key-ret').textContent + ' ' + $(setting "Return key when writing a thought").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it; in a reply to an agent, Return always sends." \
+choose_in "Return key when writing a task" "Starts a new line"
+until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .key-ret').textContent + ' ' + $(setting "Return key when writing a task").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it; in a reply to an agent, Return always sends." \
   || fail "Return starts a new line, once chosen"
 # (Saved for later, so that nothing is placed or started by the check of a key.)
 js workspace "(__ws.dismiss(), __speech.cap.dest = 'later', __motion.redraw(), document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'see whether return sends'), 1)" >/dev/null
@@ -914,27 +914,27 @@ layout="$(js workspace "__ws.call('host.layout', {}).then((m) => [[...'ABCDEFGHI
 case "$layout" in "true true "*) pass "the host says what each key prints in the keyboard layout in use, by its place ($(echo "$layout" | cut -d' ' -f3) keys): the names of keys bound by their place" ;; *) fail "the keyboard layout from the host" "$layout" ;; esac
 # The capture key: recorded, refused by the rule in its own sentence, registered with the system, and back to the default.
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
-until_has workspace "$(key_row "Key to put a thought in, from any app")" 5 "| false |" || fail "the capture key's row"
-at_start="$(ask workspace "$(key_row "Key to put a thought in, from any app")")"
-record "Key to put a thought in, from any app" KeyK
-bare="$(ask workspace "$(key_row "Key to put a thought in, from any app")")"
-record "Key to put a thought in, from any app" Space false false false true
-kept="$(ask workspace "$(key_row "Key to put a thought in, from any app")")"
+until_has workspace "$(key_row "Key to start a task, from any app")" 5 "| false |" || fail "the capture key's row"
+at_start="$(ask workspace "$(key_row "Key to start a task, from any app")")"
+record "Key to start a task, from any app" KeyK
+bare="$(ask workspace "$(key_row "Key to start a task, from any app")")"
+record "Key to start a task, from any app" Space false false false true
+kept="$(ask workspace "$(key_row "Key to start a task, from any app")")"
 case "$bare|$kept" in *"A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key."*"|"*"The system keeps that combination for itself."*) pass "a bare key and a combination the system keeps are refused under the recorder in the rule's own sentences, and the key in use stays (${at_start%% |*})" ;; *) fail "the recorder's refusals" "$bare || $kept" ;; esac
 shot settings-key-refused workspace
-js workspace "(r => (r.querySelector('.rec').click(), 1))($(setting "Key to put a thought in, from any app"))" >/dev/null
+js workspace "(r => (r.querySelector('.rec').click(), 1))($(setting "Key to start a task, from any app"))" >/dev/null
 sleep 0.3
-js workspace "(r => (r.querySelector('.rec').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })), 1))($(setting "Key to put a thought in, from any app"))" >/dev/null
-until_has workspace "eval $(setting "Key to put a thought in, from any app").querySelector('.rec').getAttribute('aria-pressed') + ' ' + __ws.ui.sheet?.kind" 3 "false settings" \
+js workspace "(r => (r.querySelector('.rec').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })), 1))($(setting "Key to start a task, from any app"))" >/dev/null
+until_has workspace "eval $(setting "Key to start a task, from any app").querySelector('.rec').getAttribute('aria-pressed') + ' ' + __ws.ui.sheet?.kind" 3 "false settings" \
   && pass "Escape leaves the recorder and changes nothing; the sheet stays" || fail "Escape in the recorder"
-record "Key to put a thought in, from any app" F9 true true true
-until_has workspace "$(key_row "Key to put a thought in, from any app")" 5 "⌃⌥⇧F9 | false | " && until_has workspace "$(pref capture_key)" 3 '"code":"F9"' \
+record "Key to start a task, from any app" F9 true true true
+until_has workspace "$(key_row "Key to start a task, from any app")" 5 "⌃⌥⇧F9 | false | " && until_has workspace "$(pref capture_key)" 3 '"code":"F9"' \
   && [ "$(js workspace "__ws.call('host.capture_key', {}).then((r) => r.key?.code)")" = F9 ] && grep -q '"event":"capture-key".*"code":"F9".*"ok":true\|"event":"capture-key".*"ok":true.*"code":"F9"' "$log" \
-  && pass "a combination pressed in the recorder is asked of the system through the host, registered, stored as the preference and shown as the key in use (⌃⌥⇧F9)" || fail "a capture key of the person's own" "$(ask workspace "$(key_row "Key to put a thought in, from any app")")"
+  && pass "a combination pressed in the recorder is asked of the system through the host, registered, stored as the preference and shown as the key in use (⌃⌥⇧F9)" || fail "a capture key of the person's own" "$(ask workspace "$(key_row "Key to start a task, from any app")")"
 shot settings-key-own workspace
-js workspace "(r => ([...r.querySelectorAll('.btn')].find((b) => b.textContent === 'Use ⌃⌥Space').click(), 1))($(setting "Key to put a thought in, from any app"))" >/dev/null
+js workspace "(r => ([...r.querySelectorAll('.btn')].find((b) => b.textContent === 'Use ⌃⌥Space').click(), 1))($(setting "Key to start a task, from any app"))" >/dev/null
 sleep 1
-back="$(ask workspace "$(key_row "Key to put a thought in, from any app")")"
+back="$(ask workspace "$(key_row "Key to start a task, from any app")")"
 case "$back" in
   "⌃⌥Space | false | ") [ "$(ask workspace "$(pref capture_key)")" = null ] && pass "Use ⌃⌥Space registers the system's own key again and removes the preference" || fail "back to the default key" "$back" ;;
   *"That key is taken by the system or another app."*) [ "$(js workspace "__ws.call('host.capture_key', {}).then((r) => r.key?.code)")" = F9 ] \
@@ -977,9 +977,9 @@ until_has workspace "eval (r => r.querySelector('.v').textContent + ' | ' + r.qu
   && pass "a build made here never checks for new versions, says so with no switch, and About's Anything else says Nothing" || fail "Check for new versions in a build made here"
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 # When finished thoughts are deleted.
-choose_in "Delete finished thoughts after" "30 days"
+choose_in "Delete finished tasks after" "30 days"
 until_has workspace "$(pref keep_days)" 3 "30" && ask workspace "text .set-pane" | grep -q "Thoughts you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays." \
-  && choose_in "Delete finished thoughts after" "Never" && until_has workspace "$(pref keep_days)" 3 "0" \
+  && choose_in "Delete finished tasks after" "Never" && until_has workspace "$(pref keep_days)" 3 "0" \
   && pass "when finished thoughts are deleted is one choice, which says that their answers and terminal history go too and that nothing waiting goes" || fail "keep_days"
 # The hold-to-talk key: the same recorder, a plain preference the core holds to the rule; every hint follows it.
 js workspace "(__ws.open({ kind: 'settings', at: 'voice' }), 1)" >/dev/null
@@ -1226,7 +1226,7 @@ until_has workspace "text .settings" 3 "Fixture agent places the rest, and reads
 shot settings-flows workspace
 js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What is sent')).click(), 1)" >/dev/null
 until_has workspace "text .sheet .sh-f" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null
-until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + ' ' + __ws.ui.sheet?.kind" 3 "null settings" && ask workspace "text .settings" | grep -q "Off: only thoughts that name their project" \
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + ' ' + __ws.ui.sheet?.kind" 3 "null settings" && ask workspace "text .settings" | grep -q "Off: only tasks that name their project" \
   && pass "Turn off ends it: the preference holds No, so it is not offered again, and Settings says only thoughts that name their project are placed" || fail "turning placing off"
 js workspace "(__ws.dismiss(), 1)" >/dev/null
 fi

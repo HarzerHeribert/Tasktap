@@ -132,7 +132,7 @@ fn an_agent_of_the_persons_own_needs_a_name_a_program_and_a_place_for_the_though
     );
     assert_eq!(
         refused(own("own-a1", "Goose", "goose run")),
-        "The command of Goose needs {prompt} where the thought goes"
+        "The command of Goose needs {prompt} where the task goes"
     );
     assert_eq!(
         refused(own("own-a1", "Goose", "{prompt}")),
@@ -272,7 +272,7 @@ fn an_agent_the_person_added_is_listed_runs_its_command_and_goes_when_removed() 
     assert_eq!(e.code, Code::Invalid);
     assert_eq!(
         e.message,
-        "The command of Tidy needs {prompt} where the thought goes"
+        "The command of Tidy needs {prompt} where the task goes"
     );
     assert!(s.w.model.agents.contains_key("own-lost"));
     // Removed, its row goes and it runs nothing more. It is kept, so that

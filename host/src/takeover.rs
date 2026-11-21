@@ -38,7 +38,7 @@ fn words(title: &str, body: impl Into<String>) -> Words {
 }
 
 const AGAIN: &str =
-    "then open Tasktap again. Tasktap then moves Tasktap Next's thoughts, sessions and settings over, once.";
+    "then open Tasktap again. Tasktap then moves Tasktap Next's tasks, sessions and settings over, once.";
 
 /// The folder to take over, if there is one to take over now: Tasktap Next's, beside this app's own, while this app's
 /// does not exist yet. Only Tasktap's own folder takes over: a build of another identity (one made for review, with a

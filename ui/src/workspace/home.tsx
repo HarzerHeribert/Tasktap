@@ -57,7 +57,7 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
   // Where a thought should go is Tasktap's own question, about a thought that has no folder yet.
   const router = q.source === 'router';
   const agent = router ? null : (s?.agent ?? t?.agent);
-  const who = router ? 'A thought with no place yet' : agentName(agent ?? undefined);
+  const who = router ? 'A task with no place yet' : agentName(agent ?? undefined);
   const where = router ? 'No place yet' : projectName(t?.project_id ?? s?.project_id);
   const seat = <Seat agent={agent} s="asks" size={20} label={router ? 'Needs your answer' : `${who} asks`} />;
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
@@ -370,7 +370,7 @@ export function Earlier() {
         else nav(e);
       }}>
         <label class="find"><I n="search" />
-          <input id="find-thought" type="search" placeholder="Find a thought" aria-label="Find a thought" autocomplete="off" spellcheck={false}
+          <input id="find-thought" type="search" placeholder="Find a task" aria-label="Find a task" autocomplete="off" spellcheck={false}
             value={earlier.query} onInput={(e) => ((earlier.query = e.currentTarget.value), redraw())} />
         </label>
         {later.length > 0 && (

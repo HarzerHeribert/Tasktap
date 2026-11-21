@@ -12,7 +12,7 @@ export const update = { now: { state: 'unknown' } as HostUpdate };
 
 /** When a released build asks GitHub for a new version (host/src/update.rs): when About is shown, and at the first
  *  capture of a day. A build made on a person's own machine never asks: the host says `off`. */
-export const ASKS = 'when About opens and at the first thought of a day';
+export const ASKS = 'when About opens and at the first task of a day';
 
 /** What the host said, by its `ui` event or a reply. */
 export function heard(said: HostUpdate | null) {

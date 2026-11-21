@@ -22,14 +22,16 @@ try {
     if (git status --porcelain) { git status --short; throw 'The build changed files that are in git.' }
     if ($Job.desktop) {
         # The desktop round at this commit, in the signed-in desktop, while this job still holds the checkout.
-        $round = "pwsh -NoProfile -File $checkout\scripts\winvm\desktop.ps1 -Out C:\tasktap\desktop-rounds\$($Job.desktop) -Locked"
+        # The app built here, for the target built: on the ARM64 VM the x64 app runs emulated, and the rounds would
+        # otherwise look for the processor's own.
+        $round = "pwsh -NoProfile -File $checkout\scripts\winvm\desktop.ps1 -Target $($Job.target) -Out C:\tasktap\desktop-rounds\$($Job.desktop) -Locked"
         if ($Job.only) { $round += " -Only $($Job.only)" }
         & C:\tasktap\desk.ps1 -TimeoutSeconds 2400 -CommandLine $round
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
     if ($Job.gpu) {
         # The graphics processor's round at this commit (gpu.ps1), in the same way; its rehearsal runs here, in no desktop.
-        $round = "pwsh -NoProfile -File $checkout\scripts\winvm\gpu.ps1 -Out C:\tasktap\gpu-rounds\$($Job.gpu) -Locked $($Job.gpuargs)"
+        $round = "pwsh -NoProfile -File $checkout\scripts\winvm\gpu.ps1 -Target $($Job.target) -Out C:\tasktap\gpu-rounds\$($Job.gpu) -Locked $($Job.gpuargs)"
         if ("$($Job.gpuargs)" -match '-Rehearse') { Invoke-Expression "& $round" } else { & C:\tasktap\desk.ps1 -TimeoutSeconds 1200 -CommandLine $round }
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }

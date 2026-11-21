@@ -61,26 +61,21 @@ Set-Content "$tmp\opened" '' -NoNewline
 . (Join-Path $PSScriptRoot 'app.ps1')
 $build = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
 # A core slow to start, as a first start's can be (its new copy looked at by a virus scanner, a slow disk), as smoke.sh
-# has it: a stand-in that waits SMOKE_CORE_DELAY seconds (none unless a launch sets it) and then runs a copy of the
-# fixture core with what it was given, for as long as that runs (Windows has no exec); built here by rustc, which built
-# the app. The app copies the stand-in into its data folder and starts it from there; the core it runs is under this
-# run's folder, where what is left running is looked for.
+# has it: a stand-in (slow-core.rs) that waits SMOKE_CORE_DELAY seconds (none unless a launch sets it) and then runs the
+# core SMOKE_CORE names, a copy of the fixture core, with what it was given, for as long as that runs (Windows has no
+# exec). It is built with the fixtures (build.ps1), or here when rustc is on the PATH. The app copies it into its data
+# folder and starts it from there; the core it runs is under this run's folder, where what is left running is looked
+# for.
 $slow = $null
-if (Get-Command rustc -ErrorAction SilentlyContinue) {
-    New-Item -ItemType Directory -Force "$tmp\fixture-core" | Out-Null
-    Copy-Item $Core "$tmp\fixture-core\tasktap.exe"
-    Set-Content "$tmp\slow-core.rs" @"
-fn main() {
-    let wait = std::env::var("SMOKE_CORE_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-    std::thread::sleep(std::time::Duration::from_secs(wait));
-    let ran = std::process::Command::new(r"$tmp\fixture-core\tasktap.exe").args(std::env::args_os().skip(1)).status();
-    std::process::exit(ran.ok().and_then(|s| s.code()).unwrap_or(1));
-}
-"@
-    $null = rustc -O -o "$tmp\slow-core.exe" "$tmp\slow-core.rs" 2>&1
+$built = Join-Path (Split-Path $Core -Parent) 'slow-core.exe'
+if (Test-Path $built) { $slow = $built }
+elseif (Get-Command rustc -ErrorAction SilentlyContinue) {
+    $null = rustc -O -o "$tmp\slow-core.exe" "$PSScriptRoot\slow-core.rs" 2>&1
     if ($LASTEXITCODE -eq 0) { $slow = "$tmp\slow-core.exe" }
 }
 if ($slow) {
+    New-Item -ItemType Directory -Force "$tmp\fixture-core" | Out-Null
+    Copy-Item $Core "$tmp\fixture-core\tasktap.exe"
     # Told to quit at the second second of a launch of its own, its core ten seconds slow: the app ends, and 12 s after
     # the launch nothing runs from its folder (the stand-in, ended before it ran the core, is the only thing that would
     # start one).
@@ -92,6 +87,7 @@ if ($slow) {
         TASKTAP_CORE_EXE = $slow
         TASKTAP_CORE_BUILD = $build
         SMOKE_CORE_DELAY = '10'
+        SMOKE_CORE = "$tmp\fixture-core\tasktap.exe"
         CLAUDE_CONFIG_DIR = "$tmp\no-history\claude"
         CODEX_HOME = "$tmp\no-history\codex"
     } 60
@@ -118,6 +114,7 @@ Start-App (Join-Path $App 'tasktap-app.exe') @{
     TASKTAP_CORE_EXE = $(if ($slow) { $slow } else { $Core })
     TASKTAP_CORE_BUILD = $build
     SMOKE_CORE_DELAY = $(if ($slow) { '10' } else { '0' })
+    SMOKE_CORE = "$tmp\fixture-core\tasktap.exe"
     PATH = "$tmp\agents;$env:PATH"
     GIT_CONFIG_GLOBAL = "$tmp\gitconfig"
     GIT_CONFIG_NOSYSTEM = '1'

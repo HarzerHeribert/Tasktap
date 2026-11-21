@@ -54,11 +54,12 @@ public delegate bool EnumProc(IntPtr window, IntPtr none);
 [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out Rect value, int size);
 [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string kind, string title);
 // Every visible top-level window, those of the system's own layers among them (its flyouts), which EnumWindows
-// leaves out.
-public static List<Window> Every() {
+// leaves out; with `hidden`, the hidden ones too.
+public static List<Window> Every() { return Every(false); }
+public static List<Window> Every(bool hidden) {
     var all = new List<Window>();
     for (var window = FindWindowEx(IntPtr.Zero, IntPtr.Zero, null, null); window != IntPtr.Zero; window = FindWindowEx(IntPtr.Zero, window, null, null)) {
-        if (!IsWindowVisible(window)) continue;
+        if (!hidden && !IsWindowVisible(window)) continue;
         uint process;
         GetWindowThreadProcessId(window, out process);
         var kind = new StringBuilder(256);
@@ -343,11 +344,14 @@ function Capture([IntPtr]$window, $name, [switch]$Screen) {
 }
 # The app's window in front, as a click on it would put it: Windows lets a program in the background bring a window
 # forward only after a key press.
+# Three tries: on the VM a first one was now and then refused (row 3, 2026-11-21).
 function Front([IntPtr]$window) {
-    if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) { return $true }
-    [Tasktap.Desk]::Chord([byte[]](0x12))
-    $null = [Tasktap.Desk]::SetForegroundWindow($window)
-    Start-Sleep -Milliseconds 400
+    for ($try = 0; $try -lt 3; $try++) {
+        if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) { return $true }
+        [Tasktap.Desk]::Chord([byte[]](0x12))
+        $null = [Tasktap.Desk]::SetForegroundWindow($window)
+        Start-Sleep -Milliseconds 400
+    }
     [Tasktap.Desk]::GetForegroundWindow() -eq $window
 }
 function Window-Of($process, $seconds) {
@@ -463,9 +467,11 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $views = Children $process 'msedgewebview2'
     Check 1 'the core and the web view run beside the app' ($core -and $views) "tasktap.exe: $(($core | ForEach-Object Path) -join ', '); msedgewebview2.exe under the app: $($views.Count)"
     Check 1 'its data is in %LOCALAPPDATA%\Tasktap' (Test-Path "$data\core.db") "$data\core.db"
-    # The tab and the icon: the app is there without its window, as it is on a Mac with its notch.
+    # The tab and the icon: the app is there without its window, as it is on a Mac with its notch. The tab's window is
+    # looked for hidden too: with the app's window in front, as it is once it has the keyboard, the tab is hidden
+    # (rule 1); closed, the window leaves it shown (below).
     $tab = $null
-    for ($i = 0; $i -lt 40 -and -not $tab; $i++) { Start-Sleep -Milliseconds 250; $tab = [Tasktap.Desk]::Every() | Where-Object { $_.ProcessId -eq $process.Id -and $_.Title -eq 'Tasktap tab' } | Select-Object -First 1 }
+    for ($i = 0; $i -lt 40 -and -not $tab; $i++) { Start-Sleep -Milliseconds 250; $tab = [Tasktap.Desk]::Every($true) | Where-Object { $_.ProcessId -eq $process.Id -and $_.Title -eq 'Tasktap tab' } | Select-Object -First 1 }
     $helper = [Tasktap.Desk]::Find('TASKTAP_SHELL', $process.Id)
     $icon = if ($helper -ne [IntPtr]::Zero) { [Tasktap.Desk]::Icon($helper, 1) }
     Check 1 'the tab hangs at the top edge and the icon is in the notification area' ($tab -and $icon) "the tab's window: $(if ($tab) { ([Tasktap.Desk]::Frame($tab.Handle) | ForEach-Object { "$($_.Left),$($_.Top) to $($_.Right),$($_.Bottom)" }) } else { 'none' }); the icon: $(if ($icon) { $icon -join ' ' } else { 'not there' })"

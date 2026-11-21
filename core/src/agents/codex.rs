@@ -66,6 +66,9 @@ pub const RULES: Rules = Rules {
         "--dangerously-bypass-approvals-and-sandbox", "--sandbox", "-s",
         "approval_policy=", "approvals_reviewer=", "sandbox_mode="],
     default: &["--approve-for-me"],
+    // Another folder to work in, its resuming subcommand, its model; the task
+    // after `--`.
+    taken: &["-C", "--cd", "resume", "-m", "--model", "--"],
 };
 
 /// Seconds a hook that asked may wait for the person; Codex shows its own
@@ -192,12 +195,6 @@ impl Agent for Codex {
 
     fn program(&self) -> &'static str {
         "codex"
-    }
-
-    /// Another folder to work in, its one-task and resuming subcommands; the
-    /// task after `--`.
-    fn refused(&self) -> &'static [&'static str] {
-        &["-C", "--cd", "exec", "resume", "--"]
     }
 
     fn caps(&self) -> Caps {

@@ -54,6 +54,9 @@ pub const RULES: Rules = Rules {
     // It asks for no approval: there is no policy to state, and none to add.
     policy: &[],
     default: &[],
+    // The session it continues or forks, whether a project's own code is
+    // read (the person's switch), its model; the task after `--`.
+    taken: &["--session", "--fork", "--approve", "--no-approve", "--model", "--"],
 };
 
 /// The option that lets a run read its project's own `.pi`.
@@ -151,20 +154,6 @@ impl Agent for Pi {
 
     fn program(&self) -> &'static str {
         "pi"
-    }
-
-    /// Its print and other modes, the session it continues, and whether a
-    /// project's own code is read, which is the person's switch; the task
-    /// after `--`.
-    fn refused(&self) -> &'static [&'static str] {
-        &[
-            "-p",
-            "--mode",
-            "--session",
-            "--approve",
-            "--no-approve",
-            "--",
-        ]
     }
 
     /// It asks for no approval, so none is heard. What an extension of the

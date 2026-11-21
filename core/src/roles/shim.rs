@@ -29,82 +29,6 @@ use crate::sys;
 /// The shim folder of a data folder: `<data>/shims`.
 pub const SHIMS: &str = "shims";
 
-/// The file in an agent's folder of the data folder ([`agents::home`]) that
-/// holds the person's command for the agent word by word, as JSON, which the
-/// agent's shim starts it with: none where Tasktap starts it its own way.
-pub const COMMAND: &str = "command.json";
-
-/// Set by a shim on what it starts as the person's command for its agent:
-/// the agent's name. A shim of that agent below it starts the agent as
-/// typed, so that a script of the person's that runs the agent by its name
-/// runs it once.
-const STARTED: &str = "TASKTAP_STARTED";
-
-/// Leaves the person's command for each agent that has a shim where the
-/// shim reads it ([`COMMAND`]), and takes away one that is no more. One that
-/// cannot be written leaves the shim to start its agent as before.
-pub fn commands(data: &Path) {
-    for name in agents::rules::shimmed() {
-        let Some(agent) = agents::find(name) else {
-            continue;
-        };
-        let (home, words) = (agents::home(data, agent), agents::command(agent));
-        let file = home.join(COMMAND);
-        let _ = match words.is_empty() {
-            true => std::fs::remove_file(&file).or_else(|e| match e.kind() {
-                io::ErrorKind::NotFound => Ok(()),
-                _ => Err(e),
-            }),
-            false => {
-                let text = serde_json::to_string(&words).unwrap_or_default();
-                match std::fs::read_to_string(&file).is_ok_and(|kept| kept == text) {
-                    true => Ok(()),
-                    false => std::fs::create_dir_all(&home)
-                        .and_then(|()| agents::checks::whole(&file, text.as_bytes())),
-                }
-            }
-        };
-    }
-}
-
-/// The person's command for the agent a shim is named after, word by word
-/// ([`COMMAND`]); none where Tasktap starts it its own way, or where this
-/// shim runs below a start of that command ([`STARTED`]).
-fn command(rules: &Rules, agent: &dyn Agent) -> Vec<String> {
-    if std::env::var_os(STARTED).is_some_and(|started| started == rules.agent) {
-        return Vec::new();
-    }
-    let data = std::env::var_os("TASKTAP_DATA").unwrap_or_default();
-    let file = agents::home(Path::new(&data), agent).join(COMMAND);
-    let text = std::fs::read_to_string(file).unwrap_or_default();
-    serde_json::from_str(&text).unwrap_or_default()
-}
-
-/// The agent as a shim starts it: as the person's command for it says
-/// (`theirs`), or its program alone.
-struct Real {
-    rules: &'static Rules,
-    start: agents::Start,
-    theirs: bool,
-}
-
-impl Real {
-    /// What starts it, before the arguments that follow: marked for a shim
-    /// below it where it is the person's command.
-    fn command(&self) -> Command {
-        let mut run = Command::new(&self.start.program);
-        run.args(&self.start.head).args(&self.start.args);
-        if self.theirs {
-            run.env(STARTED, self.rules.agent);
-        }
-        run
-    }
-
-    fn display(&self) -> std::path::Display<'_> {
-        self.start.program.display()
-    }
-}
-
 /// Makes `<data>/shims` hold this program under each agent's name and as
 /// `tasktap`, which hooks and `tasktap ask` run; a link where the system
 /// allows one. The core's shells put the folder first on their PATH.
@@ -142,32 +66,18 @@ pub fn run(rules: &'static Rules, args: Vec<OsString>) -> ExitCode {
     if rules.agent == super::fixture::AGENT && std::env::var_os(super::fixture::REAL).is_some() {
         return super::fixture::run(args);
     }
-    // As the person's command for it starts it, the agent found as by
-    // hand: the first on the PATH that is no shim.
-    let agent = agents::find(rules.agent);
-    let command = agent.map(|agent| command(rules, agent)).unwrap_or_default();
-    let name = agent.map_or(rules.agent, |agent| agent.name());
-    let start = match agents::start(name, rules.agent, &command, real) {
-        Ok(start) => start,
-        Err(why) => {
-            let why = match command.is_empty() {
-                true => format!("{} is not installed on this shell's PATH", rules.agent),
-                false => why,
-            };
-            let _ = writeln!(io::stderr(), "tasktap: {why}");
-            return ExitCode::from(127);
-        }
-    };
-    let theirs = !command.is_empty();
-    let real = Real {
-        rules,
-        start,
-        theirs,
+    let Some(real) = real(rules.agent) else {
+        let _ = writeln!(
+            io::stderr(),
+            "tasktap: {} is not installed on this shell's PATH",
+            rules.agent
+        );
+        return ExitCode::from(127);
     };
     let words: Vec<String> = (args.iter())
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    let observed = agent
+    let observed = agents::find(rules.agent)
         .filter(|_| terminal() && std::env::var_os(TOKEN).is_some() && rules.interactive(&words));
     let Some(agent) = observed else {
         return pass(&real, args);
@@ -287,8 +197,8 @@ fn same(a: &Path, b: &Path) -> bool {
 }
 
 /// Runs the real agent untouched, as if the shim were not there.
-fn pass(real: &Real, args: Vec<OsString>) -> ExitCode {
-    let mut agent = real.command();
+fn pass(real: &Path, args: Vec<OsString>) -> ExitCode {
+    let mut agent = Command::new(real);
     agent.args(args);
     #[cfg(feature = "fixtures")]
     agent.env(super::fixture::REAL, "1");
@@ -339,13 +249,13 @@ fn adopt(agent: &'static dyn Agent) -> Result<Client, Option<Fail>> {
 fn observe(
     agent: &dyn Agent,
     rules: &Rules,
-    real: &Real,
+    real: &Path,
     args: Vec<OsString>,
     words: &[String],
     link: Client,
 ) -> ExitCode {
     let exe = super::program().unwrap_or_else(|_| "tasktap".into());
-    let mut run = real.command();
+    let mut run = Command::new(real);
     // Its files, where it reads its hooks from one, in its folder of the
     // data folder; one that cannot be written leaves it to run untouched.
     let data = std::env::var_os("TASKTAP_DATA").unwrap_or_default();
@@ -366,8 +276,8 @@ fn observe(
     // connection.
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Some(mut probe) = agent.probe(&exe, &cwd) {
-        probe.argv.splice(..1, real.start.asks());
-        match agents::checks::probe(probe, &cwd, real.theirs) {
+        probe.argv[0] = real.to_string_lossy().into_owned();
+        match agents::checks::probe(probe, &cwd, false) {
             Ok(more) => {
                 run.args(more);
             }
@@ -382,9 +292,7 @@ fn observe(
             }
         }
     }
-    // The policy the person stated in their command counts as typed.
-    let stated = [&real.start.args[..], words].concat();
-    run.args(rules.approval(&stated)).args(args);
+    run.args(rules.approval(words)).args(args);
     #[cfg(feature = "fixtures")]
     run.env(super::fixture::REAL, "1");
     let modes = sys::modes();

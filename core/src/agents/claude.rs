@@ -55,6 +55,10 @@ pub const RULES: Rules = Rules {
     noninteractive: &["-p"],
     policy: &["--permission-mode", "--dangerously-skip-permissions", "--permission-prompt-tool"],
     default: &["--permission-mode", "auto"],
+    // Another conversation, its session's id, the settings its hooks are in,
+    // its model; the task after `--`.
+    #[rustfmt::skip]
+    taken: &["-c", "--continue", "-r", "--resume", "--session-id", "--settings", "--model", "--"],
 };
 
 /// Seconds a hook that asked may wait for the person before Claude Code
@@ -233,23 +237,6 @@ impl Agent for Claude {
 
     fn program(&self) -> &'static str {
         "claude"
-    }
-
-    /// Its one-task print mode, a conversation of its own to continue, the
-    /// session's id and the settings file its hooks are in; the task after
-    /// `--`.
-    fn refused(&self) -> &'static [&'static str] {
-        &[
-            "-p",
-            "--print",
-            "-c",
-            "--continue",
-            "-r",
-            "--resume",
-            "--session-id",
-            "--settings",
-            "--",
-        ]
     }
 
     fn caps(&self) -> Caps {

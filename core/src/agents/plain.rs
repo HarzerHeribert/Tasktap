@@ -82,8 +82,8 @@ pub const AIDER: Plain = Plain {
         "aider", "--yes-always", "--no-analytics", "--no-check-update",
         "--no-show-release-notes", "--no-detect-urls", "--message={prompt}",
     ],
-    // Where the task goes.
-    refused: &["-m", "--message"],
+    // Where the task goes, its model.
+    refused: &["-m", "--message", "--model"],
     model: &["--model", MODEL],
     version: &["--version"],
     // The keys and addresses its documentation names for the providers it

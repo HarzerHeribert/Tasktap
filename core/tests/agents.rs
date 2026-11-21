@@ -1251,6 +1251,7 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         id: "codex".into(),
         name: "Codex".into(),
         program: "codex".into(),
+        command_fails: None,
         supported: true,
         own: false,
         note: None,

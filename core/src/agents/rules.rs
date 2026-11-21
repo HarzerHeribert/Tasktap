@@ -21,6 +21,12 @@ pub struct Rules {
     pub policy: &'static [&'static str],
     /// The policy added when the person stated none.
     pub default: &'static [&'static str],
+    /// Flags, and words, that set what a run Tasktap starts sets itself: a
+    /// session it names or continues, the file its hooks are in, where its
+    /// task goes, its folder, its model. The person's command for the agent
+    /// may not hold them (`agents::judge`); typed in a shell they are the
+    /// person's own.
+    pub taken: &'static [&'static str],
 }
 
 /// Every agent a shim is named after.
@@ -42,6 +48,7 @@ const FIXTURE: Rules = Rules {
     noninteractive: &[],
     policy: &["--approve", "--no-approve"],
     default: &["--approve"],
+    taken: &["--hook"],
 };
 
 /// Flags after which no one types to any agent.
@@ -69,27 +76,71 @@ const VALUE_OPTIONS: &[&str] = &[
     "--mcp-github-auth", "--add-github-mcp-tool", "--add-github-mcp-toolset",
 ];
 
+/// The flag of `flags` that `arg` gives: `--name` alone or with `=value`;
+/// `-x` alone, with its value attached (`-x/tmp`, `-x=/tmp`), or among
+/// short flags given together (`-px`) after ones that take no value. One
+/// in `flags` that ends in `=` is a prefix of any argument, and is named
+/// without it.
+pub fn given(flags: &[&str], arg: &str) -> Option<String> {
+    let named = |f: &&str| {
+        let valued =
+            f.starts_with("--") && arg.strip_prefix(*f).is_some_and(|v| v.starts_with('='));
+        arg == *f || (f.ends_with('=') && arg.starts_with(*f)) || valued
+    };
+    if let Some(flag) = flags.iter().copied().find(named) {
+        return Some(flag.trim_end_matches('=').to_owned());
+    }
+    let shorts = arg.strip_prefix('-').filter(|s| !s.starts_with('-'))?;
+    for c in shorts.chars().take_while(char::is_ascii_alphabetic) {
+        let flag = format!("-{c}");
+        if flags.contains(&flag.as_str()) {
+            return Some(flag);
+        }
+        if VALUE_OPTIONS.contains(&flag.as_str()) {
+            return None;
+        }
+    }
+    None
+}
+
 impl Rules {
     /// Whether a person will type to this run; the terminal is checked apart.
     pub fn interactive(&self, args: &[String]) -> bool {
-        let flagged = |flags: &[&str], arg: &str| {
-            (flags.iter()).any(|f| arg == *f || (f.ends_with('=') && arg.starts_with(f)))
-        };
-        if (args.iter()).any(|a| flagged(NONINTERACTIVE, a) || flagged(self.noninteractive, a)) {
-            return false;
+        self.untyped(args).is_none()
+    }
+
+    /// What in `args` makes a run nobody types to: a flag that says so, of
+    /// any agent or of this one, or a subcommand that runs without a session
+    /// as the first word that is no flag nor a flag's value.
+    pub fn untyped(&self, args: &[String]) -> Option<String> {
+        let flagged =
+            |a: &String| given(NONINTERACTIVE, a).or_else(|| given(self.noninteractive, a));
+        if let Some(flag) = args.iter().find_map(flagged) {
+            return Some(flag);
         }
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             if arg == "--" {
-                return true;
+                return None;
             }
             if VALUE_OPTIONS.contains(&arg.as_str()) {
                 args.next();
             } else if !arg.starts_with('-') {
-                return !self.passthrough.contains(&arg.as_str());
+                return self
+                    .passthrough
+                    .contains(&arg.as_str())
+                    .then(|| arg.clone());
             }
         }
-        true
+        None
+    }
+
+    /// What in the person's own arguments of their command for this agent
+    /// sets what a run Tasktap starts sets itself: what makes nobody type to
+    /// it ([`Rules::untyped`]), or one of [`Rules::taken`].
+    pub fn refused(&self, args: &[String]) -> Option<String> {
+        let taken = |a: &String| given(self.taken, a);
+        self.untyped(args).or_else(|| args.iter().find_map(taken))
     }
 
     /// The default approval policy, unless the person stated one.
@@ -100,6 +151,11 @@ impl Rules {
         });
         if own { &[] } else { self.default }
     }
+}
+
+/// The rules of the agent named `agent`, whether or not it runs here.
+pub fn of(agent: &str) -> Option<&'static Rules> {
+    RULES.iter().copied().find(|rules| rules.agent == agent)
 }
 
 /// The rules of the shim this program is, when it is named after an agent.
@@ -146,6 +202,12 @@ mod tests {
             ("claude", &["--", "mcp"], true),
             ("claude", &["--resume", "abc"], true),
             ("claude", &["--remote=x"], false),
+            // Short flags given together, or with their value attached.
+            ("claude", &["-pc"], false),
+            ("claude", &["-c"], true),
+            ("codex", &["-C/tmp/x"], true),
+            ("codex", &["-pwork"], true),
+            ("codex", &["e"], false),
             ("codex", &["exec", "x"], false),
             ("codex", &["-c", "model=o3", "resume"], true),
             ("codex", &["-p", "work"], true),

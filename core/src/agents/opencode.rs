@@ -60,6 +60,8 @@ pub const RULES: Rules = Rules {
     policy: &["--auto"],
     // Its own default stands: the permissions the person configured.
     default: &[],
+    // The session it continues, where the task goes.
+    taken: &["--continue", "--session", "--prompt"],
 };
 
 /// The plugin, with a placeholder where this program's path goes.
@@ -147,11 +149,6 @@ impl Agent for OpenCode {
 
     fn program(&self) -> &'static str {
         "opencode"
-    }
-
-    /// The session it continues and where the task goes.
-    fn refused(&self) -> &'static [&'static str] {
-        &["--session", "--prompt"]
     }
 
     /// Not there yet: nothing of it has been run on Windows.

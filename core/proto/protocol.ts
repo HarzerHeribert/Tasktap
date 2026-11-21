@@ -139,6 +139,12 @@ options: Array<AgentOption>,
  */
 installed: boolean,
 /**
+ * Why the person's command for it does not start it, as a sentence:
+ * Tasktap finds no program by its first word, this build refuses it, or
+ * asked for the agent's version it did not start the agent.
+ */
+command_fails: string | null,
+/**
  * As it reports its version.
  */
 version: string | null,

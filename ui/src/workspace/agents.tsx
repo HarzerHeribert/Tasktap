@@ -5,8 +5,8 @@
 // into one line at the end, and with them the person's own that they removed: such an agent is kept, so that what it
 // ran still says who ran it, until it is added back or forgotten. Last, an agent of the person's own: a name and a
 // command line. Under each agent Tasktap brings, the command that starts it, where the person starts it their own way
-// (a program of theirs around it, arguments of theirs): empty, Tasktap starts it as always. One whose command names no
-// program Tasktap finds stays in sight and says so, as one of the person's own does.
+// (a program of theirs around it, arguments of theirs): empty, Tasktap starts it as always. One whose command does not
+// start it stays in sight and says why in the core's words, as one of the person's own does.
 //
 // No agent's program runs as the app starts. Opening this section has the core ask those it has not asked in its
 // life whether they are signed in, as giving an agent its first thought does (calls.rs `look`); "Check now" asks
@@ -15,12 +15,13 @@ import { useEffect, useState } from 'preact/hooks';
 import type { AgentHealth, OwnAgent } from '../../../core/proto/protocol.ts';
 import { HERE, mac } from '../system.ts';
 import { I, Ring, ago } from '../ui.tsx';
-import { agentState, ownAgentLacks, startLost } from '../way.ts';
+import { agentState, ownAgentLacks } from '../way.ts';
 import { Row, Switch, setPref } from './form.tsx';
-import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
+import { LOOSE, agent, call, commandOf, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
 
-/** What is typed into a terminal to sign an agent in. */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
+/** What is typed into a terminal to sign an agent in: after the person's command for it, where they start it their own
+ *  way, in place of its program. */
+const signIn: Record<string, string> = { claude: '', codex: ' login', agy: '', pi: '', opencode: ' auth login' };
 /** What a row adds about its agent: whose models it runs, where its name does not say, and what of it the notch
  *  cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`, `questions`): of
  *  one that reports nothing Tasktap hears only when it ends, and what one asks where nothing outside its terminal
@@ -44,27 +45,27 @@ const mint = () => `own-${[...crypto.getRandomValues(new Uint8Array(10))].map((b
 /** Writes the person's own agents as they are now; the core says in a sentence what one of them lacks. */
 const keepOwn = (all: OwnAgent[]) => call('put', { c: 'prefs', id: 'own_agents', patch: all });
 
-/** The person's command for one of Tasktap's agents (`agent_commands`): empty where Tasktap starts it its own way. */
-const commandOf = (id: string) => pref('agent_commands').find((c) => c.agent === id)?.command ?? '';
-/** What the core said a command it refused cannot have, by agent, until the next one it takes. */
-const refused = new Map<string, string>();
-/** Writes the command of `a` as typed, or none for an empty field; the core says in a sentence what one cannot have. */
-function keepCommand(a: AgentHealth, typed: string) {
+/** Writes the command of `a` as typed, or none for an empty field: the core's sentence for one it refuses, else none. Its
+ *  length is counted in bytes, as the core counts it. */
+function keepCommand(a: AgentHealth, typed: string): Promise<string> {
   const command = typed.trim(), rest = pref('agent_commands').filter((c) => c.agent !== a.id);
-  void call('put', { c: 'prefs', id: 'agent_commands', patch: command ? [...rest, { agent: a.id, command }] : rest })
-    .then(() => refused.delete(a.id), (e: Error) => refused.set(a.id, sentence(e.message))).then(redraw);
+  if (new TextEncoder().encode(command).length > 2000) return Promise.resolve(sentence(`The command of ${a.name} is too long, or not one line`));
+  return call('put', { c: 'prefs', id: 'agent_commands', patch: command ? [...rest, { agent: a.id, command }] : rest })
+    .then(() => '', (e: Error) => sentence(e.message));
 }
 /** The row under an agent Tasktap brings: the command that starts it, with its program in the empty field, and in one
  *  sentence an example of a start of the person's own (on Windows an argument of Claude Code's; none for Codex, which
- *  has no such harmless one to show). */
+ *  has no such harmless one to show). A refusal belongs to what the field holds: it goes with the next command kept,
+ *  and when the field shows the one kept again, as the section is left. */
 function Start({ a }: { a: AgentHealth }) {
-  const name = `Command that starts ${a.name}`, p = a.program, why = refused.get(a.id);
+  const [why, say] = useState('');
+  const name = `Command that starts ${a.name}`, p = a.program;
   const example = mac ? `caffeinate -i ${p}` : a.id === 'claude' ? `${p} --verbose` : '';
   const hint = <>Write how you start {a.name}{example && <>, such as <code>{example}</code></>}, without shell aliases; leave the field empty for Tasktap's own start.</>;
   return (
     <Row name={name} hint={why ? undefined : hint}>
-      <input key={a.id} class="text wide" aria-label={name} placeholder={p} spellcheck={false} autocomplete="off" maxLength={2000} defaultValue={commandOf(a.id)}
-        onChange={(e) => keepCommand(a, e.currentTarget.value)} />
+      <input class="text wide" aria-label={name} placeholder={p} spellcheck={false} autocomplete="off" maxLength={2000} defaultValue={commandOf(a.id)}
+        onChange={(e) => void keepCommand(a, e.currentTarget.value).then(say)} />
       {why && <p class="hint err" role="alert">{why}</p>}
     </Row>
   );
@@ -119,9 +120,9 @@ export function AgentsPane() {
   const line = (a: AgentHealth) => {
     const off = runs(a) && a.signed_in === false, on = runs(a) && !off;
     // Of one of the person's own that is here there is nothing to check: only what Tasktap hears of it is said. Of one
-    // started the person's way whose program is missing, which word of their command is no program.
-    const lost = a.supported && !a.installed && !a.own ? startLost(a.name, commandOf(a.id)) : '';
-    const state = a.own && runs(a) ? '' : lost || agentState(a, looking.on, ago(a.checked));
+    // started the person's way whose command does not start it, why, in the core's words.
+    const fails = a.supported && a.command_fails ? sentence(a.command_fails) : '';
+    const state = a.own && runs(a) ? '' : fails || agentState(a, looking.on, ago(a.checked));
     const says = [a.version, state, ...about(a), a.identity].filter(Boolean).join(' · ');
     // What wants the person: one that is signed out, one of their own whose program is missing. One that is simply
     // not here is said quietly.
@@ -133,8 +134,8 @@ export function AgentsPane() {
           <span class="t">{a.name}</span>
           <span class="x" title={says}>{says}</span>
           <span class="acts">
-            {off && signIn[a.id] && (
-              <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }))}>Sign in</button>
+            {off && a.id in signIn && (
+              <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: (commandOf(a.id) || a.program) + signIn[a.id] }))}>Sign in</button>
             )}
             {a.own && <button type="button" class="btn" onClick={() => setForm(a.id)}>Change</button>}
             {a.id === usual ? <span class="x def">Runs new tasks</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Use for new tasks</button>}
@@ -153,7 +154,7 @@ export function AgentsPane() {
             </div>
           );
         })}
-        {!a.own && a.supported && <Start a={a} />}
+        {!a.own && a.supported && <Start key={a.id} a={a} />}
       </>
     );
   };

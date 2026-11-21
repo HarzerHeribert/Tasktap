@@ -4,25 +4,8 @@ import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
 import {
   agentState, agreement, back, briefOf, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy, placed, placedBy, places,
-  placing, proposed, ranked, ring, startLost, step, words,
+  placing, proposed, ranked, ring, step,
 } from './way.ts';
-
-test('a command line is words apart by spaces, as the core splits it, and no shell reads it', () => {
-  assert.deepEqual(words('caffeinate -i claude --model opus'), ['caffeinate', '-i', 'claude', '--model', 'opus']);
-  assert.deepEqual(words('  tool   --ask  '), ['tool', '--ask']);
-  assert.deepEqual(words('"/Applications/My Tool/claude" --say \'do it\' ""'), ['/Applications/My Tool/claude', '--say', 'do it', '']);
-  assert.deepEqual(words('a"b c"d \'x"y\''), ['ab cd', 'x"y']);
-  assert.deepEqual(words('C:\\tools\\claude.exe $HOME ~ ;'), ['C:\\tools\\claude.exe', '$HOME', '~', ';']);
-  assert.deepEqual(words(''), []);
-  assert.equal(words("claude 'open"), null);
-});
-
-test('an agent started its own way, whose command names no program Tasktap finds, says which word', () => {
-  assert.equal(startLost('Claude Code', 'caffeinate -i claude'), 'Tasktap finds no program named caffeinate for the command of Claude Code.');
-  assert.equal(startLost('Claude Code', '"~/my tools/claude" --model opus'), 'Tasktap finds no program named ~/my tools/claude for the command of Claude Code.');
-  assert.equal(startLost('Claude Code', '  '), '');
-  assert.equal(startLost('Claude Code', "claude 'open"), '');
-});
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
   const row = (o: object = {}) => ({ supported: true, installed: true, checks: true, signed_in: null as boolean | null, stale: false, checked: 0, ...o });

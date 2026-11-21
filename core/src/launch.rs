@@ -72,7 +72,7 @@ pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, 
         hook: &hook,
         home: &home,
         allowed,
-        args: agents::args(agent.program(), &command),
+        args: agents::theirs(agent.program(), &command),
     };
     let argv = agent.launch(&run);
     let probe = agent.probe(&hook, Path::new(&l.cwd));

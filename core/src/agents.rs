@@ -92,10 +92,10 @@ pub struct Run<'a> {
     /// What the person lets agents do beyond their default: the
     /// `agent_options` preference, each `<agent>.<option>`.
     pub allowed: &'a [String],
-    /// The person's own arguments from their command for the agent (the
-    /// `agent_commands` preference, [`args`]), which the core puts before
-    /// the ones [`Agent::launch`] gives: an adapter reads in them only the
-    /// approval policy they state, as a shim reads it in what is typed.
+    /// The person's own arguments in their command for the agent (the
+    /// `agent_commands` preference, [`theirs`]), which run before the ones
+    /// [`Agent::launch`] gives: an adapter reads in them only the approval
+    /// policy they state, as a shim reads it in what is typed.
     pub args: &'a [String],
 }
 
@@ -328,11 +328,11 @@ pub trait Agent: Sync {
     fn program(&self) -> &'static str;
 
     /// Arguments that set what Tasktap sets for its runs itself, which the
-    /// person's command for it may not hold ([`commands`]): what names a
-    /// run's session, the file its hooks are in, where its task goes, the
-    /// folder it works in, and what makes it take nobody at its terminal.
-    /// One that starts with `--` is refused with its value too. None for
-    /// most agents.
+    /// person's command for it may not hold ([`judge`]), for an agent with
+    /// no shim, whose rules say it for one with ([`rules::Rules::taken`]):
+    /// what names a run's session, the file its hooks are in, where its task
+    /// goes, the folder it works in, its model, and what makes it take nobody
+    /// at its terminal. None for most agents.
     fn refused(&self) -> &'static [&'static str] {
         &[]
     }
@@ -479,7 +479,12 @@ pub fn merged(
         ..found
     };
     match last.filter(|last| last.signed_in.is_some()) {
-        Some(last) if found.installed && found.supported && found.signed_in.is_none() => {
+        Some(last)
+            if found.installed
+                && found.supported
+                && found.signed_in.is_none()
+                && found.command_fails.is_none() =>
+        {
             AgentHealth {
                 checked: last.checked,
                 version: found.version.or_else(|| last.version.clone()),
@@ -542,76 +547,99 @@ pub fn set_own(list: &[tasktap_proto::OwnAgent]) -> Result<(), String> {
 }
 
 /// How the person starts the core's agents that they start their own way
-/// (the `agent_commands` preference): each one's command, word by word.
-static COMMANDS: std::sync::RwLock<Vec<(&'static str, Vec<String>)>> =
-    std::sync::RwLock::new(Vec::new());
+/// (the `agent_commands` preference): each agent's command word by word, or
+/// why this build refuses it as it is stored ([`judge`]). An agent whose
+/// command is refused starts as Tasktap starts it, and its row says why.
+static COMMANDS: std::sync::RwLock<Vec<Judged>> = std::sync::RwLock::new(Vec::new());
 
-/// Takes how the person starts the core's agents as it is now, or says why
-/// one of the commands cannot start its agent and leaves the ones before.
-/// Returns the agents whose command changed.
-pub fn set_commands(
-    list: &[tasktap_proto::AgentCommand],
-) -> Result<Vec<&'static dyn Agent>, String> {
-    let checked = commands(list)?;
-    let now: Vec<_> = (checked.into_iter())
-        .map(|(agent, words)| (agent.id(), words))
-        .collect();
+/// An agent's id, and its command word by word or why it is refused.
+type Judged = (&'static str, Result<Vec<String>, String>);
+
+/// Takes how the person starts the core's agents as it is now, each
+/// agent's command judged by itself, so that one refused harms no other.
+/// Returns the agents whose command, or why it is refused, changed.
+pub fn set_commands(list: &[tasktap_proto::AgentCommand]) -> Vec<&'static dyn Agent> {
+    let judged = |command: &tasktap_proto::AgentCommand| {
+        let agent = AGENTS.iter().find(|agent| agent.id() == command.agent)?;
+        let judged = judge(*agent, &command.command);
+        (judged != Ok(Vec::new())).then(|| (agent.id(), judged))
+    };
+    let now: Vec<Judged> = list.iter().filter_map(judged).collect();
     let mut kept = COMMANDS.write().unwrap_or_else(|e| e.into_inner());
     let was = std::mem::replace(&mut *kept, now);
-    let of = |list: &[(&str, Vec<String>)], id: &str| {
-        let words = list.iter().find(|(agent, _)| *agent == id);
-        words.map(|(_, words)| words.clone())
-    };
+    let of = |list: &[Judged], id: &str| list.iter().find(|(agent, _)| *agent == id).cloned();
     let changed = |agent: &&'static dyn Agent| of(&was, agent.id()) != of(&kept, agent.id());
-    Ok(AGENTS.iter().copied().filter(changed).collect())
+    AGENTS.iter().copied().filter(changed).collect()
 }
 
 /// The person's command for `agent`, word by word: none where Tasktap
-/// starts it its own way.
+/// starts it its own way, also where their command is refused.
 pub fn command(agent: &dyn Agent) -> Vec<String> {
     let kept = COMMANDS.read().unwrap_or_else(|e| e.into_inner());
     let words = kept.iter().find(|(id, _)| *id == agent.id());
-    words.map(|(_, words)| words.clone()).unwrap_or_default()
+    words
+        .and_then(|(_, words)| words.clone().ok())
+        .unwrap_or_default()
 }
 
-/// An agent and the person's command for it, word by word.
-pub type Command = (&'static dyn Agent, Vec<String>);
+/// Why this build refuses the person's command for `agent` as it is stored.
+pub fn command_refused(agent: &dyn Agent) -> Option<String> {
+    let kept = COMMANDS.read().unwrap_or_else(|e| e.into_inner());
+    let words = kept.iter().find(|(id, _)| *id == agent.id());
+    words.and_then(|(_, words)| words.clone().err())
+}
 
-/// How the person starts the core's agents, checked, or why one of the
-/// commands cannot start its agent: a sentence the interface shows as it
-/// is. An empty command is none.
-pub fn commands(list: &[tasktap_proto::AgentCommand]) -> Result<Vec<Command>, String> {
-    let mut all = Vec::new();
-    for (i, command) in list.iter().enumerate() {
+/// Checks the person's commands as they are put: each new or changed one
+/// is for an agent this build brings, once, and is one it takes ([`judge`]).
+/// One kept as it was (`was`) stands, so that a command stored before,
+/// which this build refuses, refuses the change of no other.
+pub fn check_commands(
+    list: &[tasktap_proto::AgentCommand],
+    was: &[tasktap_proto::AgentCommand],
+) -> Result<(), String> {
+    for (i, command) in list.iter().enumerate().filter(|(_, c)| !was.contains(c)) {
         let id = command.agent.as_str();
-        let agent = AGENTS.iter().copied().find(|agent| agent.id() == id);
+        let agent = AGENTS.iter().find(|agent| agent.id() == id);
         let agent = agent.ok_or_else(|| format!("Tasktap brings no agent named {id}"))?;
-        let name = agent.name();
         if list[..i].iter().any(|other| other.agent == id) {
-            return Err(format!("{name} has two commands"));
+            return Err(format!("{} has two commands", agent.name()));
         }
-        if command.command.len() > 2000 || command.command.chars().any(char::is_control) {
-            return Err(format!(
-                "The command of {name} is too long, or not one line"
-            ));
-        }
-        let words = split(&command.command)?;
-        for word in args(agent.program(), &words) {
-            let refused = |flag: &&str| {
-                let valued = word.strip_prefix(*flag).is_some_and(|v| v.starts_with('='));
-                word == flag || (flag.len() > 2 && flag.starts_with("--") && valued)
-            };
-            if let Some(flag) = agent.refused().iter().copied().find(refused) {
-                return Err(format!(
-                    "Tasktap sets {flag} itself for {name}: take {flag} out of the command"
-                ));
-            }
-        }
-        if !words.is_empty() {
-            all.push((agent, words));
-        }
+        judge(*agent, &command.command)?;
     }
-    Ok(all)
+    Ok(())
+}
+
+/// The person's command for `agent` word by word, or why it cannot be: a
+/// sentence the interface shows as it is. An empty command is none. Their
+/// arguments for the agent, the words after the last that names its
+/// program ([`theirs`]), may not set what Tasktap sets for a run: what its
+/// shim reads in what is typed says so ([`rules::Rules::refused`]), or for
+/// an agent with no shim [`Agent::refused`]. That changes nothing of how
+/// the command starts.
+pub fn judge(agent: &dyn Agent, command: &str) -> Result<Vec<String>, String> {
+    let name = agent.name();
+    if command.len() > 2000 || command.chars().any(char::is_control) {
+        return Err(format!(
+            "The command of {name} is too long, or not one line"
+        ));
+    }
+    let words = split(command)?;
+    if words.first().is_some_and(String::is_empty) {
+        return Err(format!(
+            "The command of {name} needs a program as its first word"
+        ));
+    }
+    let args = theirs(agent.program(), &words);
+    let flag = match rules::of(agent.id()) {
+        Some(rules) => rules.refused(args),
+        None => (args.iter()).find_map(|arg| rules::given(agent.refused(), arg)),
+    };
+    match flag {
+        Some(flag) => Err(format!(
+            "Tasktap sets {flag} itself for {name}: take {flag} out of the command"
+        )),
+        None => Ok(words),
+    }
 }
 
 /// The words of a person's command for an agent, as [`plain::words`] has
@@ -642,61 +670,53 @@ fn names(word: &str, program: &str) -> bool {
     stem.unwrap_or(&file) == program
 }
 
-/// A word that names a program without a folder, which is found on a PATH.
-fn bare(word: &str) -> bool {
-    let path = Path::new(word);
-    path.components().count() == 1 && !path.has_root()
-}
-
 /// The person's own arguments in their command for an agent whose program
-/// is `program`: the words after that program; none where no word is it.
-pub fn args<'a>(program: &str, words: &'a [String]) -> &'a [String] {
-    match words.iter().position(|word| names(word, program)) {
+/// is `program`: the words after the last word that names it; none where no
+/// word does. They are judged ([`judge`]) and read for the approval policy
+/// they state ([`Run::args`]), never to build what starts the agent.
+pub fn theirs<'a>(program: &str, words: &'a [String]) -> &'a [String] {
+    match words.iter().rposition(|word| names(word, program)) {
         Some(at) => &words[at + 1..],
         None => &[],
     }
 }
 
 /// What starts an agent, up to the arguments Tasktap gives it: the program
-/// that is run, found; the words after it up to the agent's own program,
-/// that program among them; and the person's arguments after it. `theirs`:
-/// it is the person's command, whose program may start the agent as a
-/// child of its own, so that a check of Tasktap's ends the two together.
+/// that is run, found, and the words after it, the person's command word
+/// for word. `theirs`: it is the person's command, whose program may start
+/// the agent as a child of its own, so that a check of Tasktap's ends the
+/// two together.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Start {
     pub program: PathBuf,
     pub head: Vec<String>,
-    pub args: Vec<String>,
     pub theirs: bool,
 }
 
 impl Start {
-    /// The command line of a run: this, what its check added (`more`), and
-    /// the arguments its adapter gives it (`launched`, as [`Agent::launch`]
-    /// gives it, whose program this stands for), so that Tasktap's come last.
-    pub fn run(self, more: Vec<String>, launched: Vec<String>) -> Vec<String> {
-        let program = self.program.to_string_lossy().into_owned();
-        let tasktap = more.into_iter().chain(launched.into_iter().skip(1));
-        let words = self.head.into_iter().chain(self.args).chain(tasktap);
-        std::iter::once(program).chain(words).collect()
-    }
-
-    /// The program and the words that a question of Tasktap's own to the
-    /// agent starts with (its checks, a thought placed by its model): this
-    /// without the person's arguments, which might change what it answers.
+    /// What a run or a question of Tasktap's own to the agent (its checks,
+    /// a thought placed by its model) starts with: the program and the
+    /// words after it.
     pub fn asks(&self) -> Vec<String> {
         let program = self.program.to_string_lossy().into_owned();
         std::iter::once(program).chain(self.head.clone()).collect()
     }
+
+    /// The command line of a run: this, what its check added (`more`), and
+    /// the arguments its adapter gives it (`launched`, as [`Agent::launch`]
+    /// gives it, whose program this stands for), so that Tasktap's come last.
+    pub fn run(&self, more: Vec<String>, launched: Vec<String>) -> Vec<String> {
+        let tasktap = more.into_iter().chain(launched.into_iter().skip(1));
+        self.asks().into_iter().chain(tasktap).collect()
+    }
 }
 
 /// What starts the agent named `name`, whose program is `program`, as
-/// `words`, the person's command for it, say; with none, its program alone.
-/// `find` finds a program named without a folder; one named with a folder
-/// is taken as written, a whole path to a file that may be run. Where the
-/// agent's program follows a program of the person's, it is found too, or
-/// left as written for that program to find; where no word is the agent's
-/// program, the whole command stands in its place.
+/// `words`, the person's command for it, say: their words as written, the
+/// first found as a program, Tasktap's arguments to follow the last; with
+/// none, its program alone. `find` finds a program named without a folder;
+/// one named with a folder is taken as written, a whole path to a file that
+/// may be run.
 pub fn start(
     name: &str,
     program: &str,
@@ -709,39 +729,60 @@ pub fn start(
         return Ok(Start {
             program: found,
             head: Vec::new(),
-            args: Vec::new(),
             theirs: false,
         });
     };
-    let found = match bare(first) {
+    let path = Path::new(first);
+    let found = match path.components().count() == 1 && !path.has_root() {
         true => find(first),
-        false => Some(PathBuf::from(first))
+        false => Some(path.to_owned())
             .filter(|path| path.is_absolute() && crate::roles::shim::runnable(path)),
     };
     let found = found.ok_or_else(|| {
         format!("Tasktap finds no program named {first} for the command of {name}")
     })?;
-    let (head, args) = match words.iter().position(|word| names(word, program)) {
-        None => (rest.to_vec(), Vec::new()),
-        Some(0) => (Vec::new(), rest.to_vec()),
-        Some(at) => {
-            let own = &words[at];
-            let own = (bare(own).then(|| find(own)).flatten())
-                .map_or_else(|| own.clone(), |p| p.to_string_lossy().into_owned());
-            let head = words[1..at].iter().cloned().chain([own]);
-            (head.collect(), words[at + 1..].to_vec())
-        }
-    };
+    if cfg!(windows)
+        && let Some(why) = batch(name, program, first, &found, find(program).as_deref())
+    {
+        return Err(why);
+    }
     Ok(Start {
         program: found,
-        head,
-        args,
+        head: rest.to_vec(),
         theirs: true,
     })
 }
 
+/// Why Windows cannot start the agent named `name` through `first`, the
+/// first word of the person's command, found at `found`, where its own
+/// program `program` is `own` as Tasktap finds it: a batch file (npm
+/// installs a tool as one) reads the task by the command prompt's rules,
+/// which Tasktap writes it for only where the batch file is what it starts
+/// (`sys::command_line`). None where the first word is that batch file, or
+/// names the agent's program itself.
+pub fn batch(
+    name: &str,
+    program: &str,
+    first: &str,
+    found: &Path,
+    own: Option<&Path>,
+) -> Option<String> {
+    let batch = |path: &Path| {
+        let ext = path.extension().unwrap_or_default();
+        ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat")
+    };
+    let own = own.filter(|own| batch(own))?;
+    if batch(found) || names(first, program) {
+        return None;
+    }
+    let file = own.file_name().unwrap_or(own.as_os_str()).to_string_lossy();
+    Some(format!(
+        "Windows cannot pass a task safely through {first} to {file}: start {name} without a wrapper on Windows"
+    ))
+}
+
 /// What starts `agent` as the core runs and asks it: the person's command
-/// for it, with its programs found on the PATH of the terminals.
+/// for it, its first word found on the PATH of the terminals.
 pub fn started(agent: &dyn Agent) -> Result<Start, String> {
     let words = command(agent);
     start(agent.name(), agent.program(), &words, crate::terminal::find)

@@ -525,6 +525,10 @@ pub struct AgentHealth {
     /// person starts it their own way, the first word of their command is,
     /// or names a file that may be run.
     pub installed: bool,
+    /// Why the person's command for it does not start it, as a sentence:
+    /// Tasktap finds no program by its first word, this build refuses it, or
+    /// asked for the agent's version it did not start the agent.
+    pub command_fails: Option<String>,
     /// As it reports its version.
     pub version: Option<String>,
     /// Whether it is signed in; none when it could not be told.

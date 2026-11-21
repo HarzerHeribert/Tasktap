@@ -383,6 +383,7 @@ fn every_call_round_trips() {
         id: "codex".into(),
         name: "Codex".into(),
         program: "codex".into(),
+        command_fails: None,
         supported: true,
         own: false,
         note: None,

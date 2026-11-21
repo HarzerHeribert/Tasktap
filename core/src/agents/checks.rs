@@ -57,7 +57,7 @@ pub enum Asked {
 /// and one asks its service.
 pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let mut health = found(agent);
-    // Started as the person starts it, without their arguments.
+    // Started as the person starts it, their command then its arguments.
     let start = super::started(agent).ok().filter(|_| health.supported);
     let Some(start) = start else {
         return health;
@@ -68,8 +68,28 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
         true => Err(String::new()),
         false => output(&start, args),
     };
-    if let Ok((_, out)) = asked(checks.version) {
-        health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
+    // A version only where it looks like one, with a number in it; through
+    // the person's command, only where that ended well.
+    let printed = asked(checks.version);
+    let version = printed.as_ref().ok().and_then(|(code, out)| {
+        let version = (checks.version_of)(out)?;
+        let ended = !start.theirs || *code == Some(0);
+        (ended && version.contains(|c: char| c.is_ascii_digit())).then_some(version)
+    });
+    health.version = version.as_deref().map(|v| fit(v, 200));
+    // Their command did not start the agent: it says so, and nothing of a
+    // sign-in, which its program would have answered in the agent's place.
+    if start.theirs && !checks.version.is_empty() && version.is_none() {
+        let said = match &printed {
+            Ok((_, out)) => out.lines().map(str::trim).find(|l| !l.is_empty()),
+            Err(why) => Some(why.as_str()),
+        };
+        let name = agent.name();
+        let said = super::line(said.unwrap_or("it printed nothing"), 200);
+        health.command_fails = Some(format!(
+            "The command of {name} did not start {name}: {said}"
+        ));
+        return health;
     }
     if let Ok((code, out)) = asked(checks.account) {
         let (signed_in, identity) = (checks.account_of)(code, &out);
@@ -107,6 +127,7 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         rev: tasktap_proto::Rev::ZERO,
         checked: tasktap_proto::Time::ZERO,
         installed: false,
+        command_fails: None,
         version: None,
         signed_in: None,
         identity: None,
@@ -116,7 +137,12 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         permissions: caps.permissions,
         questions: caps.questions,
     };
-    health.installed = super::started(agent).is_ok();
+    let start = super::started(agent);
+    health.installed = start.is_ok();
+    // Their command, refused as it is stored, or one that cannot start.
+    let theirs = !super::command(agent).is_empty();
+    let fails = start.err().filter(|_| theirs);
+    health.command_fails = super::command_refused(agent).or(fails);
     health
 }
 

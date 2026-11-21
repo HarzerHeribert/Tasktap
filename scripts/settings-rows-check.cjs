@@ -27,8 +27,10 @@
 //       field, one sentence with an example of a start of the person's own (caffeinate on a Mac; on Windows an
 //       argument of Claude Code's, none for Codex); a command typed and Tab keep it as
 //       `agent_commands`; one that holds what Tasktap sets for a run, then Return, is refused in the core's sentence
-//       under the field and the one before stays; emptied, the command goes. One whose first word Tasktap does not
-//       find stays in sight, not folded away, and says which word.
+//       under the field and the one before stays, and the sentence goes with the section, which shows the one kept
+//       again; emptied, the command goes. One whose command does not start it stays in sight, not folded away, and
+//       says why in the core's words; signing in to one that is signed out, and a terminal of it, type the person's
+//       command.
 //   And a sweep in WebKit by the pointer alone of every control in Settings that acts on a click and then takes keys:
 //   each recorder, the project's choice, Add your own agent, a project's other name, the font field, the field that
 //   finds a project, a section's tab with the arrows, a switch with Space, and Check now.
@@ -415,9 +417,9 @@ async function starts(browser, url, system) {
   // A click in the field, the command, Tab: kept.
   const field = row('Claude Code').locator('input');
   await click(page, field);
-  await page.keyboard.type('caffeinate -i claude --model opus');
+  await page.keyboard.type('caffeinate -i claude --verbose');
   await key(page, 'Tab');
-  const kept = JSON.stringify([{ agent: 'claude', command: 'caffeinate -i claude --model opus' }]);
+  const kept = JSON.stringify([{ agent: 'claude', command: 'caffeinate -i claude --verbose' }]);
   expect(await stored() === kept, `${at}: a click in Claude Code's field, a command and Tab keep it (${await stored()})`);
   // One that holds what Tasktap sets for a run, then Return: refused in the core's sentence, and the one before stays.
   await field.selectText();
@@ -427,6 +429,11 @@ async function starts(browser, url, system) {
   const why = (await err.count()) ? await err.textContent() : '';
   expect(why === 'Tasktap sets --resume itself for Claude Code: take --resume out of the command.' && await stored() === kept, `${at}: a command with --resume, then Return, is refused under the field and the one before stays: "${why}"`);
   await picture(page, 'agents-refused', system);
+  // The refusal belongs to what the field holds: the section left and shown again, the field holds the one kept.
+  await section(page, 'thoughts');
+  await section(page, 'agents');
+  const again = await row('Claude Code').locator('input').inputValue();
+  expect(again === 'caffeinate -i claude --verbose' && await row('Claude Code').locator('.hint.err').count() === 0, `${at}: Agents shown again, the field holds the command kept and no refusal: "${again}"`);
   // Emptied, the command goes, and with it the refusal.
   await field.selectText();
   await key(page, 'Backspace');
@@ -437,7 +444,8 @@ async function starts(browser, url, system) {
 
   // A first word Tasktap does not find: the agent stays in sight and says which word.
   const records = scene('busy');
-  records.agents = records.agents.map((a) => (a.id === 'codex' ? { ...a, installed: false, version: null, signed_in: null, identity: null } : a));
+  const fails = 'Tasktap finds no program named op for the command of Codex';
+  records.agents = records.agents.map((a) => (a.id === 'codex' ? { ...a, installed: false, version: null, signed_in: null, identity: null, command_fails: fails } : a));
   records.prefs = [...(records.prefs || []), { id: 'agent_commands', rev: 9, value: [{ agent: 'codex', command: 'op run -- codex' }] }];
   const lost = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
   await section(lost, 'agents');
@@ -448,6 +456,25 @@ async function starts(browser, url, system) {
   await picture(lost, 'agents-lost', system);
   for (const e of lost.errors) failures.push(`${at}: page: ${e}`);
   await lost.context().close();
+
+  // Signed out, signing in types the person's command where it would type the agent's program.
+  const out = scene('busy');
+  out.agents = out.agents.map((a) => (a.id === 'codex' ? { ...a, signed_in: false, identity: null } : a));
+  out.prefs = [...(out.prefs || []), { id: 'agent_commands', rev: 9, value: [{ agent: 'codex', command: 'op run -- codex' }] }];
+  const signs = await open(browser, { label: 'workspace', records: out, url, dpr: 2, system });
+  await section(signs, 'agents');
+  await signs.evaluate(() => {
+    const typing = window.__ws.ui.typing, set = typing.set.bind(typing);
+    window.__typed = [];
+    typing.set = (id, text) => (window.__typed.push(text), set(id, text));
+  });
+  await click(signs, signs.locator('.set-pane .line.ag[data-agent=codex] button:has-text("Sign in")'));
+  // And so does a terminal of the agent opened by hand (a workspace's New Codex Session).
+  await signs.evaluate(() => window.__ws.startAgent(window.__ws.LOOSE, 'codex'));
+  const typed = await signs.evaluate(() => JSON.stringify(window.__typed));
+  expect(typed === JSON.stringify(['op run -- codex login', 'op run -- codex']), `${at}: Sign in to Codex, and a terminal of it, type its command: ${typed}`);
+  for (const e of signs.errors) failures.push(`${at}: page: ${e}`);
+  await signs.context().close();
 }
 
 // ——— WebKit, by the pointer alone: every control that acts on a click and then takes keys ———

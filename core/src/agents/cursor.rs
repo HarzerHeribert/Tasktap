@@ -59,6 +59,8 @@ pub const RULES: Rules = Rules {
     policy: &["-f", "--force", "--yolo", "--auto-review"],
     // Its own default stands: the approval mode the person set.
     default: &[],
+    // The chat it continues, its model; the task after `--`.
+    taken: &["--resume", "--model", "--"],
 };
 
 /// The hook events a run reports, with the seconds Cursor lets each run.
@@ -110,11 +112,6 @@ impl Agent for Cursor {
 
     fn program(&self) -> &'static str {
         "cursor-agent"
-    }
-
-    /// Its print mode and the chat it continues; the task after `--`.
-    fn refused(&self) -> &'static [&'static str] {
-        &["-p", "--print", "--resume", "--"]
     }
 
     /// What it asks, an approval or a question, no hook hears: it asks in

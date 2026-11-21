@@ -1,15 +1,15 @@
 //! How a person starts an agent their own way (the `agent_commands`
 //! preference): what they would type in a terminal up to where the task
-//! goes, such as `caffeinate -i claude --model opus`. The words before the
-//! agent's program are a program of theirs that runs it, the words after it
-//! their own arguments, and Tasktap's arguments for a run follow. An agent
-//! with no command starts as it always did. Real runs are the fixture agent
-//! in a core of the test's own, through `/usr/bin/env` as the program of the
-//! person's that runs it.
+//! goes, such as `caffeinate -i claude --model opus`. Their words run as
+//! written, the first found as a program, and Tasktap's arguments for a run
+//! follow the last. An agent with no command starts as it always did. Real
+//! runs are the fixture agent in a core of the test's own, through
+//! `/usr/bin/env` as the program of the person's that runs it.
 
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use common::*;
 use tasktap_core::agents::{self, Agent, Run, Start};
@@ -17,6 +17,9 @@ use tasktap_proto::call::{self, Code};
 use tasktap_proto::{AgentCommand, PrefPatch, Put, PutTarget, SessionId};
 
 const RUN: &str = "01930000-0000-7000-8000-0000000000aa";
+
+/// The tests that set the person's commands in this process, one at a time.
+static COMMANDS: Mutex<()> = Mutex::new(());
 
 fn run<'a>(resume: Option<&'a str>, args: &'a [String]) -> Run<'a> {
     Run {
@@ -46,13 +49,20 @@ fn words(line: &str) -> Vec<String> {
     agents::split(line).unwrap()
 }
 
-/// The person's command for `agent`, as the core checks it when it is put.
-fn checked(agent: &str, command: &str) -> Result<(), String> {
-    let command = AgentCommand {
+/// The person's command for `agent`, as the core judges it.
+fn judged(agent: &str, command: &str) -> Result<Vec<String>, String> {
+    agents::judge(agents::find(agent).unwrap(), command)
+}
+
+fn refused(agent: &str, command: &str) -> String {
+    judged(agent, command).unwrap_err()
+}
+
+fn line(agent: &str, command: &str) -> AgentCommand {
+    AgentCommand {
         agent: agent.into(),
         command: command.into(),
-    };
-    agents::commands(&[command]).map(|_| ())
+    }
 }
 
 /// A file that may be run, at `path`.
@@ -75,10 +85,7 @@ fn put(w: &mut Watch, patch: PrefPatch) -> Result<(), call::Error> {
 }
 
 fn commands(list: &[(&str, &str)]) -> PrefPatch {
-    let list = list.iter().map(|(agent, command)| AgentCommand {
-        agent: (*agent).into(),
-        command: (*command).into(),
-    });
+    let list = list.iter().map(|(agent, command)| line(agent, command));
     PrefPatch::AgentCommands(list.collect())
 }
 
@@ -92,11 +99,9 @@ fn an_agent_with_no_command_starts_as_it_always_did() {
             Start {
                 program: found(program).unwrap(),
                 head: Vec::new(),
-                args: Vec::new(),
                 theirs: false,
             }
         );
-        assert!(start.asks() == [at(program)], "{name}");
         // As the launcher started a run before: its program where it was
         // found, what its check added right after it, then its arguments.
         let launched = agent.launch(&run(None, &[]));
@@ -115,98 +120,74 @@ fn an_agent_with_no_command_starts_as_it_always_did() {
 }
 
 #[test]
-fn a_program_of_the_persons_runs_the_agent_with_their_arguments_before_tasktaps() {
+fn the_persons_command_runs_as_written_and_tasktaps_arguments_follow_its_last_word() {
     for agent in agents::all() {
         let (name, program) = (agent.name(), agent.program());
         let command = words(&format!("caffeinate -i {program} --verbose 'two words'"));
         let start = agents::start(name, program, &command, found).unwrap();
         assert_eq!(start.program, found("caffeinate").unwrap(), "{name}");
-        assert_eq!(start.head, ["-i".to_owned(), at(program)], "{name}");
-        assert_eq!(start.args, ["--verbose", "two words"], "{name}");
-        assert!(start.theirs, "{name}");
-        let theirs = agents::args(program, &command);
-        assert_eq!(theirs, ["--verbose", "two words"]);
-        // A new run and one that continues a conversation alike: what
-        // starts it, the person's arguments, then Tasktap's, the check's
-        // first.
+        assert_eq!(start.head, command[1..], "{name}");
+        assert!(start.theirs);
+        // A new run and one that continues a conversation alike: the
+        // command word for word, then Tasktap's, the check's first; and
+        // Tasktap's own questions start with the same words.
         for resume in [None, Some("abc")] {
+            let theirs = agents::theirs(program, &command);
+            assert_eq!(theirs, ["--verbose", "two words"]);
             let launched = agent.launch(&run(resume, theirs));
-            let mut want = vec![at("caffeinate"), "-i".into(), at(program)];
-            want.extend(["--verbose".into(), "two words".into(), "--checked".into()]);
+            let mut want = vec![at("caffeinate")];
+            want.extend(command[1..].iter().cloned());
+            want.push("--checked".into());
             want.extend(launched[1..].iter().cloned());
-            let argv = agents::start(name, program, &command, found)
-                .unwrap()
-                .run(vec!["--checked".into()], launched);
-            assert_eq!(argv, want, "{name}");
+            assert_eq!(start.run(vec!["--checked".into()], launched), want);
         }
-        // Tasktap's own questions to it start with the same programs, and
-        // without the person's arguments.
-        assert_eq!(start.asks(), [at("caffeinate"), "-i".into(), at(program)]);
+        assert_eq!(start.asks()[1..], command[1..]);
+    }
+    // Nothing in the words is found again or put in another place: each of
+    // these names the agent's program before it is the program.
+    for typed in [
+        "docker run --name claude img claude",
+        "mise exec -- claude",
+        "env FOO=/x/claude claude",
+        "firejail --profile=/etc/firejail/claude.profile claude",
+        "env PATH=/opt/tools/bin claude --model-free-words",
+    ] {
+        let command = words(typed);
+        let start = agents::start("Claude Code", "claude", &command, found).unwrap();
+        assert_eq!(start.program, found(&command[0]).unwrap(), "{typed}");
+        assert_eq!(start.head, command[1..], "{typed}");
     }
 }
 
 #[test]
-fn a_program_tasktap_does_not_find_is_left_for_the_persons_program_to_find() {
-    // `env PATH=…` finds what Tasktap's PATH has not.
-    let command = words("env PATH=/opt/tools/bin claude --model opus");
-    let only_env = |word: &str| (word == "env").then(|| PathBuf::from("/usr/bin/env"));
-    let start = agents::start("Claude Code", "claude", &command, only_env).unwrap();
-    assert_eq!(start.program, PathBuf::from("/usr/bin/env"));
-    assert_eq!(start.head, ["PATH=/opt/tools/bin", "claude"]);
-    assert_eq!(start.args, ["--model", "opus"]);
-}
-
-#[test]
-fn a_path_to_the_program_is_used_as_written() {
+fn a_path_is_used_as_written_and_a_first_word_tasktap_does_not_find_is_said() {
     let folder = Folder::new("cp");
     let program = folder.0.join("my tools").join("claude");
     runnable(&program);
     let written = program.to_string_lossy().into_owned();
-    // Alone, the program it names is run, with the arguments after it.
-    let command = words(&format!("\"{written}\" --model opus"));
+    let command = words(&format!("\"{written}\" --model-free"));
     let start = agents::start("Claude Code", "claude", &command, found).unwrap();
-    assert_eq!((start.program, start.head), (program.clone(), Vec::new()));
-    assert_eq!(start.args, ["--model", "opus"]);
-    // After a program of the person's, it is passed on as written.
-    let command = words(&format!("caffeinate -i '{written}'"));
-    let start = agents::start("Claude Code", "claude", &command, found).unwrap();
-    assert_eq!(start.head, ["-i".to_owned(), written.clone()]);
-    // A path that is not whole, or names no file that may be run, is said.
-    for lost in ["./claude", "bin/claude"] {
-        let e = agents::start("Claude Code", "claude", &words(lost), found).unwrap_err();
+    assert_eq!(
+        (start.program, start.head),
+        (program, words("--model-free"))
+    );
+    // A path that is not whole, or names no file that may be run, and a
+    // name not on the PATH, are said, with the word as written.
+    let gone = folder.0.join("gone").join("claude");
+    let gone = gone.to_string_lossy().into_owned();
+    for lost in ["./claude", "bin/claude", "cluade", gone.as_str()] {
+        let none = |word: &str| (word != "cluade").then(|| PathBuf::from("/found").join(word));
+        let e = agents::start("Claude Code", "claude", &words(&format!("'{lost}'")), none);
         assert_eq!(
-            e,
+            e.unwrap_err(),
             format!("Tasktap finds no program named {lost} for the command of Claude Code")
         );
     }
-    let gone = folder.0.join("gone").join("claude");
-    let gone = gone.to_string_lossy().into_owned();
-    let e = agents::start("Claude Code", "claude", std::slice::from_ref(&gone), found).unwrap_err();
-    assert!(e.contains(&gone), "{e}");
     // A leading `~/` is the home folder, as in a shell; nothing else is.
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
-    let home = PathBuf::from(home.unwrap());
-    let mine = home.join("bin/claude").to_string_lossy().into_owned();
+    let mine = PathBuf::from(home.unwrap()).join("bin/claude");
+    let mine = mine.to_string_lossy().into_owned();
     assert_eq!(words("~/bin/claude ~ $HOME"), [mine.as_str(), "~", "$HOME"]);
-}
-
-#[test]
-fn a_script_of_the_persons_own_stands_in_for_the_program() {
-    let command = words("my-claude --fast");
-    assert!(agents::args("claude", &command).is_empty());
-    let start = agents::start("Claude Code", "claude", &command, found).unwrap();
-    assert_eq!(start.program, found("my-claude").unwrap());
-    assert_eq!(
-        (start.head.as_slice(), start.args.len()),
-        (&["--fast".to_owned()][..], 0)
-    );
-    let claude = agents::find("claude").unwrap();
-    let launched = claude.launch(&run(None, &[]));
-    let argv = start.run(Vec::new(), launched.clone());
-    assert_eq!(argv[..2], [at("my-claude"), "--fast".into()]);
-    assert_eq!(argv[2..], launched[1..]);
-    // Its arguments are its own business: none is refused.
-    assert!(checked("claude", "my-claude --resume x -p").is_ok());
 }
 
 #[test]
@@ -224,63 +205,186 @@ fn quotes_group_words_and_no_shell_reads_the_command() {
         ]
     );
     assert_eq!(
-        checked("claude", "claude 'open").unwrap_err(),
+        refused("claude", "claude 'open"),
         "A quote in the command is not closed"
     );
+    assert_eq!(
+        refused("claude", r#""" claude"#),
+        "The command of Claude Code needs a program as its first word"
+    );
+    assert_eq!(judged("claude", "   "), Ok(Vec::new()));
 }
 
 #[test]
 fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sentence() {
-    for agent in agents::all() {
-        let (id, name, program) = (agent.id(), agent.name(), agent.program());
-        for flag in agent.refused() {
-            let said =
-                format!("Tasktap sets {flag} itself for {name}: take {flag} out of the command");
-            let command = format!("caffeinate -i {program} --verbose {flag}");
-            assert_eq!(checked(id, &command).unwrap_err(), said);
-            if flag.starts_with("--") && flag.len() > 2 {
-                let valued = format!("{program} {flag}=x");
-                assert_eq!(checked(id, &valued).unwrap_err(), said);
-            }
+    let says = |flag: &str, name: &str| {
+        format!("Tasktap sets {flag} itself for {name}: take {flag} out of the command")
+    };
+    // As the shim reads what is typed: what makes nobody type to the agent,
+    // a subcommand or an alias of one, also given together or with a value.
+    for (agent, name, command, flag) in [
+        ("claude", "Claude Code", "claude -p", "-p"),
+        ("claude", "Claude Code", "claude --print", "--print"),
+        ("claude", "Claude Code", "claude -pc", "-p"),
+        ("claude", "Claude Code", "claude --help", "--help"),
+        ("claude", "Claude Code", "claude --version", "--version"),
+        ("claude", "Claude Code", "claude mcp", "mcp"),
+        ("claude", "Claude Code", "claude -rabc", "-r"),
+        ("claude", "Claude Code", "claude --resume=abc", "--resume"),
+        ("claude", "Claude Code", "claude -c", "-c"),
+        (
+            "claude",
+            "Claude Code",
+            "claude --session-id x",
+            "--session-id",
+        ),
+        (
+            "claude",
+            "Claude Code",
+            "claude --settings x.json",
+            "--settings",
+        ),
+        ("claude", "Claude Code", "claude --model opus", "--model"),
+        ("claude", "Claude Code", "caffeinate -i claude -- hi", "--"),
+        ("codex", "Codex", "codex e", "e"),
+        ("codex", "Codex", "codex exec", "exec"),
+        ("codex", "Codex", "codex review", "review"),
+        ("codex", "Codex", "codex resume", "resume"),
+        ("codex", "Codex", "codex --json", "--json"),
+        ("codex", "Codex", "codex --remote=x", "--remote"),
+        ("codex", "Codex", "codex -C/tmp/x", "-C"),
+        ("codex", "Codex", "codex -C=/tmp/x", "-C"),
+        ("codex", "Codex", "codex --cd /tmp/x", "--cd"),
+        ("codex", "Codex", "op run -- codex --model o3", "--model"),
+        ("codex", "Codex", "codex -m o3", "-m"),
+        (
+            "agy",
+            "Antigravity",
+            "agy --conversation x",
+            "--conversation",
+        ),
+        ("pi", "Pi", "pi --mode json", "--mode"),
+        ("opencode", "OpenCode", "opencode run", "run"),
+        ("copilot", "Copilot", "copilot --prompt=hi", "--prompt"),
+        ("qwen", "Qwen Code", "qwen -m x", "-m"),
+        ("goose", "Goose", "goose run", "run"),
+        ("crush", "Crush", "crush -c/tmp/x", "-c"),
+        ("droid", "Droid", "droid --model x", "--model"),
+        ("aider", "Aider", "aider --message=x", "--message"),
+    ] {
+        if agents::find(agent).is_some() {
+            assert_eq!(refused(agent, command), says(flag, name), "{command}");
         }
     }
-    let claude: Vec<_> = agents::find("claude").unwrap().refused().to_vec();
-    #[rustfmt::skip]
-    assert_eq!(claude, ["-p", "--print", "-c", "--continue", "-r", "--resume", "--session-id", "--settings", "--"]);
-    // What is the person's business stands: a model, a flag that only
-    // begins as a refused one does, and the words of the program of theirs
-    // that runs the agent.
-    assert!(checked("claude", "claude --model opus --setting-sources user").is_ok());
-    assert!(checked("claude", "op run -- claude --dangerously-skip-permissions").is_ok());
-    assert!(checked("codex", "op run -- codex -c model_reasoning_effort=high").is_ok());
-    // A command is one line for one of Tasktap's own agents, each once;
-    // an empty one is none.
+    // Only the words after the last that names the agent's program are its
+    // arguments, and none where no word does: the rest is the person's.
+    for fine in [
+        "claude",
+        "caffeinate -i claude --verbose",
+        "op run -- claude --dangerously-skip-permissions",
+        "docker run --name claude --model x img claude",
+        "my-claude --resume x -p",
+        "claude --setting-sources user",
+        "codex -p work",
+        "codex -c model_reasoning_effort=high",
+    ] {
+        let agent = if fine.contains("codex") {
+            "codex"
+        } else {
+            "claude"
+        };
+        assert!(judged(agent, fine).is_ok(), "{fine}");
+    }
     assert_eq!(
-        checked("claude", "claude\n--model opus").unwrap_err(),
+        refused("claude", "claude\n--verbose"),
         "The command of Claude Code is too long, or not one line"
     );
+    // The length in bytes, as it is stored.
+    assert!(judged("claude", &"é".repeat(1000)).is_ok());
     assert_eq!(
-        checked("claude", &"x".repeat(2001)).unwrap_err(),
+        refused("claude", &"é".repeat(1001)),
         "The command of Claude Code is too long, or not one line"
     );
+}
+
+#[test]
+fn a_stored_command_this_build_refuses_harms_only_its_own_agent() {
+    let _one = COMMANDS.lock().unwrap_or_else(|e| e.into_inner());
+    let bad = line("claude", "claude --model opus");
+    let good = line("codex", "caffeinate -i codex");
+    // Put: a command kept as it was stands; one new or changed is judged.
+    let was = [bad.clone()];
+    assert!(agents::check_commands(&[bad.clone(), good.clone()], &was).is_ok());
+    let said = "Tasktap sets --model itself for Claude Code: take --model out of the command";
     assert_eq!(
-        checked("own-a1", "goose").unwrap_err(),
+        agents::check_commands(std::slice::from_ref(&bad), &[]).unwrap_err(),
+        said
+    );
+    assert_eq!(
+        agents::check_commands(&[line("own-a1", "x")], &[]).unwrap_err(),
         "Tasktap brings no agent named own-a1"
     );
-    let twice =
-        [("claude", "claude"), ("claude", "caffeinate claude")].map(|(a, c)| AgentCommand {
-            agent: a.into(),
-            command: c.into(),
-        });
+    let twice = [good.clone(), line("codex", "codex")];
     assert_eq!(
-        agents::commands(&twice).err().unwrap(),
-        "Claude Code has two commands"
+        agents::check_commands(&twice, &[]).unwrap_err(),
+        "Codex has two commands"
     );
-    let empty = AgentCommand {
-        agent: "claude".into(),
-        command: "  ".into(),
+    // Taken as the core starts: the good one holds, the bad one is not used
+    // and its row says why.
+    let (claude, codex) = (
+        agents::find("claude").unwrap(),
+        agents::find("codex").unwrap(),
+    );
+    let changed = agents::set_commands(&[bad, good]);
+    assert!(
+        changed.iter().any(|a| a.id() == "claude") && changed.iter().any(|a| a.id() == "codex")
+    );
+    assert_eq!(agents::command(codex), words("caffeinate -i codex"));
+    assert!(agents::command(claude).is_empty());
+    assert_eq!(agents::command_refused(claude).as_deref(), Some(said));
+    assert_eq!(
+        agents::checks::found(claude).command_fails.as_deref(),
+        Some(said)
+    );
+    assert_eq!(agents::command_refused(codex), None);
+    agents::set_commands(&[]);
+}
+
+#[test]
+fn on_windows_a_wrapper_may_not_pass_a_task_to_an_agent_that_is_a_batch_file() {
+    let batch = |first: &str, found: &str, own: &str| {
+        agents::batch(
+            "Claude Code",
+            "claude",
+            first,
+            Path::new(found),
+            Some(Path::new(own)),
+        )
     };
-    assert!(agents::commands(&[empty]).unwrap().is_empty());
+    assert_eq!(
+        batch("wrap", "C:/tools/wrap.exe", "C:/npm/claude.cmd").as_deref(),
+        Some(
+            "Windows cannot pass a task safely through wrap to claude.cmd: start Claude Code without a wrapper on Windows"
+        )
+    );
+    // The batch file itself first keeps the quoting it has; so does another
+    // copy of the agent's program, and an agent that is no batch file.
+    assert_eq!(
+        batch("claude", "C:/npm/claude.cmd", "C:/npm/claude.cmd"),
+        None
+    );
+    assert_eq!(
+        batch("C:/tools/claude", "C:/tools/claude", "C:/npm/claude.CMD"),
+        None
+    );
+    assert_eq!(
+        batch("wrap", "C:/tools/wrap.exe", "C:/bin/claude.exe"),
+        None
+    );
+    assert_eq!(
+        batch("wrap.bat", "C:/tools/wrap.bat", "C:/npm/claude.cmd"),
+        None
+    );
 }
 
 #[test]
@@ -290,7 +394,7 @@ fn the_persons_approval_policy_stands_and_tasktaps_is_added_only_without_one() {
     let has = |agent: &dyn Agent, args: &[String], word: &str| {
         agent.launch(&run(None, args)).iter().any(|a| a == word)
     };
-    assert!(has(claude, &words("--model opus"), "auto"));
+    assert!(has(claude, &words("--verbose"), "auto"));
     assert!(!has(claude, &words("--permission-mode plan"), "auto"));
     assert!(!has(
         claude,
@@ -302,14 +406,19 @@ fn the_persons_approval_policy_stands_and_tasktaps_is_added_only_without_one() {
 }
 
 #[test]
-fn the_command_is_refused_when_put_and_one_tasktap_cannot_start_is_said_in_the_agents_state() {
+fn the_command_is_refused_when_put_and_one_that_does_not_start_the_agent_says_so() {
     let mut s = Scene::real("cs", "fixture");
-    s.w.ok::<call::AgentsDetect>(&tasktap_proto::DetectAgents {
-        agents: Some(vec!["fixture".into()]),
-        unchecked: false,
-    });
-    s.w.until("the fixture agent is listed", |m| {
-        m.agents.get("fixture").is_some_and(|a| a.installed)
+    let detect = |s: &mut Scene| {
+        s.w.ok::<call::AgentsDetect>(&tasktap_proto::DetectAgents {
+            agents: Some(vec!["fixture".into()]),
+            unchecked: false,
+        });
+    };
+    detect(&mut s);
+    s.w.until("the fixture agent is signed in", |m| {
+        m.agents
+            .get("fixture")
+            .is_some_and(|a| a.signed_in == Some(true))
     });
     assert_eq!(s.w.model.agents["fixture"].program, "fixture-agent");
     let e = put(&mut s.w, commands(&[("fixture", "fixture-agent --hook x")])).unwrap_err();
@@ -321,15 +430,46 @@ fn the_command_is_refused_when_put_and_one_tasktap_cannot_start_is_said_in_the_a
         )
     );
     // A first word that is no program is said where the agent's state is.
-    let lost = [("fixture", "no-such-program-of-tasktap fixture-agent")];
-    put(&mut s.w, commands(&lost)).unwrap();
+    put(&mut s.w, commands(&[("fixture", "cluade")])).unwrap();
     s.w.until("the agent is said to be missing", |m| {
-        !m.agents["fixture"].installed
+        let a = &m.agents["fixture"];
+        !a.installed
+            && a.command_fails.as_deref()
+                == Some("Tasktap finds no program named cluade for the command of Fixture agent")
     });
-    // Taken away, the agent is there again.
+    // A program of the person's that does not start the agent: asked for its
+    // version it printed no version, and nothing of a sign-in counts.
+    for (typed, said) in [
+        (
+            "/usr/bin/env cluade",
+            "env: cluade: No such file or directory",
+        ),
+        (
+            "/usr/bin/env no-such-agent-of-tasktap",
+            "env: no-such-agent-of-tasktap: No such file or directory",
+        ),
+    ] {
+        // The look the change itself asks for, before the one asked here.
+        put(&mut s.w, commands(&[("fixture", typed)])).unwrap();
+        s.w.until("the agent's first word is found", |m| {
+            let a = &m.agents["fixture"];
+            a.installed && a.command_fails.is_none()
+        });
+        detect(&mut s);
+        let want = format!("The command of Fixture agent did not start Fixture agent: {said}");
+        s.w.until("the agent says its command did not start it", |m| {
+            m.agents["fixture"].command_fails.as_deref() == Some(want.as_str())
+        });
+        let a = &s.w.model.agents["fixture"];
+        assert!(a.installed, "{typed}");
+        assert_eq!((a.signed_in, a.version.as_deref()), (None, None), "{typed}");
+    }
+    // Taken away, the agent is there again as it was.
     put(&mut s.w, commands(&[])).unwrap();
+    detect(&mut s);
     s.w.until("the agent is there again", |m| {
-        m.agents["fixture"].installed
+        let a = &m.agents["fixture"];
+        a.installed && a.command_fails.is_none() && a.signed_in == Some(true)
     });
 }
 
@@ -355,13 +495,12 @@ fn a_run_starts_through_the_persons_program_and_the_agent_gets_its_task() {
     let session = s.w.model.thought(t).session_id.unwrap();
     let terminal = s.w.model.session(session).terminal_id.unwrap();
     let argv = s.w.model.terminals[&terminal].argv.clone();
-    assert_eq!(argv[..2], ["/usr/bin/env", "TASKTAP_WRAPPED=by env"]);
-    let program = Path::new(&argv[2]);
-    assert!(
-        program.is_absolute() && program.ends_with("fixture-agent"),
-        "{argv:?}"
+    // As written: `env` finds the agent's program itself.
+    #[rustfmt::skip]
+    assert_eq!(
+        argv[..5],
+        ["/usr/bin/env", "TASKTAP_WRAPPED=by env", "fixture-agent", "env:TASKTAP_WRAPPED", "--hook"]
     );
-    assert_eq!(argv[3..5], ["env:TASKTAP_WRAPPED", "--hook"]);
     assert_eq!(argv.last().unwrap(), "Fix the failing build");
     let mut screen = Screen::open(&s.core, terminal);
     screen.until("fixture-agent env:TASKTAP_WRAPPED --hook");
@@ -369,113 +508,64 @@ fn a_run_starts_through_the_persons_program_and_the_agent_gets_its_task() {
     screen.until("TASKTAP_WRAPPED=by env");
 }
 
-/// A shell of the core's, where typing `fixture` starts the "real" fixture
-/// agent, a copy of the binary, through its shim, as a terminal of an agent
-/// opened by hand and the one that signs it in do.
+/// The shim reads nothing of the person's commands: an agent typed in a
+/// Tasktap shell runs as typed, also one whose command is set, with no data
+/// folder named, from a folder that holds a file the shim once read.
 #[cfg(unix)]
-fn shell(prefix: &str) -> (Scene, PathBuf, Screen) {
-    let data = Folder::new(prefix);
+#[test]
+fn an_agent_typed_in_a_shell_runs_as_typed_and_the_shim_reads_no_file_of_commands() {
+    let data = Folder::new("ch");
     let real = data.0.join("real");
     std::fs::create_dir_all(&real).unwrap();
     std::fs::copy(EXE, real.join("fixture")).unwrap();
     let env = [("SHELL", "/bin/sh"), ("PATH", &path_with(&real))];
     let core = Core::start_env(&data.0, &[], &env);
-    let kept = data.0.clone();
-    let s = Scene::on(core, data).running("fixture");
+    let project = data.0.join("project");
+    let mut s = Scene::on(core, data).running("fixture");
+    let wrapped = [(
+        "fixture",
+        "/usr/bin/env FROM_LINE=yes fixture print:from-line",
+    )];
+    put(&mut s.w, commands(&wrapped)).unwrap();
+    // What a cloned project could hold, in its folder and in the data folder.
+    let file = r#"["/bin/echo","from-a-file"]"#;
+    for folder in [
+        project.join("agents/fixture"),
+        s.data.0.join("agents/fixture"),
+    ] {
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("command.json"), file).unwrap();
+    }
     let start = tasktap_proto::StartTerminal {
         project: None,
         argv: Vec::new(),
         title: None,
     };
-    let screen = Screen::start(&s.core, tasktap_proto::TerminalId::mint(), Some(start));
-    (s, kept, screen)
-}
-
-/// Waits until the core has left the agent's command where its shim reads it.
-#[cfg(unix)]
-fn kept(data: &Path, has: &str) {
-    let file = data.join("agents/fixture/command.json");
-    for _ in 0..200 {
-        if std::fs::read_to_string(&file).is_ok_and(|text| text.contains(has)) {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-    panic!("{} never held {has}", file.display());
-}
-
-#[cfg(unix)]
-#[test]
-fn an_agent_typed_in_a_shell_starts_as_the_persons_command_says() {
-    let (mut s, data, mut screen) = shell("ch");
-    let wrapped = [(
-        "fixture",
-        "/usr/bin/env TASKTAP_WRAPPED=yes fixture env:TASKTAP_WRAPPED",
-    )];
-    put(&mut s.w, commands(&wrapped)).unwrap();
-    kept(&data, "TASKTAP_WRAPPED=yes");
-    // Observed: its hooks follow the person's arguments, then what is typed.
-    screen.line("fixture");
-    screen.until("fixture-agent env:TASKTAP_WRAPPED --hook");
-    screen.until("TASKTAP_WRAPPED=yes");
-    // The shim lets go of the terminal once its agent has gone.
-    screen.until_after(b"\x1b[0m\x1b[?25h");
-    // Not observed, as `codex login` signs Codex in: started the same way.
-    screen.line("fixture help");
-    screen.until("fixture-agent env:TASKTAP_WRAPPED help");
-    // Taken away, the agent is started as typed again.
-    put(&mut s.w, commands(&[])).unwrap();
-    let file = data.join("agents/fixture/command.json");
-    for _ in 0..200 {
-        if !file.exists() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-    assert!(!file.exists());
-    screen.line("fixture help print:plain-again");
-    screen.until("fixture-agent help print:plain-again");
-    screen.line("exit");
-}
-
-/// A script of the person's that runs the agent by its name runs it once:
-/// the shim it reaches then starts the agent as typed.
-#[cfg(unix)]
-#[test]
-fn a_script_that_runs_the_agent_by_its_name_runs_it_once() {
-    let (mut s, data, mut screen) = shell("cx");
-    let script = data.join("bin").join("my-fixture");
-    runnable(&script);
-    // Not as the fixture agent the shim runs, which a test's shim marks.
-    let runs = "exec env -u TASKTAP_FIXTURE_AGENT fixture \"$@\"";
-    std::fs::write(&script, format!("#!/bin/sh\necho script-ran\n{runs}\n")).unwrap();
-    let mine = script.to_string_lossy().into_owned();
-    put(
-        &mut s.w,
-        commands(&[("fixture", &format!("'{mine}' print:mine"))]),
-    )
-    .unwrap();
-    kept(&data, "print:mine");
-    // The shim it reaches observes it, as one typed by hand.
-    screen.line("fixture help");
-    screen.until("--approve print:mine help");
+    let mut screen = Screen::start(&s.core, tasktap_proto::TerminalId::mint(), Some(start));
+    screen.line(&format!("cd '{}'", project.display()));
+    screen.line("fixture help print:as-typed");
+    screen.until("fixture-agent help print:as-typed");
+    screen.line("env -u TASKTAP_DATA fixture help print:no-data");
+    screen.until("fixture-agent help print:no-data");
     screen.line("echo shell-$((2+3))");
     screen.until("shell-5");
     let text = screen.text();
-    assert_eq!(text.matches("script-ran").count(), 1, "{text}");
-    assert_eq!(text.matches("fixture-agent").count(), 1, "{text}");
+    assert!(
+        !text.contains("from-a-file") && !text.contains("from-line"),
+        "{text}"
+    );
     screen.line("exit");
 }
 
 /// A question of Tasktap's own to an agent the person starts through a
 /// program of theirs that keeps the agent as its child (`sh`, after
 /// `/usr/bin/env`), which outlives its time: the program and the agent end
-/// with it, and the agent does nothing after. The only test here that sets
-/// the person's commands in this process.
+/// with it, and the agent does nothing after.
 #[cfg(unix)]
 #[test]
 fn a_question_that_outlives_its_time_ends_the_persons_program_and_the_agent_it_started() {
     use std::time::{Duration, Instant};
+    let _one = COMMANDS.lock().unwrap_or_else(|e| e.into_inner());
     let data = Folder::new("ct");
     let fixture = common::agents(&data.0).join("fixture-agent");
     let wrap = data.0.join("wrap.sh");
@@ -489,17 +579,17 @@ fn a_question_that_outlives_its_time_ends_the_persons_program_and_the_agent_it_s
     let folder = data.0.join("asked");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join("ask-silent"), "sleep:2000\nwrite:late:yes\n").unwrap();
-    let command = AgentCommand {
-        agent: "fixture-silent".into(),
-        command: format!("/usr/bin/env sh '{}'", wrap.display()),
-    };
-    agents::set_commands(&[command]).unwrap();
+    let command = line(
+        "fixture-silent",
+        &format!("/usr/bin/env sh '{}'", wrap.display()),
+    );
+    agents::set_commands(&[command]);
     let agent = agents::find("fixture-silent").unwrap();
     let how = agent.headless().unwrap();
     let asked = Instant::now();
     let channel = std::sync::mpsc::channel();
     let e = agents::checks::ask(agent, &how, "where?".into(), "{}", &folder, channel);
-    agents::set_commands(&[]).unwrap();
+    agents::set_commands(&[]);
     let why = format!("{:?}", e.unwrap_err());
     assert!(why.contains("did not answer within 1 s"), "{why}");
     assert!(

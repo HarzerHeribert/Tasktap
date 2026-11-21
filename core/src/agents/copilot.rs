@@ -63,6 +63,8 @@ pub const RULES: Rules = Rules {
         "--autopilot", "--mode", "--mode=", "--assisted-approval"],
     // Its own default stands: the approvals the person set.
     default: &[],
+    // Where the task goes, the session it continues, its model.
+    taken: &["-i", "--interactive", "--continue", "--resume", "--model"],
 };
 
 /// Seconds a hook that asked may wait for the person before Copilot gives
@@ -185,11 +187,6 @@ impl Agent for Copilot {
 
     fn program(&self) -> &'static str {
         "copilot"
-    }
-
-    /// Its one-task mode, the session it continues and where the task goes.
-    fn refused(&self) -> &'static [&'static str] {
-        &["-p", "--prompt", "--resume", "--interactive"]
     }
 
     fn caps(&self) -> Caps {

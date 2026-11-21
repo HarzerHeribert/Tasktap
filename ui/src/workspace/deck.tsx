@@ -13,16 +13,16 @@ import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, agentName, attach, call, closeTab, copy, cue, details, fail, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
+  LOOSE, agentName, attach, call, closeTab, commandOf, copy, cue, details, fail, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
   endedSays, readSoon, records, redraw, resultOf, runs, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui, unheard,
 } from './model.ts';
 import { Preview, focusPreview, openedBy, previewMenu } from './preview.tsx';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
 
-/** An agent started as a person starts it: its name typed into a new shell of the workspace, where
- *  the core's shim of that name runs it and adopts it as a session (design §4). */
+/** An agent started as a person starts it: its name, or the person's command for it, typed into a new shell of the
+ *  workspace, where the core's shim of that name runs it and adopts it as a session (design §4). */
 export const startAgent = (project: string, agent: string, into?: string) =>
-  newTerminal(project, { into, title: agentName(agent), type: agent });
+  newTerminal(project, { into, title: agentName(agent), type: commandOf(agent) || agent });
 
 /** New terminal and the installed agents, as a menu's items. */
 const starts = (project: string, into?: string): Item[] => [

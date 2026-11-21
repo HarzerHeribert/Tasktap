@@ -73,7 +73,7 @@ function bare(now) {
   return { ...r, thoughts: [], projects: r.projects.filter((p) => p.kind === 'scratch'), cards: [], looks: [] };
 }
 
-function projects(name, { now = Date.now(), end } = {}) {
+function projects(name, { now = Date.now(), end, some = 0 } = {}) {
   // ——— The first run ———
   if (name === 'first-agents' || name === 'first-found') {
     // Nine projects in the agents' history, each card arriving 90 ms after the last once the person allows it.
@@ -87,8 +87,9 @@ function projects(name, { now = Date.now(), end } = {}) {
   }
   if (name === 'first-searched') {
     // No agent's history; the person searches ~/git, and the search ends as `end` says (core/src/map.rs): nothing
-    // found, the system keeps Tasktap out, a read error, too many folders, or not there.
-    return { ...bare(now), offer: { agents: [], places: [{ folder: `${HOME}/git`, projects: 0 }] }, found: [], lookEnds: end };
+    // found, the system keeps Tasktap out, a read error, too many folders, not there, or `some` found before it stopped.
+    const found = WORLD.slice(0, some).map((w, i) => card(i + 1, now, w, { folder: `${HOME}/git/${w[0]}`, why: ['git'], agents: [] }));
+    return { ...bare(now), offer: { agents: [], places: [{ folder: `${HOME}/git`, projects: 0 }] }, found, lookEnds: end };
   }
   if (name === 'first-folders') {
     // No agent's history on this Mac: where are your projects? The usual folders that are there, ticked.

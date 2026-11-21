@@ -48,17 +48,22 @@ function shots() {
       setup: 'Tasktap may not read git' },
     'first-denied-windows': { records: projects('first-searched', { end: { state: 'denied', note: 'Access is denied.' } }), act: allow, system: 'windows',
       says: ['Tasktap may not read git', 'Windows keeps Tasktap out of ~/git. Search git again once your account may read it.', 'Choose another folder…'] },
-    'first-unreadable': { records: projects('first-searched', { end: { state: 'failed', note: 'Input/output error' } }), act: allow,
-      says: ['git could not be read', '~/git: Input/output error.', 'Choose another folder…'], setup: 'git could not be read' },
+    // A folder's own rights (EACCES) are a read error like any other, in the system's words; `denied` is its privacy rule.
+    'first-unreadable': { records: projects('first-searched', { end: { state: 'failed', note: 'Permission denied' } }), act: allow,
+      says: ['git could not be read', '~/git: Permission denied.', 'Choose another folder…'], setup: 'git could not be read' },
     'first-too-many': { records: projects('first-searched', { end: { state: 'many' } }), act: allow,
       says: ['Too many folders in git', 'Over 2,000 folders in ~/git. Choose the folder inside git that holds your projects.', 'Choose another folder…'], setup: 'Too many folders in git' },
     'first-gone': { records: projects('first-searched', { end: { state: 'gone' } }), act: allow,
-      says: ['git is not there now', 'Nothing is at ~/git now. Tasktap searches git again when it is back.', 'Choose another folder…'], setup: 'git is not there now' },
+      says: ['git is not there now', 'Nothing is at ~/git now. Tasktap searches git again when git is back.', 'Choose another folder…'], setup: 'git is not there now' },
     'first-none': { records: projects('first-searched', { end: { state: 'ready' } }), act: allow,
-      says: ['Found no projects in git', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.', 'Choose another folder…'] },
-    // Choose another folder… asks the system's folder panel, and searches the folder chosen there.
+      says: ['Found no projects in git', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.', 'Choose another folder…'],
+      setup: 'Found no projects in git' },
+    // Choose another folder… asks the system's folder panel, searches the folder chosen there, and speaks of that one.
     'first-another': { records: { ...projects('first-searched', { end: { state: 'ready' } }), pick: '/Users/someone/code' },
-      act: both(allow, wait(600), (p) => p.click('.found-s .btn'), wait(600)), says: ['Found no projects in git and code'] },
+      act: both(allow, wait(600), (p) => p.click('.found-s .btn'), wait(600)), says: ['Found no projects in code'], unsaid: ['in git'], setup: 'Found no projects in code' },
+    // A search that stopped at its budget keeps what it found, and says it stopped.
+    'first-stopped': { records: projects('first-searched', { some: 3, end: { state: 'ready', note: 'Tasktap searched the first 2,000 folders in git and stopped there. Add the folder inside git that holds the rest of your projects.' } }),
+      act: both(allow, wait(800)), says: ['Found 3 projects', 'Tasktap searched the first 2,000 folders in git and stopped there.'] },
     'settings': { records: projects('settings'), act: settings },
     'settings-narrow': { records: projects('settings'), act: settings, viewport: NARROW },
     'settings-list': { records: projects('settings'), act: both(settings, wait(300), scrollTo('.set-pane .field', 40)) },
@@ -123,10 +128,10 @@ function promises() {
   }
   return bad;
 }
-// In the page: the words a state must say, in the sheet or Settings' pane.
-function said(says) {
+// In the page: the words a state must say, in the sheet or Settings' pane, and those it must not.
+function said([says, unsaid]) {
   const text = [...document.querySelectorAll('.sheet, .set-pane')].map((e) => e.textContent).join('\n');
-  return says.filter((w) => !text.includes(w)).map((w) => `it does not say "${w}"`);
+  return [...says.filter((w) => !text.includes(w)).map((w) => `it does not say "${w}"`), ...unsaid.filter((w) => text.includes(w)).map((w) => `it says "${w}"`)];
 }
 /** What Setup's line for the projects says once the sheet is put away by Done and Setup is open. */
 async function setupSays(page) {
@@ -190,7 +195,7 @@ async function main(out, dprs, only, check) {
           const w = await page.evaluate(align.weights);
           const first = await page.evaluate(begins);
           await unfold(page);
-          const own = [...first, ...await page.evaluate(promises), ...await page.evaluate(said, s.says ?? [])];
+          const own = [...first, ...await page.evaluate(promises), ...await page.evaluate(said, [s.says ?? [], s.unsaid ?? []])];
           const line = s.setup && await setupSays(page);
           if (line !== s.setup) failures.push(`${name} (${TEXT}): Setup's line says "${line}", not "${s.setup}"`);
           for (const b of [...r.bad, ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);

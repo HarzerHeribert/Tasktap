@@ -373,8 +373,9 @@ pub struct Look {
     /// before it read all there is.
     pub note: Option<String>,
     /// What it reads as it was when it was last read: the modified times
-    /// of its folders, as one value. When they are the same, nothing new
-    /// is there to find and it is not read again.
+    /// of its folders, as one value; of a folder to look in, followed by
+    /// the folders it watches, one a line. When they are the same, nothing
+    /// new is there to find and it is not read again.
     #[serde(default)]
     pub stamp: Option<String>,
 }

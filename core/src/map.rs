@@ -22,6 +22,23 @@
 //! an agent was started (measured on the owner's machine: every copy of a
 //! repository found 151 times was a benchmark tool's under `~/.cache`).
 //!
+//! **A folder the person names to look in** holds their projects, and its
+//! walk decides which they are ([`list`]), whatever is marked at it or
+//! above it. Down [`DEPTH`] folders at most, the nearest first, never into a
+//! repository, hidden folders and builds' left out. A folder with its own
+//! `.git` (no worktree or submodule) is a project at any depth. A folder
+//! without Git marked by a package file or an agent's file is one only
+//! within [`MARKED`] folders of the named one and with no repository below
+//! it; then everything below it is part of it (`app/CLAUDE.md` with
+//! `app/frontend/package.json` is one project); with a repository below, it
+//! is a group (a stray `package.json` hides no repository). Deeper, only Git
+//! counts (Go's module cache is no project). The named folder with its own
+//! `.git` is a project, and so is every repository in it; marked without
+//! Git, it is the one project when its walk finds none. A folder an agent
+//! was started in below a named folder is inside the project the walk found
+//! it in; in none, it is a project of its own, the named folder too
+//! ([`Walked::kind`]).
+//!
 //! **One repository, several copies.** A repository is known by its remote
 //! (`remote github.com/owner/name`, its address without user or password)
 //! and, without one, by its first commit (`root <commit>`, which git
@@ -35,8 +52,8 @@
 //! history, the folder each session started in and when the session's file
 //! last changed, read until the folder is found and no further
 //! ([`HISTORY_BYTES`], [`HISTORY_FILES`], [`HISTORY_TIME`]); of a folder to
-//! look in, the names directly inside it and one level into a folder there
-//! that is no project ([`ENTRIES`]); of a project, the names at its top, its
+//! look in, the names in it and in each folder its walk goes through,
+//! [`ENTRIES`] folders in all; of a project, the names at its top, its
 //! package file's name and description ([`PACKAGE_BYTES`]), its README's
 //! first paragraph ([`README_BYTES`], [`ABOUT`] characters kept), and of
 //! `.git/config` the remote's address ([`CONFIG_BYTES`]). Never a source
@@ -45,8 +62,8 @@
 //! **No timer, no watcher.** A look runs when the person asks for one (the
 //! first run, Settings, a look switched on) and when a capture or the list
 //! needs what is kept, after one cheap check of the modified times of the
-//! looked-at folders found something changed ([`freshen`]). It runs on a
-//! thread of its own; the core's thread only merges what it found.
+//! looked-at folders found something changed ([`stamp`], [`freshen`]). It
+//! runs on a thread of its own; the core's thread only merges what it found.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -77,9 +94,16 @@ pub const HISTORY_TIME: Duration = Duration::from_secs(3);
 /// it was started in is found (the owner's: 99 of 100 within 11 KiB, all
 /// within 80 KiB).
 pub const HISTORY_BYTES: usize = 128 << 10;
-/// Most entries of a folder to look in, or of a folder in it, listed: one
-/// with more is no folder of projects.
+/// Most folders one look in a folder judges, in all: one with more and no
+/// project among them is no folder of projects.
 pub const ENTRIES: usize = 2_000;
+/// How many folders down a look in a folder goes: `git/<group>/<project>`
+/// is 2, ghq's `~/ghq/<host>/<owner>/<project>` 3, Go's
+/// `~/go/src/<host>/<owner>/<project>` 4, and one more for a group of
+/// groups. Measured: a folder is judged in about 40 µs, 2,000 in 0.1 s; at
+/// twelve down a deep folder of plain folders (data, assets) took all
+/// [`ENTRIES`] and was "too many", where five down found none in 3–16 ms.
+pub const DEPTH: usize = 5;
 /// Most cards kept.
 pub const CARDS: usize = 5_000;
 /// Most bytes of a package file read.
@@ -416,6 +440,13 @@ impl Rule {
     /// a `stat` or a name of one listing of the folder; above it only
     /// `.git` and package files are looked for, up to the home folder.
     pub fn kind(&self, folder: &Path) -> Kind {
+        self.judge(folder, false)
+    }
+
+    /// The root rule; with `alone`, by the folder's own marks, whatever
+    /// package file or `.git` is above it: as a walk of a folder the person
+    /// named asks, where what lies above is the walk's to say.
+    fn judge(&self, folder: &Path, alone: bool) -> Kind {
         if !folder.is_dir() {
             return Kind::Gone;
         }
@@ -438,23 +469,13 @@ impl Rule {
         if self.never(folder) {
             return Kind::Never;
         }
-        if !is_git && let Some(top) = self.inside(folder) {
+        if !alone
+            && !is_git
+            && let Some(top) = self.inside(folder)
+        {
             return Kind::Inside(top);
         }
-        let names = top_names(folder);
-        let package = marked(&names);
-        let signs = SIGNS.iter().any(|s| match s.split_once('/') {
-            Some(_) => folder.join(s).is_file(),
-            None => names.contains(*s),
-        });
-        match (is_git, package, signs) {
-            (false, false, false) => Kind::Bare,
-            (git, package, signs) => Kind::Top {
-                git,
-                package,
-                signs,
-            },
-        }
+        marks(folder, is_git)
     }
 
     /// What the nearest `.git` above a folder says: whether the folder lies
@@ -643,6 +664,24 @@ fn top_names(folder: &Path) -> BTreeSet<String> {
     names
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect()
+}
+
+/// What a folder's own marks make of it: a project's top, or no mark.
+fn marks(folder: &Path, git: bool) -> Kind {
+    let names = top_names(folder);
+    let package = marked(&names);
+    let signs = SIGNS.iter().any(|s| match s.split_once('/') {
+        Some(_) => folder.join(s).is_file(),
+        None => names.contains(*s),
+    });
+    match (git, package, signs) {
+        (false, false, false) => Kind::Bare,
+        (git, package, signs) => Kind::Top {
+            git,
+            package,
+            signs,
+        },
+    }
 }
 
 /// Whether names at a folder's top mark a project.
@@ -1013,6 +1052,7 @@ fn read_telling(input: Input, now: &Reading) -> Output {
         known,
     } = input;
     let mut seen: BTreeMap<PathBuf, Seen> = BTreeMap::new();
+    let mut walked = Walked::default();
     let mut out = Output::default();
     let mark = |seen: &mut BTreeMap<PathBuf, Seen>, folder: &Path, kind: &Kind| {
         if let Kind::Top {
@@ -1034,10 +1074,14 @@ fn read_telling(input: Input, now: &Reading) -> Output {
             }
         }
     };
-    for look in looks.iter().filter(|l| l.on) {
+    // The folders the person named first: what their walks find decides
+    // where an agent's folder in one of them counts.
+    let mut on: Vec<&Look> = looks.iter().filter(|l| l.on).collect();
+    on.sort_by_key(|l| l.kind != LookKind::Folder);
+    for look in on {
         // Before it is read: what changes while it reads is new to the next look.
         tell(Some((look.id, None)));
-        let stamp = stamp(&rule, look);
+        let mut stamp = stamp(&rule, look);
         tell(Some((look.id, Some(stamp.clone()))));
         let mut found: BTreeSet<PathBuf> = BTreeSet::new();
         let (state, note) = match (look.kind, &look.agent, &look.folder) {
@@ -1063,7 +1107,7 @@ fn read_telling(input: Input, now: &Reading) -> Output {
                     Ok(worked) => {
                         for w in worked {
                             let folder = canonical(&w.folder);
-                            let kind = rule.kind(&folder);
+                            let kind = walked.kind(&rule, &folder);
                             let (top, inside) = match &kind {
                                 Kind::Never | Kind::Gone => {
                                     out.refused += 1;
@@ -1100,14 +1144,17 @@ fn read_telling(input: Input, now: &Reading) -> Output {
             (LookKind::Folder, _, Some(folder)) => {
                 let folder = PathBuf::from(folder);
                 match list(&rule, &folder) {
-                    Err(state) => (state, None),
-                    Ok(tops) => {
-                        for (top, kind) in tops {
+                    Err(why) => why,
+                    Ok(walk) => {
+                        stamp = folder_stamp(&folder, &walk.watched);
+                        for (top, kind) in walk.found {
                             mark(&mut seen, &top, &kind);
                             seen.entry(top.clone()).or_default().looks.insert(look.id);
+                            walked.projects.insert(top.clone());
                             found.insert(top);
                         }
-                        (LookState::Ready, None)
+                        walked.named.push(folder.clone());
+                        (LookState::Ready, walk.short.then(|| stopped(&folder)))
                     }
                 }
             }
@@ -1121,7 +1168,16 @@ fn read_telling(input: Input, now: &Reading) -> Output {
     }
     tell(None);
     for (project, folder, used) in &opened {
-        let s = seen.entry(PathBuf::from(folder)).or_default();
+        // Opened in a project a walk found, as an agent's folder is.
+        let at = Path::new(folder);
+        let top = walked
+            .project_of(at)
+            .filter(|t| *t != at)
+            .map(Path::to_owned);
+        let s = seen.entry(at.to_owned()).or_default();
+        if top.is_some() {
+            s.inside = top;
+        }
         s.add(Evidence::Opened);
         s.project = Some(*project);
         s.used = s.used.max(used.map_or(0, u64::from));
@@ -1183,51 +1239,282 @@ fn read_telling(input: Input, now: &Reading) -> Output {
     out
 }
 
+/// What a look that stopped at [`ENTRIES`] folders says, with what it found.
+fn stopped(folder: &Path) -> String {
+    let name = folder
+        .file_name()
+        .map_or(folder.as_os_str(), |n| n)
+        .to_string_lossy();
+    let most = format!("{},{:03}", ENTRIES / 1000, ENTRIES % 1000);
+    format!(
+        "Tasktap searched the first {most} folders in {name} and stopped there. Add the folder inside {name} that holds the rest of your projects."
+    )
+}
+
 fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).map_or(path.to_owned(), crate::terminal::folder)
 }
 
-/// The projects in a folder to look in: directly inside it, and one level
-/// into a folder there that is no project.
-fn list(rule: &Rule, folder: &Path) -> Result<Vec<(PathBuf, Kind)>, LookState> {
-    if !folder.is_dir() {
-        return Err(LookState::Gone);
+/// Why a folder could not be read: a look's state, and the system's own
+/// words without the number Rust adds to them. `denied` is the system's
+/// privacy rule alone, what Files and Folders on a Mac gives (`EPERM`,
+/// "Operation not permitted"), and access denied on Windows; a folder's own
+/// rights on Unix (`EACCES`, "Permission denied") fail like any error.
+fn unread(e: &std::io::Error) -> (LookState, Option<String>) {
+    const DENIED: i32 = if cfg!(windows) { 5 } else { 1 };
+    let mut words = e.to_string();
+    if let Some(at) = words.rfind(" (os error ") {
+        words.truncate(at);
     }
-    let entries = |at: &Path| -> Result<Vec<PathBuf>, LookState> {
-        let read = std::fs::read_dir(at).map_err(|_| LookState::Failed)?;
-        let mut all = Vec::new();
-        for e in read.filter_map(|e| e.ok()) {
-            if all.len() == ENTRIES {
-                return Err(LookState::Many);
-            }
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            if name.starts_with('.') || SKIP.contains(&name.as_ref()) {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => (LookState::Gone, None),
+        _ if e.raw_os_error() == Some(DENIED) => (LookState::Denied, Some(words)),
+        _ => (LookState::Failed, Some(words)),
+    }
+}
+
+/// What a walk of a folder the person named found.
+struct Walk {
+    /// Each project's top, and its kind.
+    found: Vec<(PathBuf, Kind)>,
+    /// Whether it stopped at [`ENTRIES`] folders with more to read.
+    short: bool,
+    /// What its stamp watches: the named folder, and the folders it went
+    /// through (those it judged at its last level too) that are in no
+    /// project found below the named folder, the nearest first, each with
+    /// its modified time before it was listed or judged.
+    watched: Vec<(PathBuf, u64)>,
+}
+
+/// Most folders a look's stamp watches.
+const WATCHED: usize = 256;
+/// How far below the named folder a package file or an agent's file
+/// marks a project: deeper, only Git does (Go's module cache,
+/// `~/go/pkg/mod/<host>/<name>@<version>/go.mod`, is no project).
+const MARKED: usize = 2;
+
+/// The projects in a folder the person named (the module's rule): down
+/// through the folders that are no repository, the nearest first, [`DEPTH`]
+/// folders down and [`ENTRIES`] in all, each folder once however many links
+/// lead to it. A repository is a project at any depth. A folder without Git
+/// marked by a package file or an agent's file, within [`MARKED`] of the
+/// named folder, is a project when no repository lies below it, and
+/// everything below it is part of it; with one below, it is a group. The
+/// named folder with Git of its own is a project, and so is every
+/// repository in it; marked without Git, it is the one project when nothing
+/// below it is one.
+fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)> {
+    let meta = match std::fs::metadata(folder) {
+        Ok(meta) if meta.is_dir() => meta,
+        Ok(_) => return Err((LookState::Gone, None)),
+        Err(e) => return Err(unread(&e)),
+    };
+    let named = rule.judge(folder, true);
+    let repository = matches!(named, Kind::Top { git: true, .. });
+    let mut found = Vec::new();
+    if repository {
+        found.push((folder.to_owned(), named.clone()));
+    }
+    // Each folder to list: how deep it is, and the marked folder it is in
+    // (an index into `marked`).
+    let mut queue = std::collections::VecDeque::from([(folder.to_owned(), 0, None)]);
+    let mut seen = BTreeSet::from([folder.to_owned()]);
+    // Marked folders without Git near the named folder: each with the one
+    // it is in, and whether a repository lies below it.
+    let mut marked: Vec<(PathBuf, Kind, Option<usize>, bool)> = Vec::new();
+    // Each folder listed, with its modified time before it was listed and
+    // the marked folder it is in; and each it judged at its last level and
+    // would have gone through, with its time before it was judged.
+    let mut listed: Vec<(PathBuf, u64, Option<usize>)> = Vec::new();
+    let mut last: Vec<(PathBuf, u64, Option<usize>)> = Vec::new();
+    let (mut judged, mut short) = (0, false);
+    'walk: while let Some((at, depth, under)) = queue.pop_front() {
+        let time = match depth {
+            0 => modified(&meta),
+            _ => std::fs::metadata(&at).map_or(0, |m| modified(&m)),
+        };
+        let read = match std::fs::read_dir(&at) {
+            Ok(read) => read,
+            Err(e) if depth == 0 => return Err(unread(&e)),
+            Err(_) => continue,
+        };
+        listed.push((at, time, under));
+        // Folders only, by the listing's own type; a link is followed: its
+        // card is the real folder's. All of them, in order, so that what the
+        // budget reaches does not hang on the order of the listing.
+        let mut inner: Vec<PathBuf> = (read.filter_map(|e| e.ok()))
+            .filter(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                !name.starts_with('.') && !SKIP.contains(&name.as_ref())
+            })
+            .filter_map(|e| match e.file_type().ok()? {
+                t if t.is_dir() => Some(e.path()),
+                t if t.is_symlink() && e.path().is_dir() => Some(canonical(&e.path())),
+                _ => None,
+            })
+            .collect();
+        inner.sort();
+        for path in inner {
+            if !seen.insert(path.clone()) {
                 continue;
             }
-            // A link is followed once: its card is the real folder's.
-            let path = e.path();
-            if path.is_dir() {
-                all.push(canonical(&path));
+            if judged == ENTRIES {
+                short = true;
+                break 'walk;
             }
-        }
-        Ok(all)
-    };
-    let mut found = Vec::new();
-    for entry in entries(folder)? {
-        match rule.kind(&entry) {
-            k @ Kind::Top { .. } => found.push((entry, k)),
-            Kind::Bare => {
-                for inner in entries(&entry).unwrap_or_default() {
-                    if let k @ Kind::Top { .. } = rule.kind(&inner) {
-                        found.push((inner, k));
+            judged += 1;
+            let deeper = depth + 1 < DEPTH;
+            let time = match deeper {
+                true => 0,
+                false => std::fs::metadata(&path).map_or(0, |m| modified(&m)),
+            };
+            match rule.judge(&path, true) {
+                kind @ Kind::Top { git: true, .. } => {
+                    found.push((path, kind));
+                    // Each marked folder it is in is a group.
+                    let mut up = under;
+                    while let Some(i) = up.filter(|i| !marked[*i].3) {
+                        marked[i].3 = true;
+                        up = marked[i].2;
                     }
                 }
+                kind @ Kind::Top { .. } if depth < MARKED && !repository => {
+                    marked.push((path.clone(), kind, under, false));
+                    if deeper {
+                        queue.push_back((path, depth + 1, Some(marked.len() - 1)));
+                    }
+                }
+                Kind::Top { .. } | Kind::Bare if deeper => {
+                    queue.push_back((path, depth + 1, under))
+                }
+                Kind::Top { .. } | Kind::Bare => last.push((path, time, under)),
+                _ => {}
             }
-            _ => {}
         }
     }
-    Ok(found)
+    // A marked folder with no repository below it is a project, unless one
+    // it is in is one; the nearest first, so the one it is in is decided.
+    let mut whole = vec![false; marked.len()];
+    for (i, (path, kind, up, groups)) in marked.iter().enumerate() {
+        let within = up.is_some_and(|u| whole[u]);
+        whole[i] = within || !groups;
+        if whole[i] && !within {
+            found.push((path.clone(), kind.clone()));
+        }
+    }
+    let one = found.is_empty() && matches!(named, Kind::Top { .. });
+    if one {
+        found.push((folder.to_owned(), named));
+    }
+    if found.is_empty() && short {
+        return Err((LookState::Many, None));
+    }
+    // The named folder, and what it went through that is in no project
+    // found below it (a repository below one named is never gone through).
+    let mut watched: Vec<(PathBuf, u64)> = Vec::new();
+    for (at, time, under) in listed.into_iter().chain(last) {
+        if watched.is_empty() || !under.is_some_and(|u| whole[u]) {
+            watched.push((at, time));
+        }
+    }
+    watched.truncate(WATCHED);
+    Ok(Walk {
+        found,
+        short,
+        watched,
+    })
+}
+
+/// A folder look's stamp: the modified times of the folders it watches as
+/// one value, then those folders, one a line, each relative to the folder
+/// looked in, which is watched first and not written. As long as one line
+/// of the protocol at most; a folder whose name has a control character in
+/// it is not watched.
+fn folder_stamp(folder: &Path, watched: &[(PathBuf, u64)]) -> String {
+    let (mut hash, mut list) = (Fnv::new(), String::new());
+    for (at, time) in watched {
+        let rel = at.strip_prefix(folder).ok().and_then(Path::to_str);
+        let Some(rel) = rel.filter(|r| !r.chars().any(char::is_control)) else {
+            continue;
+        };
+        if list.len() + rel.len() >= MAX_LINE {
+            break;
+        }
+        hash.add(rel.as_bytes());
+        hash.add(&time.to_le_bytes());
+        if !rel.is_empty() {
+            list.push('\n');
+            list.push_str(rel);
+        }
+    }
+    format!("{:016x}{list}", hash.0)
+}
+
+/// FNV-1a over what is added: any change changes it.
+struct Fnv(u64);
+
+impl Fnv {
+    fn new() -> Fnv {
+        Fnv(0xcbf2_9ce4_8422_2325)
+    }
+
+    fn add(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+}
+
+/// What the walks of the folders the person named found: each folder
+/// walked, and the projects in them.
+#[derive(Default)]
+struct Walked {
+    named: Vec<PathBuf>,
+    projects: BTreeSet<PathBuf>,
+}
+
+impl Walked {
+    /// What a folder an agent was started in counts as. Below a folder
+    /// walked: in a project the walk found, that project's; else a project
+    /// of its own (the named folder too), but in a repository the walk did
+    /// not reach, or a copy of one, as the root rule says. Elsewhere, as the
+    /// root rule says.
+    fn kind(&self, rule: &Rule, folder: &Path) -> Kind {
+        let kind = rule.kind(folder);
+        let walked = self.named.iter().filter(|n| folder.starts_with(n));
+        let Some(named) = walked.max_by_key(|n| n.components().count()) else {
+            return kind;
+        };
+        if matches!(kind, Kind::Never | Kind::Gone | Kind::Copy(_)) {
+            return kind;
+        }
+        let own = |kind: Kind| match kind {
+            Kind::Inside(_) => marks(folder, false),
+            kind => kind,
+        };
+        if let Some(top) = self.project_of(folder) {
+            return match top == folder {
+                true => own(kind),
+                false => Kind::Inside(top.to_owned()),
+            };
+        }
+        match kind {
+            Kind::Inside(top)
+                if top != *named
+                    && top.starts_with(named)
+                    && git_link(&top) == Some(GitLink::Own) =>
+            {
+                Kind::Inside(top)
+            }
+            kind => own(kind),
+        }
+    }
+
+    /// The project a walk found that a folder is, or is in.
+    fn project_of<'a>(&self, folder: &'a Path) -> Option<&'a Path> {
+        folder.ancestors().find(|a| self.projects.contains(*a))
+    }
 }
 
 /// Writes what a look found: each card made again or anew, keeping what
@@ -1237,23 +1524,25 @@ fn list(rule: &Rule, folder: &Path) -> Result<Vec<(PathBuf, Kind)>, LookState> {
 pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
     // The looks as they are now: one removed or switched off while it read
     // counts for nothing. Only a look that read all it names drops a card
-    // it no longer finds: one whose folder is gone, or that failed, keeps
-    // its cards (marked not there when their folders are not).
+    // it no longer finds: one whose folder is gone, that failed, or that
+    // stopped at its budget (its note says so) keeps its cards (marked not
+    // there when their folders are not).
     let live: BTreeSet<LookId> = (tx.looks()?.into_iter())
         .filter(|l| l.on)
         .map(|l| l.id)
         .collect();
     let read: BTreeSet<LookId> = (out.looks.iter())
-        .filter(|(id, state, ..)| *state == LookState::Ready && live.contains(id))
+        .filter(|(id, state, _, note, _)| {
+            *state == LookState::Ready && note.is_none() && live.contains(id)
+        })
         .map(|(id, ..)| *id)
         .collect();
     let mut cards: BTreeMap<String, Card> = (tx.cards()?.into_iter())
         .map(|c| (c.folder.clone(), c))
         .collect();
-    let mut made: BTreeSet<String> = BTreeSet::new();
-    let mut inside: Vec<(String, String)> = Vec::new();
+    // Each card made, as it was, and the folder of the one it is inside.
+    let mut made: BTreeMap<String, (Card, Option<String>)> = BTreeMap::new();
     for m in out.cards {
-        made.insert(m.folder.clone());
         let fresh = || -> store::Result<Card> {
             Ok(Card {
                 id: crate::state::fresh(now)?,
@@ -1318,18 +1607,13 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
             }
             continue;
         }
-        if let Some(top) = m.inside {
-            inside.push((m.folder.clone(), top));
-        }
-        if c != before {
-            tx.put_card(&c)?;
-        }
+        made.insert(m.folder.clone(), (before, m.inside));
         cards.insert(m.folder, c);
     }
     let gone: BTreeSet<&String> = out.gone.iter().collect();
     let mut forgotten = Vec::new();
     for (folder, c) in cards.iter_mut() {
-        if made.contains(folder) {
+        if made.contains_key(folder) {
             continue;
         }
         let before = c.clone();
@@ -1345,13 +1629,23 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
     for folder in forgotten {
         cards.remove(&folder);
     }
+    // Which card each is inside, decided anew: what this read says of each
+    // it made, whatever an earlier read said; never a card that is not there.
     let ids: BTreeMap<String, CardId> = cards.iter().map(|(f, c)| (f.clone(), c.id)).collect();
-    for (folder, top) in inside {
-        if let (Some(c), Some(top)) = (cards.get_mut(&folder), ids.get(&top))
-            && c.inside != Some(*top)
-        {
-            c.inside = Some(*top);
-            tx.put_card(c)?;
+    let there: BTreeSet<CardId> = ids.values().copied().collect();
+    for (folder, c) in cards.iter_mut() {
+        match made.get(folder) {
+            Some((before, top)) => {
+                c.inside = top.as_ref().and_then(|t| ids.get(t)).copied();
+                if c != before {
+                    tx.put_card(c)?;
+                }
+            }
+            None if c.inside.is_some_and(|i| !there.contains(&i)) => {
+                c.inside = None;
+                tx.put_card(c)?;
+            }
+            None => {}
         }
     }
     copies(tx)?;
@@ -1541,45 +1835,52 @@ impl Map {
     }
 }
 
-/// What a look reads as it is now, as one value: the modified time of each
-/// folder it watches (an agent's history folder, or the newest dated
-/// folders in it; a folder to look in) and of the folders directly in each:
-/// a session in a folder an agent already had, a project cloned into a
-/// folder of projects. A few hundred `stat`s, under a millisecond. Kept with
-/// the look (`Look::stamp`), so a core that starts again knows it too.
+/// What a look reads as it is now, as one value. Of an agent's history:
+/// the modified time of each folder it watches (the history's folder, or
+/// the newest dated folders in it) and of the folders directly in each, so
+/// a session in a folder an agent already had is new. Of a folder to look
+/// in: the modified time of the named folder and of each folder its last
+/// walk went through, or judged at its last level, that is in no project
+/// found below the named folder (its groups, its plain folders; [`WATCHED`]
+/// at most), one `stat` each, which its stamp names: a project cloned into
+/// a group, a new group, a project gone or `git init` in a plain folder is
+/// new; a file in a project found below it is not. Kept with the look
+/// (`Look::stamp`), so a core that starts again knows it too.
 pub fn stamp(rule: &Rule, look: &Look) -> String {
-    let paths = match (&look.agent, &look.folder) {
-        (Some(agent), _) => match histories().into_iter().find(|(id, ..)| id == agent) {
-            Some((.., h)) => h.watch(rule.home()),
-            None => Vec::new(),
-        },
-        (None, Some(folder)) => vec![PathBuf::from(folder)],
-        _ => Vec::new(),
-    };
-    // FNV-1a over the paths and their times: any change changes it.
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut add = |bytes: &[u8]| {
-        for b in bytes {
-            hash = (hash ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
-        }
-    };
+    if let (None, Some(folder)) = (&look.agent, &look.folder) {
+        let folder = Path::new(folder);
+        // One a line, split at `\n` alone: a folder's name may end in `\r`.
+        let rel = (look.stamp.as_deref().into_iter()).flat_map(|s| s.split('\n').skip(1));
+        let watched: Vec<(PathBuf, u64)> = std::iter::once(folder.to_owned())
+            .chain(rel.map(|r| folder.join(r)))
+            .map(|at| {
+                let time = std::fs::metadata(&at).map_or(0, |m| modified(&m));
+                (at, time)
+            })
+            .collect();
+        return folder_stamp(folder, &watched);
+    }
+    let agent = look.agent.as_ref();
+    let history = agent.and_then(|a| histories().into_iter().find(|(id, ..)| id == a));
+    let paths = history.map_or(Vec::new(), |(.., h)| h.watch(rule.home()));
+    let mut hash = Fnv::new();
     for p in &paths {
-        add(p.as_os_str().as_encoded_bytes());
+        hash.add(p.as_os_str().as_encoded_bytes());
         let Ok(meta) = std::fs::metadata(p) else {
-            add(b"-");
+            hash.add(b"-");
             continue;
         };
-        add(&modified(&meta).to_le_bytes());
+        hash.add(&modified(&meta).to_le_bytes());
         if let Ok(entries) = std::fs::read_dir(p) {
             for e in entries.take(ENTRIES).filter_map(|e| e.ok()) {
                 if let Some(m) = e.metadata().ok().filter(|m| m.is_dir()) {
-                    add(e.file_name().as_encoded_bytes());
-                    add(&modified(&m).to_le_bytes());
+                    hash.add(e.file_name().as_encoded_bytes());
+                    hash.add(&modified(&m).to_le_bytes());
                 }
             }
         }
     }
-    format!("{hash:016x}")
+    format!("{:016x}", hash.0)
 }
 
 /// What a look is given, from the records.
@@ -1884,7 +2185,16 @@ pub fn offered_now(home: &Path, cards: &[Card], looks: &[Look]) -> Offer {
             });
         }
     }
-    places.retain(|p| !looked.contains(p.folder.as_str()));
+    // Nor a folder inside one searched through (not one that stopped at its
+    // budget): a search there finds nothing new.
+    let searched: Vec<&Path> = (looks.iter())
+        .filter(|l| l.on && l.state == LookState::Ready && l.note.is_none())
+        .filter_map(|l| l.folder.as_deref().map(Path::new))
+        .collect();
+    places.retain(|p| {
+        !looked.contains(p.folder.as_str())
+            && !searched.iter().any(|s| Path::new(&p.folder).starts_with(s))
+    });
     places.sort_by(|a, b| {
         b.projects
             .cmp(&a.projects)
@@ -1924,4 +2234,30 @@ pub fn find(cx: &mut Cx, args: Find) -> Result<Finds, Error> {
         .collect();
     freshen(cx.core);
     Ok(Finds { found })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only the system's privacy rule is `denied`; a folder's own rights
+    /// fail as any error does, in the system's words.
+    #[test]
+    fn only_the_systems_privacy_rule_is_denied() {
+        let said = |code| unread(&std::io::Error::from_raw_os_error(code));
+        let gone = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert_eq!(unread(&gone), (LookState::Gone, None));
+        #[cfg(unix)]
+        {
+            let denied = Some("Operation not permitted".to_owned());
+            assert_eq!(said(1), (LookState::Denied, denied));
+            let rights = Some("Permission denied".to_owned());
+            assert_eq!(said(13), (LookState::Failed, rights));
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(said(5).0, LookState::Denied, "access denied");
+            assert_eq!(said(32).0, LookState::Failed, "a sharing violation");
+        }
+    }
 }

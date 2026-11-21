@@ -369,11 +369,13 @@ pub struct Look {
     pub found: u32,
     /// When it was last read.
     pub looked: Option<Time>,
-    /// What stopped it, in words, when it read nothing.
+    /// What stopped it, in words: why it read nothing, or that it stopped
+    /// before it read all there is.
     pub note: Option<String>,
     /// What it reads as it was when it was last read: the modified times
-    /// of its folders, as one value. When they are the same, nothing new
-    /// is there to find and it is not read again.
+    /// of its folders, as one value; of a folder to look in, followed by
+    /// the folders it watches, one a line. When they are the same, nothing
+    /// new is there to find and it is not read again.
     #[serde(default)]
     pub stamp: Option<String>,
 }
@@ -396,6 +398,9 @@ words! {
         Many,
         /// It could not be read; `note` says why.
         Failed,
+        /// The system does not let Tasktap read it; `note` gives the
+        /// system's own words.
+        Denied,
     }
 }
 

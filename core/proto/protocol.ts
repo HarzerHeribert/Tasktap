@@ -919,13 +919,15 @@ found: number,
  */
 looked: Time | null,
 /**
- * What stopped it, in words, when it read nothing.
+ * What stopped it, in words: why it read nothing, or that it stopped
+ * before it read all there is.
  */
 note: string | null,
 /**
  * What it reads as it was when it was last read: the modified times
- * of its folders, as one value. When they are the same, nothing new
- * is there to find and it is not read again.
+ * of its folders, as one value; of a folder to look in, followed by
+ * the folders it watches, one a line. When they are the same, nothing
+ * new is there to find and it is not read again.
  */
 stamp: string | null, };
 
@@ -946,7 +948,7 @@ export type LookKind = "agent" | "folder";
  */
 export type LookPatch = { on?: boolean | null, };
 
-export type LookState = "new" | "ready" | "gone" | "many" | "failed";
+export type LookState = "new" | "ready" | "gone" | "many" | "failed" | "denied";
 
 /**
  * `projects.look`: every look that is on, read again; what it found is

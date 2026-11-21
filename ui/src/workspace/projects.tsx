@@ -11,7 +11,7 @@ import type { AddLook, Card, Isolate, Look, Offer, Project } from '../../../core
 import { Component, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
-import { HERE, shownPath } from '../system.ts';
+import { HERE, mac, shownPath } from '../system.ts';
 import { I, Key, Mark, Ring, ago, plural } from '../ui.tsx';
 import { Choice, Switch } from './form.tsx';
 import { agentName, call, dismiss, fail, focus, open, records, redraw } from './model.ts';
@@ -58,6 +58,42 @@ const READS_AGENTS = (names: string[]) =>
 /** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */
 const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, never what was said there, and keeps what it learns on ${HERE}.`;
 const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
+/** What makes a folder a project, said where a search found none. */
+const COUNTS = 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.';
+/** As many folders as one search in a folder goes through (core/src/map.rs, `ENTRIES`). */
+const BUDGET = 2000;
+/** A folder as a person names it: the last part of its path. */
+const folderName = (folder: string) => shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder;
+/** A search in a folder that found no project, or could not search it: why, in a title and a line, as the core recorded
+ *  it. The first run's sheet, Setup's line and Settings › Projects say the same. */
+function nothing(l: Look): { title: string; line: string } | undefined {
+  const path = shownPath(l.folder ?? ''), name = folderName(l.folder ?? '');
+  const said = (l.note ?? `${name} could not be read`).trim();
+  switch (l.state) {
+    case 'denied': return { title: `Tasktap may not read ${name}`, line: mac
+      ? `macOS keeps Tasktap out of ${path}. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search ${name} again.`
+      : `Windows keeps Tasktap out of ${path}. Search ${name} again once your account may read it.` };
+    case 'failed': return { title: `${name} could not be read`, line: `${path}: ${said}${/[.!?]$/.test(said) ? '' : '.'}` };
+    case 'many': return { title: `Too many folders in ${name}`, line: `Over ${BUDGET.toLocaleString('en')} folders in ${path}. Choose the folder inside ${name} that holds your projects.` };
+    case 'gone': return { title: `${name} is not there now`, line: `Nothing is at ${path} now. Tasktap searches ${name} again when ${name} is back.` };
+    case 'ready': return l.found ? undefined : { title: `Found no projects in ${name}`, line: COUNTS };
+    default: return undefined;
+  }
+}
+/** The first folder Tasktap could not search through: not there, too full, or not to be read. */
+const stuck = () => looks().find((l) => l.kind === 'folder' && l.on && ['denied', 'failed', 'many', 'gone'].includes(l.state));
+/** What a search that found no project says, in the first run's sheet and Setup's line alike: of the folder the person
+ *  searched last in this page's life, else of the first that could not be searched through, else of every folder
+ *  searched. None when no folder was searched. */
+function nothingFound(): { title: string; line: string } | undefined {
+  const folders = looks().filter((l) => l.kind === 'folder' && l.on), last = folders.find((l) => l.id === begun.last), trouble = stuck();
+  return (last && nothing(last)) || (trouble && nothing(trouble))
+    || (folders.length ? { title: `Found no projects in ${and(folders.map((l) => folderName(l.folder ?? '')))}`, line: COUNTS } : undefined);
+}
+/** A look is asked for or reads. */
+const searching = () => begun.asking > 0 || looks().some(reading);
+/** What was found, in a few words: the first run's sheet's title, and Setup's line once Tasktap searches. */
+const foundTitle = (n: number) => (searching() && !n ? 'Searching…' : n ? `Found ${plural(n, 'project', 'projects')}` : (nothingFound()?.title ?? 'Found no projects'));
 const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} Tasktap opens no project until a task goes there.`;
 
 // ——— What Tasktap knows ———
@@ -101,13 +137,20 @@ const add = (asked: AddLook[]) => {
   return Promise.all(asked.map((l) => call('look.add', l).finally(() => (begun.asking--, redraw())))).catch(fail);
 };
 const lookAgents = (agents: string[], on: boolean) => add(agents.map((agent) => ({ id: uuid7(), agent, on })));
-const lookIn = (folders: string[], on = true) => add(folders.map((folder) => ({ id: uuid7(), folder, on })));
+/** Folders to search: the last of them is what the first run's sheet then speaks of. */
+const lookIn = (folders: string[], on = true) =>
+  add(folders.map((folder) => ({ id: uuid7(), folder, on }))).then((ids) => void (on && ids?.length && ((begun.last = ids.at(-1)!), redraw())));
+/** A folder chosen in the system's folder panel, searched at once. */
+const pickAndLook = async () => {
+  const f = await call('host.pick', { folder: true }).catch(fail);
+  if (f) await lookIn([f]);
+};
 
 // ——— The first run: Setup's first step, as a sheet ———
 
 /** What the person did here, in this page's life: looked from the sheet (what was found shows in it), and the folders
  *  ticked and added. Not kept: what they said to Tasktap is in the looks. */
-const begun = { looked: false, asking: 0, ticked: null as Set<string> | null, added: [] as string[] };
+const begun = { looked: false, asking: 0, ticked: null as Set<string> | null, added: [] as string[], last: null as string | null };
 
 type Step = 'wait' | 'agents' | 'folders' | 'found';
 /** What the projects step shows: the question about the agents' history first, asked once; for a person with none,
@@ -127,7 +170,7 @@ export function projectsStep() {
   // Answered: a look was kept (on, or off for Not now), or Not now was said where there was nothing to keep (Setup's
   // preference is then stored, as shown).
   const asked = seen() || offered.failed, done = all.some((l) => l.on);
-  const says = done ? (n ? `Found ${plural(n, 'project', 'projects')}` : 'Found none yet') : asked ? 'Skipped' : o?.agents.length ? `Where ${and(o.agents.map((a) => a.name))} worked` : 'Choose where your projects are';
+  const says = done ? foundTitle(n) : asked ? 'Skipped' : o?.agents.length ? `Where ${and(o.agents.map((a) => a.name))} worked` : 'Choose where your projects are';
   return { asked, done, says, ready: !!o };
 }
 /** What is stored says the first step was seen: a look was kept, Setup's preference was stored, or a thought was put in
@@ -232,9 +275,11 @@ const answered = () => void (records.prefs.has('setup_hidden') || call('put', { 
  *  folder and why, in a list that scrolls in the sheet. Under it, where most of them are, if Tasktap has not looked
  *  there. */
 function Found({ o, other }: { o: Offer | undefined; other: Act }) {
-  const all = known(), coming = settling(), busy = begun.asking > 0 || looks().some(reading);
+  const all = known(), coming = settling(), busy = searching();
   const place = derived(o), most = place && place.projects * 2 >= all.length;
-  const title = busy && !all.length ? 'Searching…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects';
+  const none = nothingFound(), title = foundTitle(all.length);
+  // A search that stopped at its budget says so under what it found.
+  const stopped = looks().find((l) => l.kind === 'folder' && l.on && l.state === 'ready' && l.note)?.note;
   return (
     // It only reports (what it found stays in Setup and Settings): text typed in the Composer under it puts it away.
     <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} typed={dismiss} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
@@ -249,7 +294,9 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
             ))}
           </div>
         )}
-        {!busy && !all.length && <p class="found-n">A folder counts when an agent worked there, or when it has Git or a package file in it.</p>}
+        {all.length > 0 && stopped && <p class="found-n">{stopped}</p>}
+        {!busy && !all.length && <p class="found-n">{none?.line ?? COUNTS}</p>}
+        {!busy && !all.length && none && <p class="found-s"><button type="button" class="btn" onClick={() => void pickAndLook()}>Choose another folder…</button></p>}
         {place && !coming && (
           <p class="found-s">
             <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Search there for the others too?</span>
@@ -291,10 +338,6 @@ export function ProjectsPane() {
       (e: unknown) => (setAgain(''), fail(e)));
   };
   const lastLooked = Math.max(0, ...all.filter((l) => l.on).map((l) => l.looked ?? 0));
-  const addFolder = async () => {
-    const f = await call('host.pick', { folder: true }).catch(fail);
-    if (f) await lookIn([f]);
-  };
   return (
     <>
       <h3>Find projects in your agents’ history</h3>
@@ -314,7 +357,7 @@ export function ProjectsPane() {
             <span class="acts"><button type="button" class="btn" onClick={() => void (s.look ? call('put', { c: 'looks', id: s.look.id, patch: { on: true } }).catch(fail) : lookIn([s.folder]))}>Search it</button></span>
           </div>
         ))}
-        <button type="button" class="line fold-l" onClick={() => void addFolder()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
+        <button type="button" class="line fold-l" onClick={() => void pickAndLook()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
       </div>
       <p class="note">{SAYS_FOLDERS}</p>
       <button type="button" class="more-l" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>What exactly is read</span></button>
@@ -379,16 +422,15 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
   const kept = cards.filter((c) => c.looks.includes(look.id));
   // What goes with it: what only this folder found, unless it is open or the person chose it.
   const goes = kept.filter((c) => c.looks.length === 1 && !c.project_id && !c.main && !c.hidden).length;
-  const state = reading(look) ? 'Reading…' : look.state === 'gone' ? 'Not there now' : look.state === 'many' ? 'Too many folders in it'
-    : look.state === 'failed' ? 'Could not be read' : look.found ? `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}` : 'No projects in it';
-  // The row says what happened in a few words; the line under it says the rest.
+  // The row says what happened in a few words, as the first run's sheet does; the line under it says the rest.
+  const why = reading(look) ? undefined : nothing(look);
+  const state = reading(look) ? 'Reading…' : look.state === 'gone' ? 'Not there now' : why ? why.title
+    : `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}`;
   const note = look.state === 'gone' ? `${kept.length ? `Its ${plural(kept.length, 'project is', 'projects are')}` : 'What it held is'} kept for when it is back.`
-    : look.state === 'many' ? 'Over 2,000 folders: too many. Add the folder inside it that holds your projects.'
-      : look.state === 'failed' ? (look.note ?? 'Tasktap could not read it.')
-        : look.state === 'ready' && !look.found ? 'A folder counts as a project when it has Git or a package file in it.' : '';
+    : (why?.line ?? (look.state === 'ready' ? (look.note ?? '') : ''));
   return (
     <>
-      <div class="line pl" data-s={look.state === 'gone' || look.state === 'many' || look.state === 'failed' ? 'off' : undefined}>
+      <div class="line pl" data-s={look.state === 'gone' || look.state === 'many' || look.state === 'failed' || look.state === 'denied' ? 'off' : undefined}>
         <I n="folder" />
         <span class="t path">{shownPath(look.folder ?? '')}</span>
         <span class="x" title={state}>{state}</span>

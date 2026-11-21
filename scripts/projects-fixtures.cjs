@@ -73,7 +73,7 @@ function bare(now) {
   return { ...r, thoughts: [], projects: r.projects.filter((p) => p.kind === 'scratch'), cards: [], looks: [] };
 }
 
-function projects(name, { now = Date.now() } = {}) {
+function projects(name, { now = Date.now(), end, some = 0 } = {}) {
   // ——— The first run ———
   if (name === 'first-agents' || name === 'first-found') {
     // Nine projects in the agents' history, each card arriving 90 ms after the last once the person allows it.
@@ -84,6 +84,12 @@ function projects(name, { now = Date.now() } = {}) {
     // Thirty-five, most kept in ~/projects, which Tasktap has not looked in: it is suggested once they are in.
     const found = WORLD.map((w, i) => card(i + 1, now, w));
     return { ...bare(now), offer: { agents: AGENTS, places: [{ folder: `${HOME}/projects`, projects: found.filter((c) => c.folder.startsWith(`${HOME}/projects/`)).length }] }, found };
+  }
+  if (name === 'first-searched') {
+    // No agent's history; the person searches ~/git, and the search ends as `end` says (core/src/map.rs): nothing
+    // found, the system keeps Tasktap out, a read error, too many folders, not there, or `some` found before it stopped.
+    const found = WORLD.slice(0, some).map((w, i) => card(i + 1, now, w, { folder: `${HOME}/git/${w[0]}`, why: ['git'], agents: [] }));
+    return { ...bare(now), offer: { agents: [], places: [{ folder: `${HOME}/git`, projects: 0 }] }, found, lookEnds: end };
   }
   if (name === 'first-folders') {
     // No agent's history on this Mac: where are your projects? The usual folders that are there, ticked.
@@ -102,6 +108,8 @@ function projects(name, { now = Date.now() } = {}) {
     archive: look(4, now, { folder: '/Volumes/archive/projects', state: 'gone', looked: now - 3 * DAY }),
     downloads: look(5, now, { folder: `${HOME}/Downloads`, state: 'many' }),
     src: look(6, now, { folder: `${HOME}/src` }),
+    documents: look(7, now, { folder: `${HOME}/Documents/code`, state: 'denied', note: 'Operation not permitted' }),
+    nas: look(8, now, { folder: '/Volumes/nas/git', state: 'failed', note: 'Input/output error' }),
   };
   const cards = WORLD.map((w, i) => card(i + 1, now, w, {
     looks: [...(w[3].includes('claude') ? [L.claude.id] : []), ...(w[3].includes('codex') ? [L.codex.id] : []), ...(w[2] === 'projects' ? [L.projects.id] : [])],
@@ -123,7 +131,7 @@ function projects(name, { now = Date.now() } = {}) {
   extra(['old-notes', '', 'projects', [], 300], { hidden: true, looks: [L.projects.id], why: ['package'] });
   const offer = { agents: AGENTS, places: [{ folder: `${HOME}/work`, projects: 6 }, { folder: `${HOME}/code`, projects: 0 }] };
   const looks = name === 'settings' || name === 'settings-open' || name === 'settings-hidden' ? [L.claude, L.codex, L.projects]
-    : [L.claude, { ...L.codex, on: false, state: 'ready' }, L.projects, L.archive, L.downloads, L.src];
+    : [L.claude, { ...L.codex, on: false, state: 'ready' }, L.projects, L.archive, L.downloads, L.src, L.documents, L.nas];
   return { ...base, cards, looks, offer, ids: { ...base.ids, cards: Object.fromEntries(cards.map((c) => [c.folder.replace(/^.*\//, ''), c.id])) } };
 }
 

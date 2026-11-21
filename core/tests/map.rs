@@ -1499,3 +1499,662 @@ fn a_known_project_gives_no_right_until_a_thought_starts_there() {
     });
     file(&mut w).expect("a workspace's file reads");
 }
+
+/// What a look in `folder` alone reads: how it went, what it says, and the
+/// folders it found as projects, each relative to `folder` ("" for itself).
+fn found_in(home: &Path, data: &Path, folder: &Path) -> (LookState, Option<String>, Vec<String>) {
+    let out = map::read(Input {
+        rule: Rule::new(home, data),
+        data: data.to_owned(),
+        looks: vec![folder_look(folder)],
+        opened: Vec::new(),
+        known: Default::default(),
+    });
+    let (_, state, found, note, _) = out.looks[0].clone();
+    let mut folders: Vec<String> = (out.cards.iter())
+        .map(|m| {
+            let rel = Path::new(&m.folder).strip_prefix(folder);
+            rel.map_or(m.folder.clone(), |r| r.to_string_lossy().replace('\\', "/"))
+        })
+        .collect();
+    folders.sort();
+    assert_eq!(found as usize, folders.len(), "{folders:?}");
+    (state, note, folders)
+}
+
+/// A home of its own for a look's check, canonical, and Tasktap's data
+/// folder beside it.
+fn home_of(t: &Folder) -> (PathBuf, PathBuf) {
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&home);
+    mkdir(&data);
+    (real(&home), data)
+}
+
+/// A repository with no commit yet: `git init`, as a clone's top is.
+fn init(at: &Path) {
+    mkdir(at);
+    git(at, &["init", "-q"]);
+}
+
+#[test]
+fn a_folder_look_goes_down_through_folders_that_are_no_project_and_never_into_one() {
+    let t = Folder::new("deep");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    for rel in [
+        "solo",
+        "work/harbor",
+        "work/tidepool",
+        "oss/rust/kiln",
+        "clients/acme/apps/ledger",
+        // The deepest a look goes, and one folder deeper.
+        "a/b/c/d/five",
+        "a/b/c/d/e/six",
+        // Inside a project, hidden, a build's: never looked into.
+        "solo/libs/inner",
+        ".archive/old",
+        "node_modules/pkg",
+    ] {
+        init(&git.join(rel));
+    }
+    let (state, note, found) = found_in(&home, &data, &git);
+    assert_eq!((state, note), (LookState::Ready, None));
+    assert_eq!(
+        found,
+        [
+            "a/b/c/d/five",
+            "clients/acme/apps/ledger",
+            "oss/rust/kiln",
+            "solo",
+            "work/harbor",
+            "work/tidepool"
+        ]
+    );
+    // A folder in the folder searched holds nothing new: it is not offered
+    // as a place to search.
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    let look = folder_look(&git);
+    let mut tx = store.begin().unwrap();
+    tx.put_look(&look).unwrap();
+    tx.commit().unwrap();
+    let out = reads(&mut store, &home, &data, &[look]);
+    merged(&mut store, out);
+    let tx = store.begin().unwrap();
+    let offer = map::offered_now(&home, &tx.cards().unwrap(), &tx.looks().unwrap());
+    assert_eq!(offer.places, []);
+}
+
+#[test]
+fn the_folder_a_person_names_holds_projects_whatever_marks_it_or_a_folder_above_it() {
+    let t = Folder::new("named");
+    let (home, data) = home_of(&t);
+    let p = |rel: &str| home.join(rel);
+    let found = |rel: &str| {
+        let (state, _, found) = found_in(&home, &data, &p(rel));
+        assert_eq!(state, LookState::Ready, "{rel}");
+        found
+    };
+    // A stray package file in it (an `npm install` in the wrong folder):
+    // the folders in it are still searched, and a package below is a
+    // project of its own.
+    write(&p("stray/package.json"), "{}");
+    init(&p("stray/apps/web"));
+    write(&p("stray/apps/tool/package.json"), "{}");
+    assert_eq!(found("stray"), ["apps/tool", "apps/web"]);
+
+    // Git of its own: it is a project, and so is every repository in it; a
+    // folder of its own repository, and its worktree, are none.
+    repo(&p("gitted"), "Everything.", None);
+    init(&p("gitted/cat/proj"));
+    write(&p("gitted/cat/notes/package.json"), "{}");
+    git(
+        &p("gitted"),
+        &["worktree", "add", "-q", "cat/wt", "-b", "wt"],
+    );
+    assert_eq!(found("gitted"), ["", "cat/proj"]);
+    // Git in a folder above it, below the home folder.
+    init(&p("outer"));
+    init(&p("outer/git/cat/proj"));
+    assert_eq!(found("outer/git"), ["cat/proj"]);
+
+    // It is the one project: it is found, rather than nothing.
+    repo(&p("solo"), "One project.", None);
+    mkdir(&p("solo/src/deep"));
+    assert_eq!(found("solo"), [""]);
+    write(&p("crate/Cargo.toml"), "[package]\nname = \"crate\"\n");
+    mkdir(&p("crate/src"));
+    assert_eq!(found("crate"), [""]);
+
+    // A folder of projects with an agent's notes for all of them in it:
+    // the repositories in it are the projects. One with notes and no
+    // project in it is a project.
+    write(&p("agents/work/CLAUDE.md"), "notes for agents");
+    mkdir(&p("agents/work/.claude"));
+    init(&p("agents/work/a"));
+    init(&p("agents/work/b"));
+    write(&p("agents/notes/CLAUDE.md"), "notes for agents");
+    mkdir(&p("agents/notes/2026"));
+    assert_eq!(found("agents"), ["notes", "work/a", "work/b"]);
+}
+
+#[test]
+fn what_a_look_in_a_named_folder_says_beats_what_an_agents_history_infers_from_a_mark_above() {
+    let t = Folder::new("beats");
+    let (home, data) = home_of(&t);
+    let stray = home.join("stray");
+    write(&stray.join("package.json"), "{}");
+    let tool = stray.join("apps/tool");
+    write(&tool.join("package.json"), "{}");
+    let cwd = serde_json::to_string(tool.to_str().unwrap()).unwrap();
+    write(
+        &home.join(".claude/projects/-tool/s.jsonl"),
+        &format!("{{\"cwd\":{cwd}}}\n"),
+    );
+    let agent = Look {
+        kind: LookKind::Agent,
+        agent: Some("claude".into()),
+        folder: None,
+        ..folder_look(&home)
+    };
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    let put = |store: &mut Store, l: &Look| {
+        let mut tx = store.begin().unwrap();
+        tx.put_look(l).unwrap();
+        tx.commit().unwrap();
+    };
+    put(&mut store, &agent);
+    // The history alone: the stray package file makes `tool` a folder
+    // inside `stray`, as it always did.
+    let out = reads(&mut store, &home, &data, std::slice::from_ref(&agent));
+    merged(&mut store, out);
+    let cards = |store: &mut Store| store.begin().unwrap().cards().unwrap();
+    let by = |cards: &[Card], f: &Path| cards.iter().find(|c| Path::new(&c.folder) == f).cloned();
+    let before = cards(&mut store);
+    let (top, inner) = (by(&before, &stray).unwrap(), by(&before, &tool).unwrap());
+    assert_eq!(inner.inside, Some(top.id));
+
+    // The person names `stray` as their folder of projects: `tool` is a
+    // project, one card, found by both looks; `stray` is none.
+    let named = folder_look(&stray);
+    put(&mut store, &named);
+    let out = reads(&mut store, &home, &data, &[agent.clone(), named.clone()]);
+    merged(&mut store, out);
+    let after = cards(&mut store);
+    let card = by(&after, &tool).unwrap();
+    assert_eq!(card.id, inner.id);
+    assert_eq!(card.inside, None);
+    assert!(map::offered(&card));
+    assert_eq!(card.why, [Evidence::Agent, Evidence::Package]);
+    assert_eq!(card.looks.len(), 2);
+    assert!(by(&after, &stray).is_none(), "{after:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_look_says_why_it_could_not_read_and_a_link_loop_ends() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let t = Folder::new("unread");
+    let (home, data) = home_of(&t);
+    // Twelve folders, each with a link back up: followed again and again it
+    // would take more than the budget five folders down. Each folder is
+    // read once.
+    let looped = home.join("loop");
+    for c in 0..12 {
+        let at = looped.join(format!("c{c:02}"));
+        mkdir(&at);
+        symlink(&looped, at.join("back")).unwrap();
+    }
+    init(&looped.join("c00/proj"));
+    assert_eq!(
+        found_in(&home, &data, &looped),
+        (LookState::Ready, None, vec!["c00/proj".to_owned()])
+    );
+
+    // A folder whose own rights keep Tasktap out (`EACCES`): a failure in
+    // the system's words, not the system's privacy rule (`denied`, which a
+    // check cannot make; `map::tests` holds what each error is).
+    let shut = home.join("shut");
+    init(&shut.join("proj"));
+    let mode = |m: u32| std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(m));
+    mode(0o000).unwrap();
+    if std::fs::read_dir(&shut).is_ok() {
+        mode(0o755).unwrap();
+        eprintln!("skipped: whoever runs this reads any folder (root)");
+        return;
+    }
+    let said = found_in(&home, &data, &shut);
+    mode(0o755).unwrap();
+    assert_eq!(
+        said,
+        (LookState::Failed, Some("Permission denied".into()), vec![])
+    );
+}
+
+#[test]
+fn a_look_in_a_wide_folder_keeps_to_its_budget_and_stays_fast() {
+    let t = Folder::new("wide");
+    let (home, data) = home_of(&t);
+    let wide = home.join("wide");
+    let group = |g: usize| {
+        for f in 0..99 {
+            mkdir(&wide.join(format!("g{g:02}/f{f:02}")));
+        }
+    };
+    // 2,000 folders: 20 groups of 99, and a project in the last.
+    (0..20).for_each(group);
+    init(&wide.join("g19/f98"));
+    let started = std::time::Instant::now();
+    let said = found_in(&home, &data, &wide);
+    let took = started.elapsed();
+    eprintln!("a look in a folder of 2,000 folders took {took:?}");
+    assert_eq!(said, (LookState::Ready, None, vec!["g19/f98".to_owned()]));
+    assert!(took < std::time::Duration::from_secs(5), "{took:?}");
+
+    // More than 2,000: searched as far as that, the nearest first. What was
+    // found is kept, and the look says it stopped short.
+    group(20);
+    init(&wide.join("g00/f00"));
+    let (state, note, found) = found_in(&home, &data, &wide);
+    assert_eq!(
+        (state, found),
+        (LookState::Ready, vec!["g00/f00".to_owned()])
+    );
+    assert!(note.unwrap_or_default().contains("2,000"));
+    // With nothing found in them: too many.
+    std::fs::remove_dir_all(wide.join("g00/f00/.git")).unwrap();
+    std::fs::remove_dir_all(wide.join("g19/f98/.git")).unwrap();
+    assert_eq!(
+        found_in(&home, &data, &wide),
+        (LookState::Many, None, vec![])
+    );
+}
+
+#[test]
+fn a_deeper_look_reads_again_when_a_project_comes_into_a_folder_of_projects() {
+    let t = Folder::new("stamp");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    init(&git.join("work/harbor"));
+    mkdir(&git.join("work/harbor/src"));
+    init(&git.join("oss/rust/kiln"));
+    mkdir(&git.join("plain/notes"));
+    let rule = Rule::new(&home, &data);
+    let read = |look: &Look| {
+        let out = map::read(Input {
+            rule: rule.clone(),
+            data: data.clone(),
+            looks: vec![look.clone()],
+            opened: Vec::new(),
+            known: Default::default(),
+        });
+        out.looks[0].4.clone()
+    };
+    let mut look = folder_look(&git);
+    look.stamp = Some(read(&look));
+    // It watches the folder, its groups and its plain folders, the nearest
+    // first: one `stat` each, nothing in a project.
+    let mut now = look.stamp.clone().unwrap();
+    let watched: Vec<String> = now.lines().skip(1).map(|l| l.replace('\\', "/")).collect();
+    assert_eq!(watched, ["oss", "plain", "work", "oss/rust", "plain/notes"]);
+    let mut after = |what: &str, change: &dyn Fn(), new: bool| {
+        // A folder's modified time is kept to the millisecond.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        change();
+        let then = map::stamp(&rule, &look);
+        assert_eq!(then != now, new, "{what}");
+        now = then;
+    };
+    after("nothing", &|| {}, false);
+    let harbor = git.join("work/harbor");
+    after(
+        "a file saved at a project's top",
+        &|| write(&harbor.join("README.md"), "Ships."),
+        false,
+    );
+    after(
+        "an agent working in a project",
+        &|| write(&harbor.join("src/main.rs"), "fn main() {}"),
+        false,
+    );
+    after(
+        "a project cloned into a group",
+        &|| init(&git.join("oss/rust/pyrite")),
+        true,
+    );
+    after("a new group", &|| mkdir(&git.join("clients")), true);
+    after(
+        "a project gone",
+        &|| std::fs::remove_dir_all(&harbor).unwrap(),
+        true,
+    );
+    after(
+        "`git init` in a plain folder",
+        &|| init(&git.join("plain/notes")),
+        true,
+    );
+
+    // Twenty groups of fifteen repositories: 21 `stat`s, the folder and its
+    // groups.
+    let many = home.join("many");
+    for g in 0..20 {
+        for p in 0..15 {
+            mkdir(&many.join(format!("g{g:02}/p{p:02}/.git")));
+        }
+    }
+    let stamp = read(&folder_look(&many));
+    assert_eq!(stamp.lines().count(), 21, "{stamp}");
+}
+
+/// An agent's history, Claude Code's, as a look.
+fn agent_look(home: &Path) -> Look {
+    Look {
+        kind: LookKind::Agent,
+        agent: Some("claude".into()),
+        folder: None,
+        ..folder_look(home)
+    }
+}
+
+/// A Claude Code session started in `cwd`.
+fn session(home: &Path, name: &str, cwd: &Path) {
+    let cwd = serde_json::to_string(cwd.to_str().unwrap()).unwrap();
+    write(
+        &home.join(format!(".claude/projects/-{name}/s.jsonl")),
+        &format!("{{\"cwd\":{cwd}}}\n"),
+    );
+}
+
+/// The folders of the projects `store` offers, in order.
+fn offered(store: &mut Store) -> Vec<PathBuf> {
+    let cards = store.begin().unwrap().cards().unwrap();
+    let mut folders: Vec<PathBuf> = (cards.iter())
+        .filter(|c| map::offered(c))
+        .map(|c| PathBuf::from(&c.folder))
+        .collect();
+    folders.sort();
+    folders
+}
+
+/// Keeps `looks` in `store`, reads them and writes what they found.
+fn read_into(store: &mut Store, home: &Path, data: &Path, looks: &[Look]) {
+    let mut tx = store.begin().unwrap();
+    for l in looks {
+        tx.put_look(l).unwrap();
+    }
+    tx.commit().unwrap();
+    let out = reads(store, home, data, looks);
+    merged(store, out);
+}
+
+// The review's cases, rv1 to rv8, as the rule decides each.
+
+#[test]
+fn a_package_file_one_folder_down_hides_no_repository_below_it() {
+    // rv1: a stray package.json in a group (an npm install in the wrong
+    // folder).
+    let t = Folder::new("rv-group");
+    let (home, data) = home_of(&t);
+    let code = home.join("code");
+    write(&code.join("work/package.json"), "{}");
+    init(&code.join("work/solo"));
+    init(&code.join("work/acme/api"));
+    init(&code.join("work/acme/web"));
+    let (_, _, found) = found_in(&home, &data, &code);
+    assert_eq!(found, ["work/acme/api", "work/acme/web", "work/solo"]);
+}
+
+#[test]
+fn deeper_than_two_folders_only_git_marks_a_project() {
+    // rv2: Go's folder, its module cache full of `go.mod` files.
+    let t = Folder::new("rv-go");
+    let (home, data) = home_of(&t);
+    let go = home.join("go");
+    init(&go.join("src/github.com/me/app"));
+    write(
+        &go.join("pkg/mod/github.com/stretchr/testify@v1.8.4/go.mod"),
+        "module github.com/stretchr/testify\n",
+    );
+    write(
+        &go.join("pkg/mod/golang.org/x/tools@v0.1.0/go.mod"),
+        "module golang.org/x/tools\n",
+    );
+    let (_, _, found) = found_in(&home, &data, &go);
+    assert_eq!(found, ["src/github.com/me/app"], "pkg/mod gives no card");
+}
+
+#[test]
+fn an_agents_folder_inside_the_one_project_named_is_inside_it() {
+    // rv3: a crate named, a session in its `src`.
+    let t = Folder::new("rv-crate");
+    let (home, data) = home_of(&t);
+    let krate = home.join("crate");
+    write(&krate.join("Cargo.toml"), "[package]\nname = \"crate\"\n");
+    mkdir(&krate.join("src"));
+    session(&home, "src", &krate.join("src"));
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    let looks = [agent_look(&home), folder_look(&krate)];
+    read_into(&mut store, &home, &data, &looks);
+    assert_eq!(offered(&mut store), std::slice::from_ref(&krate));
+    // A folder opened in Tasktap there is inside it too.
+    let src = krate.join("src");
+    let out = map::read(Input {
+        rule: Rule::new(&home, &data),
+        data: data.clone(),
+        looks: vec![folder_look(&krate)],
+        opened: vec![(ProjectId::mint(), src.to_str().unwrap().into(), None)],
+        known: Default::default(),
+    });
+    let card = out.cards.iter().find(|m| Path::new(&m.folder) == src);
+    assert_eq!(card.unwrap().inside.as_deref(), krate.to_str());
+}
+
+#[test]
+fn which_card_a_card_is_inside_is_decided_anew_and_is_always_there() {
+    // rv4: the same folders and looks give the same cards, whatever was
+    // read before.
+    let t = Folder::new("rv-dangle");
+    let (home, data) = home_of(&t);
+    let stray = home.join("stray");
+    write(&stray.join("package.json"), "{}");
+    init(&stray.join("web"));
+    mkdir(&stray.join("sandbox"));
+    session(&home, "sandbox", &stray.join("sandbox"));
+    let (agent, named) = (agent_look(&home), folder_look(&stray));
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    read_into(&mut store, &home, &data, std::slice::from_ref(&agent));
+    read_into(&mut store, &home, &data, &[agent.clone(), named.clone()]);
+    let (mut fresh, _) = Store::open(&t.0.join("fresh.db"), time(wall_ms())).unwrap();
+    read_into(&mut fresh, &home, &data, &[agent, named]);
+    assert_eq!(offered(&mut store), offered(&mut fresh));
+    assert_eq!(
+        offered(&mut store),
+        [stray.join("sandbox"), stray.join("web")]
+    );
+    let cards = store.begin().unwrap().cards().unwrap();
+    for c in &cards {
+        if let Some(top) = c.inside {
+            assert!(cards.iter().any(|x| x.id == top), "{}", c.folder);
+        }
+    }
+}
+
+#[test]
+fn a_look_that_stopped_at_its_budget_forgets_nothing_it_did_not_reach() {
+    // rv5
+    let t = Folder::new("rv-short");
+    let (home, data) = home_of(&t);
+    let wide = home.join("wide");
+    init(&wide.join("a0000"));
+    for i in 1..1999 {
+        mkdir(&wide.join(format!("a{i:04}")));
+    }
+    init(&wide.join("zproj"));
+    let look = folder_look(&wide);
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    let has = |store: &mut Store| {
+        let cards = store.begin().unwrap().cards().unwrap();
+        cards
+            .iter()
+            .any(|c| Path::new(&c.folder).ends_with("zproj"))
+    };
+    read_into(&mut store, &home, &data, std::slice::from_ref(&look));
+    assert!(has(&mut store), "found at first");
+    // One folder more: `zproj` is past the budget now.
+    mkdir(&wide.join("a1999"));
+    read_into(&mut store, &home, &data, std::slice::from_ref(&look));
+    let tx = store.begin().unwrap();
+    let read = tx.look(look.id).unwrap().unwrap();
+    assert!(read.note.as_deref().unwrap_or_default().contains("2,000"));
+    let cards = tx.cards().unwrap();
+    assert!(
+        cards
+            .iter()
+            .any(|c| Path::new(&c.folder).ends_with("zproj")),
+        "a look that read short forgot zproj"
+    );
+}
+
+#[test]
+fn an_agent_working_inside_a_project_is_nothing_new_to_a_look() {
+    // rv6: a session in a folder inside a project, which the history makes
+    // a card of its own.
+    let t = Folder::new("rv-stamp");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    init(&git.join("proj"));
+    mkdir(&git.join("proj/src/ui"));
+    init(&git.join("oss/rust/kiln"));
+    let ui = git.join("proj/src/ui");
+    session(&home, "ui", &ui);
+    let (agent, mut named) = (agent_look(&home), folder_look(&git));
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    read_into(&mut store, &home, &data, &[agent, named.clone()]);
+    let tx = store.begin().unwrap();
+    let card = tx.card_by_folder(ui.to_str().unwrap()).unwrap().unwrap();
+    assert!(card.inside.is_some(), "a card inside proj");
+    named.stamp = tx.look(named.id).unwrap().unwrap().stamp;
+    let rule = Rule::new(&home, &data);
+    let first = map::stamp(&rule, &named);
+    assert_eq!(Some(&first), named.stamp.as_ref());
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    write(&ui.join("view.ts"), "x");
+    write(&git.join("oss/rust/kiln/README.md"), "x");
+    assert_eq!(map::stamp(&rule, &named), first);
+}
+
+#[test]
+fn a_project_with_an_agents_notes_is_one_project_with_its_packages() {
+    // rv7
+    let t = Folder::new("rv-signs");
+    let (home, data) = home_of(&t);
+    let code = home.join("code");
+    write(&code.join("app/CLAUDE.md"), "notes");
+    write(&code.join("app/frontend/package.json"), "{}");
+    write(
+        &code.join("app/backend/pyproject.toml"),
+        "[project]\nname='b'\n",
+    );
+    let (_, _, found) = found_in(&home, &data, &code);
+    assert_eq!(found, ["app"]);
+}
+
+#[test]
+fn the_named_folder_an_agent_was_started_in_is_a_project_of_its_own() {
+    // rv8: in no project the walk found, as the root rule says.
+    let t = Folder::new("rv-self");
+    let (home, data) = home_of(&t);
+    let stray = home.join("stray");
+    write(&stray.join("package.json"), "{}");
+    init(&stray.join("web"));
+    session(&home, "stray", &stray);
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    let looks = [agent_look(&home), folder_look(&stray)];
+    read_into(&mut store, &home, &data, &looks);
+    assert_eq!(offered(&mut store), [stray.clone(), stray.join("web")]);
+}
+
+/// The stamp a read of `look` alone leaves on it.
+fn read_stamp(home: &Path, data: &Path, look: &Look) -> String {
+    let out = map::read(Input {
+        rule: Rule::new(home, data),
+        data: data.to_owned(),
+        looks: vec![look.clone()],
+        opened: Vec::new(),
+        known: Default::default(),
+    });
+    out.looks[0].4.clone()
+}
+
+// The review's cases rv9 to rv12: what the cheap check notices.
+
+#[cfg(unix)]
+#[test]
+fn a_folder_whose_name_ends_in_a_carriage_return_leaves_the_check_settled() {
+    // rv9: a name with a control character is not watched, on either side.
+    let t = Folder::new("rv-cr");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    init(&git.join("work/harbor"));
+    mkdir(&git.join("odd\r"));
+    mkdir(&git.join("plain"));
+    let mut look = folder_look(&git);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_eq!(Some(&now), look.stamp.as_ref(), "nothing changed");
+}
+
+#[test]
+fn a_repository_cloned_into_a_folder_of_a_named_repository_is_noticed() {
+    // rv10
+    let t = Folder::new("rv-repo");
+    let (home, data) = home_of(&t);
+    let dev = home.join("dev");
+    init(&dev);
+    init(&dev.join("work/a"));
+    let mut look = folder_look(&dev);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    init(&dev.join("work/b"));
+    let (_, _, found) = found_in(&home, &data, &dev);
+    assert_eq!(found, ["", "work/a", "work/b"], "a read finds it");
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_ne!(Some(now), look.stamp, "the check notices it");
+}
+
+#[test]
+fn a_repository_cloned_into_a_folder_of_the_one_named_project_is_noticed() {
+    // rv11
+    let t = Folder::new("rv-one");
+    let (home, data) = home_of(&t);
+    let stray = home.join("stray");
+    write(&stray.join("package.json"), "{}");
+    mkdir(&stray.join("apps"));
+    let mut look = folder_look(&stray);
+    assert_eq!(found_in(&home, &data, &stray).2, [""]);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    init(&stray.join("apps/web"));
+    let (_, _, found) = found_in(&home, &data, &stray);
+    assert_eq!(found, ["apps/web"], "a read finds it");
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_ne!(Some(now), look.stamp, "the check notices it");
+}
+
+#[test]
+fn git_init_in_a_plain_folder_five_down_is_noticed() {
+    // rv12: the last level is judged without being listed, and watched.
+    let t = Folder::new("rv-five");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    init(&git.join("solo"));
+    mkdir(&git.join("a/b/c/d/five"));
+    let mut look = folder_look(&git);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    init(&git.join("a/b/c/d/five"));
+    let (_, _, found) = found_in(&home, &data, &git);
+    assert_eq!(found, ["a/b/c/d/five", "solo"], "a read finds it");
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_ne!(Some(now), look.stamp, "the check notices it");
+}

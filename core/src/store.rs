@@ -1253,7 +1253,6 @@ impl Tx<'_> {
     pub fn cards(&self) -> Result<Vec<Card>> {
         self.all(Table::Cards, "ORDER BY id", [])
     }
-
     pub fn card(&self, id: CardId) -> Result<Option<Card>> {
         self.one(Table::Cards, "WHERE id = ?1", [key(&id)?])
     }

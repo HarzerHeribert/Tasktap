@@ -52,9 +52,23 @@ async function key(page, k) {
   await page.keyboard.press(k);
   await page.waitForTimeout(200);
 }
+/** A section of Settings as it is once what it asks has come: every call but a few waits for the core's welcome, and
+ *  rows such as the keys that answer a question from any app are drawn only once the host has answered. So: the core's
+ *  first records in, then the section's rows the same for 300 ms by the page's clock (at most 15 s), never a fixed
+ *  wait, which a slow machine (the workflow's Mac, in WebKit) outran. */
 const section = async (page, at) => {
+  await page.waitForFunction(() => window.__ws?.ui.ready, null, { timeout: 15000 }).catch(() => {});
   await page.evaluate((a) => ((window.__ws.ui.sheet = { kind: 'settings', at: a }), window.__motion.redraw()), at);
-  await page.waitForTimeout(450);
+  await page.evaluate(() => new Promise((done) => {
+    const end = performance.now() + 15000;
+    let was = null, since = performance.now();
+    const look = () => {
+      const now = [...document.querySelectorAll('.set-pane .set')].map((r) => r.textContent).join('|');
+      if (now !== was) (was = now, (since = performance.now()));
+      return (now && performance.now() - since >= 300) || performance.now() > end ? done() : setTimeout(look, 20);
+    };
+    look();
+  }));
 };
 const lastPut = (page) => page.evaluate(() => JSON.stringify(window.__fake.puts.at(-1) ?? null));
 const focused = (page) => page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');

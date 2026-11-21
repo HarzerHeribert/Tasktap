@@ -243,7 +243,9 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       if (!row.on) return;
       const found = (records.found || []).filter((c) => !(records.cards || []).some((x) => x.id === c.id));
       found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), 90 * (i + 1)));
-      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now() }] }] }), 90 * (found.length + 1));
+      // `lookEnds`: how a search in a folder ends instead (its `state` and `note`, as the core records them).
+      const end = row.kind === 'folder' ? records.lookEnds : undefined;
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now(), ...end }] }] }), 90 * (found.length + 1));
     };
     if (name === 'look.add') {
       const had = (records.looks || []).find((l) => (args.agent && l.agent === args.agent) || (args.folder && l.folder === args.folder));

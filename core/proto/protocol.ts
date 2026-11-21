@@ -919,7 +919,8 @@ found: number,
  */
 looked: Time | null,
 /**
- * What stopped it, in words, when it read nothing.
+ * What stopped it, in words: why it read nothing, or that it stopped
+ * before it read all there is.
  */
 note: string | null,
 /**
@@ -946,7 +947,7 @@ export type LookKind = "agent" | "folder";
  */
 export type LookPatch = { on?: boolean | null, };
 
-export type LookState = "new" | "ready" | "gone" | "many" | "failed";
+export type LookState = "new" | "ready" | "gone" | "many" | "failed" | "denied";
 
 /**
  * `projects.look`: every look that is on, read again; what it found is

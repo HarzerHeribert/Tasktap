@@ -1254,6 +1254,14 @@ impl Tx<'_> {
         self.all(Table::Cards, "ORDER BY id", [])
     }
 
+    /// The folder of every card, and nothing else of it: what a look's
+    /// stamp watches (`map::stamp`), read at every check.
+    pub fn card_folders(&self) -> Result<Vec<String>> {
+        let mut statement = self.db.prepare_cached("SELECT folder FROM cards")?;
+        let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn card(&self, id: CardId) -> Result<Option<Card>> {
         self.one(Table::Cards, "WHERE id = ?1", [key(&id)?])
     }

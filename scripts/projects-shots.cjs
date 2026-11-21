@@ -42,12 +42,34 @@ function shots() {
     'first-many-narrow': { records: projects('first-many'), act: both(allow, wait(4000)), viewport: NARROW },
     'first-folders': { records: projects('first-folders') },
     'first-folders-narrow': { records: projects('first-folders'), viewport: NARROW },
+    // A search in a folder that found nothing says why, in the sheet and in Setup's line, with the way to another folder.
+    'first-denied': { records: projects('first-searched', { end: { state: 'denied', note: 'Operation not permitted' } }), act: allow,
+      says: ['Tasktap may not read git', 'macOS keeps Tasktap out of ~/git. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search git again.', 'Choose another folder…'],
+      setup: 'Tasktap may not read git' },
+    'first-denied-windows': { records: projects('first-searched', { end: { state: 'denied', note: 'Access is denied.' } }), act: allow, system: 'windows',
+      says: ['Tasktap may not read git', 'Windows keeps Tasktap out of ~/git. Search git again once your account may read it.', 'Choose another folder…'] },
+    'first-unreadable': { records: projects('first-searched', { end: { state: 'failed', note: 'Input/output error' } }), act: allow,
+      says: ['git could not be read', '~/git: Input/output error.', 'Choose another folder…'], setup: 'git could not be read' },
+    'first-too-many': { records: projects('first-searched', { end: { state: 'many' } }), act: allow,
+      says: ['Too many folders in git', 'Over 2,000 folders in ~/git. Choose the folder inside git that holds your projects.', 'Choose another folder…'], setup: 'Too many folders in git' },
+    'first-gone': { records: projects('first-searched', { end: { state: 'gone' } }), act: allow,
+      says: ['git is not there now', 'Nothing is at ~/git now. Tasktap searches git again when it is back.', 'Choose another folder…'], setup: 'git is not there now' },
+    'first-none': { records: projects('first-searched', { end: { state: 'ready' } }), act: allow,
+      says: ['Found no projects in git', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.', 'Choose another folder…'] },
+    // Choose another folder… asks the system's folder panel, and searches the folder chosen there.
+    'first-another': { records: { ...projects('first-searched', { end: { state: 'ready' } }), pick: '/Users/someone/code' },
+      act: both(allow, wait(600), (p) => p.click('.found-s .btn'), wait(600)), says: ['Found no projects in git and code'] },
     'settings': { records: projects('settings'), act: settings },
     'settings-narrow': { records: projects('settings'), act: settings, viewport: NARROW },
     'settings-list': { records: projects('settings'), act: both(settings, wait(300), scrollTo('.set-pane .field', 40)) },
     'settings-open': { records: projects('settings-open'), act: both(settings, wait(300), (p) => p.click('.line.pj >> text=cuegrid'), wait(200), scrollTo('.line.pj[aria-expanded=true]', 40)) },
     'settings-open-narrow': { records: projects('settings-open'), viewport: NARROW, act: both(settings, wait(300), (p) => p.click('.line.pj >> text=cuegrid'), wait(200), scrollTo('.line.pj[aria-expanded=true]', 40)) },
-    'settings-gone': { records: projects('settings-gone'), act: settings },
+    // Settings says what the first run's sheet says of a search that found nothing.
+    'settings-gone': { records: projects('settings-gone'), act: settings,
+      says: ['Too many folders in Downloads', 'Over 2,000 folders in ~/Downloads. Choose the folder inside Downloads that holds your projects.',
+        'Found no projects in src', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.',
+        'Tasktap may not read code', 'macOS keeps Tasktap out of ~/Documents/code. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search code again.',
+        'git could not be read', '/Volumes/nas/git: Input/output error.'] },
     'settings-remove': { records: projects('settings-gone'), act: both(settings, wait(300), (p) => p.click('.line.pl:has(.t.path:text("~/projects")) >> text=Remove'), wait(100), scrollTo('.line-n.ask', 160)) },
     'settings-hidden': { records: projects('settings-hidden'), act: both(settings, wait(300), scrollTo('.list:last-child', 0), (p) => p.click('text=Not projects (2)'), wait(200), (p) => p.evaluate(() => { const s = document.querySelector('.set-pane'); s.scrollTop = s.scrollHeight; })) },
   };
@@ -101,6 +123,18 @@ function promises() {
   }
   return bad;
 }
+// In the page: the words a state must say, in the sheet or Settings' pane.
+function said(says) {
+  const text = [...document.querySelectorAll('.sheet, .set-pane')].map((e) => e.textContent).join('\n');
+  return says.filter((w) => !text.includes(w)).map((w) => `it does not say "${w}"`);
+}
+/** What Setup's line for the projects says once the sheet is put away by Done and Setup is open. */
+async function setupSays(page) {
+  await page.click('.sheet .sh-f .key');
+  await page.waitForTimeout(300);
+  if (await page.$('.setup .fold-h[aria-expanded=false]')) await page.click('.setup .fold-h');
+  return page.textContent('.setup .line.st[data-step=projects] .x');
+}
 /** Opens Settings' "What exactly is read" as a person does, by the pointer on it, before the promises are read. */
 async function unfold(page) {
   const fold = page.locator('.set-pane .more-l[aria-expanded=false]');
@@ -143,7 +177,7 @@ async function main(out, dprs, only, check) {
     for (const dpr of dprs) {
       for (const [name, s] of Object.entries(shots())) {
         if (only && !only.includes(name)) continue;
-        const page = await open(browser, { label: 'workspace', records: structuredClone(s.records), url: server.url, dpr, viewport: s.viewport });
+        const page = await open(browser, { label: 'workspace', records: structuredClone(s.records), url: server.url, dpr, viewport: s.viewport, system: s.system });
         // The window's own buttons are the system's; drawn here so a capture reads as the window.
         await page.addStyleTag({ content: 'body::after{content:"";position:fixed;z-index:99;left:14px;top:13px;width:12px;height:12px;border-radius:50%;background:#ff5f57;box-shadow:20px 0 #febc2e,40px 0 #28c840;pointer-events:none}' });
         if (s.act) await s.act(page);
@@ -156,7 +190,9 @@ async function main(out, dprs, only, check) {
           const w = await page.evaluate(align.weights);
           const first = await page.evaluate(begins);
           await unfold(page);
-          const own = [...first, ...await page.evaluate(promises)];
+          const own = [...first, ...await page.evaluate(promises), ...await page.evaluate(said, s.says ?? [])];
+          const line = s.setup && await setupSays(page);
+          if (line !== s.setup) failures.push(`${name} (${TEXT}): Setup's line says "${line}", not "${s.setup}"`);
           for (const b of [...r.bad, ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);
           for (const [key, where] of Object.entries(await page.evaluate(type.fonts))) {
             const rl = role(key, where.some((w) => /\bkbd\b/.test(w))), width = key.split(' ')[4];

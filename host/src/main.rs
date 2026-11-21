@@ -249,6 +249,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         }
         "host.show" => workspace::show(app, args["at"].as_str()).map(|_| Value::Null).map_err(|e| e.to_string()),
         "host.ready" => {
+            // Said even when the fallback showed the window already: when the page's word came, and before what.
+            log(json!({"event": "page-ready", "ms": since_start()}));
             workspace::ready(app, "ready");
             Ok(Value::Null)
         }

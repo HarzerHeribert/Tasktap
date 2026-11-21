@@ -250,23 +250,34 @@ said="$(grep -c 'Tasktap failed to start: the core ended before it listened' "$t
 fi
 
 section "Driving the app on $tmp/data"
-# Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: its page,
-# which waits a second and a half for its records, says it has drawn without the core (host.ready goes out before the
-# core's welcome). Judged by cause, not by the clock, which runs slower on some Macs than on others: the window is
-# shown before the core is there, and because the page said it had drawn (its line says which showed it), not by the
-# host's fallback 3 s after the window is made. 5 s is only a net. The page has the core once it is there, for all
-# that follows.
+# Its first start's core is slow too: ten seconds pass before it listens. Neither the window nor the page's word that
+# it has drawn waits for it (host.ready goes out before the core's welcome). Judged by cause, not by the clock, which
+# runs slower on some Macs than on others: the window is shown before the core is there, by the page's word or by the
+# host's fallback 3 s after the window is made (on a slow Mac the page itself takes longer than that), and the page's
+# word reaches the host before the core is there. 5 s is only a net for the window. The page has the core once it is
+# there, for all that follows.
 launch "$tmp/data" 10
-for _ in $(seq 1 60); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done
-window="$(grep '"event":"window"' "$log" | head -1)"
+# Until the window and the page's word are both said, or the core is there.
+for _ in $(seq 1 120); do
+  if grep -q '"event":"ready"' "$log" || { grep -q '"event":"window"' "$log" && grep -q '"event":"page-ready"' "$log"; }; then break; fi
+  sleep 0.1
+done
+shot core-starting workspace
+# Where each was said first in the app's lines; one said before the core is before its line, or the core not yet there.
+at() { grep -n "\"event\":\"$1\"" "$log" | head -1 | cut -d: -f1; }
+core_at="$(at ready)"
+first() { [ -n "$1" ] && { [ -z "$core_at" ] || [ "$1" -lt "$core_at" ]; }; }
+window="$(grep -m1 '"event":"window"' "$log")"
 shown="$(echo "$window" | grep -o '"ms":[0-9]*' | grep -o '[0-9]*$')"
 by="$(echo "$window" | grep -o '"by":"[a-z]*"' | cut -d'"' -f4)"
-# Which the app said first: the window, or the core there.
-first="$(grep -m1 -o '"event":"window"\|"event":"ready"' "$log")"
-shot core-starting workspace
-[ "$by" = ready ] && [ "$first" = '"event":"window"' ] && [ "${shown:-99999}" -le 5000 ] \
-  && pass "with a core ten seconds slow to start, the window is shown before it is there, once its page said it had drawn ($shown ms after the launch)" \
-  || fail "the window does not wait for the core" "shown by the ${by:-nothing} at ${shown:-no} ms after the launch; the core $([ "$first" = '"event":"ready"' ] && echo was || echo "was not") there first"
+said="$(grep -m1 '"event":"page-ready"' "$log" | grep -o '"ms":[0-9]*' | grep -o '[0-9]*$')"
+first "$(at window)" && window_first=yes || window_first=no
+first "$(at page-ready)" && page_first=yes || page_first=no
+window_said="not shown"; [ -n "$shown" ] && window_said="shown by the $by at $shown ms"
+page_said="never"; [ -n "$said" ] && page_said="at $said ms"
+[ "$window_first" = yes ] && [ "$page_first" = yes ] && [ "${shown:-99999}" -le 5000 ] \
+  && pass "with a core ten seconds slow to start, the window is shown before it is there ($shown ms after the launch, by the $by), and the page said it had drawn before it too ($said ms)" \
+  || fail "the window does not wait for the core" "the window: $window_said, before the core: $window_first; the page said it had drawn: $page_said, before the core: $page_first"
 for _ in $(seq 1 200); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 # FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a
 # covered window would not draw is checked too.

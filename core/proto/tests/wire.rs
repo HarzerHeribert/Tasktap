@@ -369,7 +369,7 @@ fn every_call_round_trips() {
     round_trip::<call::RouteHint>(hint, route, seen);
     let terms = RouteTerms {
         instructions: "You are the router of Tasktap.".into(),
-        sends: vec!["the thought, as you said or typed it".into()],
+        sends: vec!["the task, as you said or typed it".into()],
         terms: 3,
         tools: vec![PlaceTool {
             agent: "claude".into(),
@@ -1126,7 +1126,7 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
     let why = serde_json::from_value::<PutTarget>(days).unwrap_err();
     assert_eq!(
         why.to_string(),
-        "Finished thoughts are kept for 1 to 3650 days, or for ever with 0"
+        "Finished tasks are kept for 1 to 3650 days, or for ever with 0"
     );
 
     // The rule of a shortcut, as a table: the modifiers held, the key, and why not.
@@ -1537,7 +1537,7 @@ fn the_answer_keys_are_each_systems_own_and_no_two_of_tasktaps_keys_are_one() {
         );
         assert_eq!(
             clash(PrefKey::TalkKey, &Shortcut::capture(mac), &used),
-            Some("Tasktap already uses that combination to put a thought in")
+            Some("Tasktap already uses that combination to start a task")
         );
         assert_eq!(
             clash(

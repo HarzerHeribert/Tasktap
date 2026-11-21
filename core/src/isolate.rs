@@ -562,7 +562,7 @@ impl Git {
             ));
         }
         let by_hand = format!(
-            "Branch {} holds this thought's changes: merge it yourself and press Keep again, which then only tidies up, or Discard",
+            "Branch {} holds this task's changes: merge the branch yourself and press Keep again, which then only tidies up, or Discard",
             own.branch
         );
         let Some(to) = &w.destination else {
@@ -669,7 +669,7 @@ impl Git {
                     .map(|p| String::from_utf8_lossy(p).into_owned())
                     .collect();
                 return Err(format!(
-                    "its changes conflict with this thought's in {}",
+                    "its changes conflict with this task's in {}",
                     shown(&files)
                 ));
             }

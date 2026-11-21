@@ -58,10 +58,10 @@ function Own({ at, done }: { at: OwnAgent | null; done: () => void }) {
   useEffect(() => document.getElementById('own-name')?.focus(), []);
   return (
     <div class="own" role="group" aria-label={at ? `Change ${at.name}` : 'Add an agent'}>
-      <Row name={NAME} hint="Shown wherever you choose who runs a thought, and on the work it has done.">
+      <Row name={NAME} hint="Shown wherever you choose who runs a task, and on the work the agent has done.">
         <input class="text" id="own-name" aria-label={NAME} spellcheck={false} autocomplete="off" maxLength={40} value={name} onInput={(e) => (setName(e.currentTarget.value), say(''))} onKeyDown={enter} />
       </Row>
-      <Row name={COMMAND} hint={error ? undefined : <>Put <code>{'{prompt}'}</code> where the thought goes; Tasktap learns the work is done only when the program exits, with 0 for success.</>}>
+      <Row name={COMMAND} hint={error ? undefined : <>Put <code>{'{prompt}'}</code> where the task goes; Tasktap learns the work is done only when the program exits, with 0 for success.</>}>
         <input class="text wide" aria-label={COMMAND} placeholder="goose run -t {prompt}" spellcheck={false} autocomplete="off" maxLength={2000} value={command}
           onInput={(e) => (setCommand(e.currentTarget.value), say(''))} onKeyDown={enter} />
         {error && <p class="hint err" role="alert">{error}</p>}
@@ -105,7 +105,7 @@ export function AgentsPane() {
               <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }))}>Sign in</button>
             )}
             {a.own && <button type="button" class="btn" onClick={() => setForm(a.id)}>Change</button>}
-            {a.id === usual ? <span class="x def">Runs new thoughts</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Use for new thoughts</button>}
+            {a.id === usual ? <span class="x def">Runs new tasks</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Use for new tasks</button>}
           </span>
         </div>
         {form === a.id && <Own key={a.id} at={own.find((o) => o.id === a.id) ?? null} done={() => setForm(null)} />}
@@ -155,8 +155,8 @@ export function AgentsPane() {
           </button>
         )}
       </div>
-      <p class="note">New thoughts go to the agent that says “Runs new thoughts”; for a single thought, choose another where you write it.</p>
-      <Row name="Check which agents are signed in" hint="Each agent is asked once after Tasktap starts, when you first open Agents or give it a thought; Check now asks all again.">
+      <p class="note">New tasks go to the agent that says “Runs new tasks”; for a single task, choose a different agent where you write the task.</p>
+      <Row name="Check which agents are signed in" hint="Each agent is asked once after Tasktap starts, when you first open Agents or give an agent a task; Check now asks all again.">
         <button type="button" class="btn" disabled={looking.on} onClick={() => look(true)}>{looking.on ? 'Checking…' : 'Check now'}</button>
       </Row>
     </>

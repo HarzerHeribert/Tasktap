@@ -42,10 +42,10 @@ test('a line for while a task runs is shown only while one runs', () => {
   }
 });
 
-const field: Field = { empty: true, held: true, front: true, dictating: false, composing: false, effects: 'full' };
-test('the field rolls only while it is empty, has the keyboard, Tasktap is in front, nothing is dictated or composed, and the effects are Full', () => {
+const field: Field = { empty: true, held: true, front: true, shown: true, dictating: false, composing: false, effects: 'full' };
+test('the field rolls only while it is empty, has the keyboard, Tasktap is in front and shown, nothing is dictated or composed, and the effects are Full', () => {
   assert.equal(rolls(field), true);
-  for (const still of [{ empty: false }, { held: false }, { front: false }, { dictating: true }, { composing: true }, { effects: 'still' as const }, { effects: 'off' as const }])
+  for (const still of [{ empty: false }, { held: false }, { front: false }, { shown: false }, { dictating: true }, { composing: true }, { effects: 'still' as const }, { effects: 'off' as const }])
     assert.equal(rolls({ ...field, ...still }), false, JSON.stringify(still));
 });
 
@@ -64,7 +64,7 @@ test('one timer, every five seconds, only while the field rolls: each way out st
     assert.equal(seen.length, 2);
     // Every condition that holds the line still: the timer goes at once, nothing rolls however long it waits, and once
     // the field may roll again the next line comes five seconds later.
-    for (const still of [{ empty: false }, { held: false }, { front: false }, { dictating: true }, { composing: true }, { effects: 'still' as const }, { effects: 'off' as const }]) {
+    for (const still of [{ empty: false }, { held: false }, { front: false }, { shown: false }, { dictating: true }, { composing: true }, { effects: 'still' as const }, { effects: 'off' as const }]) {
       const before = seen.length;
       r.run(rolls({ ...field, ...still }), box);
       assert.equal(r.rolling, false, `${JSON.stringify(still)} leaves the timer running`);

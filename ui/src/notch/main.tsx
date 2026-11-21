@@ -17,7 +17,7 @@ import { live, talk } from '../speech/record.ts';
 import { effectsOf, lookOf, power } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Brand, Mark } from '../ui.tsx';
-import { agentName, asksHere, call, client, fail, heardWhere, onRedraw, openQuestions, page, pref, records, recordsIn, redraw, settleFocus, title, ui, unheard, watchHeld, where } from './model.ts';
+import { agentName, asksHere, call, client, fail, heardWhere, onRedraw, openQuestions, page, pref, records, recordsFailed, recordsIn, redraw, settleFocus, title, ui, unheard, watchHeld, where } from './model.ts';
 import { fold, reveal } from './panel.ts';
 import { watchLayout } from '../keys.ts';
 import type { Where } from '../client.ts';
@@ -262,4 +262,4 @@ Object.assign(window, { __records: records, __where: where, __speech: { talk, li
 void client
   .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'cards', 'prefs', 'agents', 'terminals', 'dictations'], records)
   .then(() => (recordsIn(), redraw(), call('host.notch', {})))
-  .catch(fail);
+  .catch((e) => (recordsFailed(e), fail(e)));

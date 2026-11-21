@@ -11,10 +11,14 @@ export const records = new Records();
  *  claims nothing it does not know yet (where a task goes, what is set up, what runs), and a task started meanwhile
  *  waits for it (`coreIn`): the window can be up before the core is, which on a first start can take a while. */
 export const core = { in: false };
-let came = () => {};
-export const coreIn = new Promise<void>((ok) => (came = ok));
+let came = () => {}, failed: (e: unknown) => void = () => {};
+export const coreIn = new Promise<void>((ok, no) => ((came = ok), (failed = no)));
+// (Nobody may be waiting when the core fails: that is no error of the page's.)
+coreIn.catch(() => {});
 /** The page's first records are in (each page calls it once its `sub` has answered). */
 export const recordsIn = () => ((core.in = true), came());
+/** The page's records will not come (its `sub` failed): what waits for them is given back, never held for ever. */
+export const recordsFailed = (e: unknown) => failed(e);
 export const call: typeof client.call = (name, args) => client.call(name, args);
 /** A preference as the core keeps it, or the protocol's default while none is stored. */
 export const pref = <K extends keyof typeof PREF_DEFAULTS>(k: K) => (records.prefs.get(k)?.value ?? PREF_DEFAULTS[k]) as (typeof PREF_DEFAULTS)[K];

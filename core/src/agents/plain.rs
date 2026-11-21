@@ -297,7 +297,7 @@ pub fn own(list: &[OwnAgent]) -> Result<Vec<Own>, String> {
             }
             Some((_, args)) if !args.iter().any(|word| word.contains(PROMPT)) => {
                 return Err(format!(
-                    "The command of {name} needs {PROMPT} where the thought goes"
+                    "The command of {name} needs {PROMPT} where the task goes"
                 ));
             }
             Some(_) => {}

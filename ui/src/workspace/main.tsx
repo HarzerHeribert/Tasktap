@@ -34,7 +34,7 @@ import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
   LOOSE, agentName, answerKey, askGlobalKeys, call, client, closeTab, copy, core, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
-  open, openQuestions, page, paste, pref, records, recordsIn, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
+  open, openQuestions, page, paste, pref, records, recordsFailed, recordsIn, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
 import { SECTIONS, shown } from './settings.tsx';
@@ -462,7 +462,7 @@ void client
     setTimeout(ready);
     void loadTerms();
   })
-  .catch((e) => (fail(e), ready()));
+  .catch((e) => (recordsFailed(e), fail(e), ready()));
 
 // For the debug channel's checks and measurements (host/scripts/smoke.sh, measure.sh).
 /** A terminal's screen as text (the WebGL renderer has no text in the page to read). */

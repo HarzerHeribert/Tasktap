@@ -252,9 +252,67 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     if (shots) await live.screenshot({ path: path.join(shots, 'home-live-1280.png') });
     await moving.close();
 
+    // ---- over time, on a virtual clock (a minute in a few seconds) ----
+    // The app's notch folds a question nobody touched after ten seconds; the page must hold whatever it shows. Under
+    // Reduce Motion the question stays; with motion, paused on the question it stays, and played round, the notch is
+    // shut only at Working (its count), between rounds, and for a beat as a result comes back.
+    for (const reduced of [true, false]) {
+      const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: reduced ? 'reduce' : 'no-preference' });
+      // The chrome's picture instead of its engine (site.js leaves the engine out on a machine of few cores): drawn
+      // frame by frame on a virtual clock it would make this the slowest part of the run, and it is not what is checked.
+      await context.addInitScript(() => Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { get: () => 2 }));
+      const p = watch(await context.newPage());
+      await p.clock.install();
+      await p.goto(url);
+      const now = () => p.evaluate(() => {
+        const d = document.querySelector('.notch iframe')?.contentDocument;
+        return { step: document.querySelector('.steps [aria-current]')?.textContent ?? null, open: d?.getElementById('tab')?.getAttribute('aria-expanded') === 'true', asks: !!d?.querySelector('[data-question] .qp') };
+      });
+      const until = async (want, what) => {
+        for (let t = 0; t < 60000; t += 100) {
+          await p.clock.runFor(100);
+          if (want(await now())) return;
+        }
+        assert.fail(`${reduced ? 'Reduce Motion' : 'played'}: ${what} never came`);
+      };
+      if (!reduced) {
+        // Straight to the question, as a visitor's click on its step goes.
+        await until((s) => s.step !== null, 'the walk-through');
+        await p.evaluate(() => document.querySelector('.steps [data-step=ask]').click());
+      }
+      await until((s) => s.step === 'Needs you' && s.asks && s.open, 'the question');
+      if (!reduced) await p.evaluate(() => document.querySelector('.steps .hold').click());
+      // Jumped, firing the notch's own fold timer once it is due, as fifteen real seconds would.
+      await p.clock.fastForward(15000);
+      await p.clock.runFor(500);
+      const s = await now();
+      assert.ok(s.asks && s.open, `${reduced ? 'Reduce Motion' : 'paused'}: past the notch's own ten seconds, the question is still shown (step ${s.step}, open ${s.open})`);
+      if (!reduced) {
+        await p.evaluate(() => document.querySelector('.steps .hold').click());
+        // The round from the question on, through the result, the next thought typed and handed off, watched from inside
+        // the page every 100 ms of its clock: every step but Working is shown open, but for a moment. (Run, not jumped:
+        // the walk-through goes on by its own timers; this is most of the 11 s this part adds to the run.)
+        await p.evaluate(() => {
+          const w = (window.__watch = { shut: 0, longest: 0, at: '', seen: [] });
+          setInterval(() => {
+            const step = document.querySelector('.steps [aria-current]')?.textContent ?? null;
+            const open = document.querySelector('.notch iframe')?.contentDocument?.getElementById('tab')?.getAttribute('aria-expanded') === 'true';
+            if (step && !w.seen.includes(step)) w.seen.push(step);
+            w.shut = step && step !== 'Working' && !open ? w.shut + 100 : 0;
+            if (w.shut > w.longest) (w.longest = w.shut, w.at = step);
+          }, 100);
+        });
+        await p.clock.runFor(35000);
+        const w = await p.evaluate(() => window.__watch);
+        assert.equal(w.seen.length, 5, `played round, every step comes (${w.seen.join(', ')})`);
+        assert.ok(w.longest <= 2000, `played round, the notch is shut for ${w.longest} ms while the step says ${w.at}`);
+      }
+      await context.close();
+    }
+
     assert.deepEqual(outside, [], 'nothing outside the site is requested');
     assert.deepEqual(errors, []);
-    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, pictures present and unscaled at 1x and 2x, links and anchors); the words (nothing of 1.2, no 1.2 feed, downloads by fixed names, both systems with the visitor first, each in its order, with Copy and its fallback, the install scripts as published, one key in view, 4.5 : 1); scripts off; Reduce Motion; the live notch (plays, pauses, steps, keeps out of the keyboard, rests out of sight); nothing requested from outside; no browser errors.');
+    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, pictures present and unscaled at 1x and 2x, links and anchors); the words (nothing of 1.2, no 1.2 feed, downloads by fixed names, both systems with the visitor first, each in its order, with Copy and its fallback, the install scripts as published, one key in view, 4.5 : 1); scripts off; Reduce Motion; the live notch (plays, pauses, steps, keeps out of the keyboard, rests out of sight, holds its question open on a virtual clock and is shut only between steps); nothing requested from outside; no browser errors.');
   } finally {
     if (browser) await browser.close();
     server.close();

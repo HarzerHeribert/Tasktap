@@ -135,7 +135,7 @@ fn kept<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
     match days <= MAX_KEEP_DAYS {
         true => Ok(days),
         false => Err(serde::de::Error::custom(format_args!(
-            "Finished thoughts are kept for 1 to {MAX_KEEP_DAYS} days, or for ever with 0"
+            "Finished tasks are kept for 1 to {MAX_KEEP_DAYS} days, or for ever with 0"
         ))),
     }
 }

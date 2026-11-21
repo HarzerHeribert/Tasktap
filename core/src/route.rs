@@ -98,7 +98,7 @@ pub const SCHEMA: &str = concat!(
 
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
-    "the thought, as you said or typed it",
+    "the task, as you said or typed it",
     "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by and one line about it",
     "of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working",
     "of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)",
@@ -933,7 +933,7 @@ pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
     if let Some(last) = r.last
         && let Some(p) = r.projects.iter().find(|p| p.to == last)
     {
-        add(p, "where your last thought went".into(), &mut out);
+        add(p, "where your last task went".into(), &mut out);
     }
     let mut recent: Vec<&Named> = r.projects.iter().filter(|p| p.used.is_some()).collect();
     recent.sort_by_key(|p| std::cmp::Reverse(p.used));
@@ -1366,7 +1366,7 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
         let most = 2 * r.text.chars().count() + 400;
         match brief.chars().count() {
             0 => Err("it wrote no brief".to_owned()),
-            n if n > most => Err("its brief is longer than the thought allows".to_owned()),
+            n if n > most => Err("its brief is longer than the task allows".to_owned()),
             _ => Ok(brief.to_owned()),
         }
     };
@@ -1394,7 +1394,7 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
             let quoted = quote.chars().count() >= 3 && says(&r.text, quote);
             let follows = matches!(to, Destination::Session(id) if Some(id) != r.current);
             if follows && !quoted {
-                return Err("the words it quotes for a follow-up are not in the thought".into());
+                return Err("the words it quotes for a follow-up are not in the task".into());
             }
             let brief = brief()?;
             let said = None;
@@ -1467,9 +1467,7 @@ pub fn short(text: &str) -> bool {
 pub fn askable(text: &str) -> Result<(), String> {
     match text.chars().count() <= MAX_THOUGHT {
         true => Ok(()),
-        false => Err(format!(
-            "the thought is longer than {MAX_THOUGHT} characters"
-        )),
+        false => Err(format!("the task is longer than {MAX_THOUGHT} characters")),
     }
 }
 
@@ -1498,10 +1496,9 @@ const AGAIN: &str = "the agreement was to what was sent before: \
 fn covered(placer: &Placer) -> Result<(&'static dyn Agent, Headless), String> {
     let agent = agents::live(&placer.agent);
     let agent = agent.ok_or(format!("Tasktap has no agent {}", placer.agent))?;
-    let how = agent.headless().ok_or(format!(
-        "{} cannot be asked to place thoughts",
-        agent.name()
-    ))?;
+    let how = agent
+        .headless()
+        .ok_or(format!("{} cannot be asked to place tasks", agent.name()))?;
     match how.model == placer.model {
         true => Ok((agent, how)),
         false => Err(format!(

@@ -44,7 +44,7 @@ function records(name, now = Date.now()) {
       agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 3000, updated: now - 3000 });
     r.questions.unshift({ id: '019a8b6c-7d10-7000-8000-0000000ff002', rev: 61, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null,
       reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices: ['kiln', 'cuegrid', 'harbormaster'],
-      places: [{ card: c.kiln.id }, { project: P.cuegrid }, { card: c.harbormaster.id }], notes: ['static, site', 'where your last thought went', 'worked on last'] });
+      places: [{ card: c.kiln.id }, { project: P.cuegrid }, { card: c.harbormaster.id }], notes: ['static, site', 'where your last task went', 'worked on last'] });
     r.glance = { ...r.glance, needs_you: r.glance.needs_you + 1, question: r.questions[0].id };
   }
   if (name === 'way-new') {

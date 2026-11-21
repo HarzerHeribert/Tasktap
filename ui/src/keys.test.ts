@@ -78,7 +78,7 @@ test('Settings\' sections are on ⌘1 to ⌘7 in the order of their list (Ctrl+1
   // The list as settings.tsx has it, read as text: that page needs a web view to run.
   const source = readFileSync(new URL('./workspace/settings.tsx', import.meta.url), 'utf8');
   const names = [.../export const SECTIONS = \[(.*?)\] as const;/.exec(source)![1]!.matchAll(/\['[a-z]+', '([A-Za-z]+)'\]/g)].map((m) => m[1]);
-  assert.deepEqual(names, ['Thoughts', 'Agents', 'Projects', 'Voice', 'Appearance', 'Terminal', 'About']);
+  assert.deepEqual(names, ['Tasks', 'Agents', 'Projects', 'Voice', 'Appearance', 'Terminal', 'About']);
   assert.deepEqual(names.map((_, i) => spell(`⌘${i + 1}`, true)), ['⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7']);
   assert.deepEqual(names.map((_, i) => spell(`⌘${i + 1}`, false)), ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4', 'Ctrl+5', 'Ctrl+6', 'Ctrl+7']);
   names.forEach((_, i) => assert.ok(hit(`⌘${i + 1}`, press(String(i + 1), 'm'), true) && hit(`⌘${i + 1}`, press(String(i + 1), 'c'), false)));

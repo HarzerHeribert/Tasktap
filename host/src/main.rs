@@ -57,7 +57,7 @@ struct Host {
     core: OnceLock<Arc<Core>>,
     link: OnceLock<Arc<Link>>,
     /// Each page's connection to the core, by window label.
-    pages: Mutex<HashMap<String, Stream>>,
+    pages: Mutex<Pages<Stream>>,
     /// The question `glance` names, which affirm and deny act on.
     question: Mutex<Option<QuestionId>>,
 }
@@ -89,12 +89,64 @@ fn since_start() -> u128 {
     START.get().map_or(0, |s| s.elapsed().as_millis())
 }
 
+/// Each page's connection to the core, by window label. A page asks for one as it loads, and it is made once the core
+/// is there, which at a start may be a while: only the page that asked last for a label holds that label's
+/// connection, and none is held for a window that is gone.
+struct Pages<T> {
+    held: HashMap<String, T>,
+    asked: HashMap<String, u64>,
+    next: u64,
+}
+
+impl<T> Default for Pages<T> {
+    fn default() -> Self {
+        Pages { held: HashMap::new(), asked: HashMap::new(), next: 0 }
+    }
+}
+
+impl<T> Pages<T> {
+    /// A page asks for its connection: the number that connection is held under.
+    fn ask(&mut self, label: &str) -> u64 {
+        self.next += 1;
+        self.asked.insert(label.to_owned(), self.next);
+        self.next
+    }
+
+    /// Holds the connection made for ask `n`, giving back the one it replaces; or, when a page asked for the label
+    /// since (reloaded, or its window made again), gives it back itself, to be closed.
+    fn hold(&mut self, label: &str, n: u64, connection: T) -> Result<Option<T>, T> {
+        match self.asked.get(label) == Some(&n) {
+            true => Ok(self.held.insert(label.to_owned(), connection)),
+            false => Err(connection),
+        }
+    }
+
+    /// The window of ask `n` is gone: the connection held for it, to be closed.
+    fn gone(&mut self, label: &str, n: u64) -> Option<T> {
+        if self.asked.get(label) != Some(&n) {
+            return None;
+        }
+        self.asked.remove(label);
+        self.held.remove(label)
+    }
+
+    /// The window is gone: its connection, to be closed.
+    fn forget(&mut self, label: &str) -> Option<T> {
+        self.held.remove(label)
+    }
+
+    fn get_mut(&mut self, label: &str) -> Option<&mut T> {
+        self.held.get_mut(label)
+    }
+}
+
 /// Opens this page's connection; the core's bytes reach the page on `frames` as they arrive,
 /// whole frames or not. An empty message means the connection ended. Made on a thread of its own once the core is
 /// there, which at a start may be a while: the page waits for its welcome, and the app does not.
 #[tauri::command]
 fn bridge_open(webview: tauri::Webview, frames: Channel<InvokeResponseBody>, app: AppHandle) -> Result<(), String> {
     let label = webview.label().to_owned();
+    let asked = app.state::<Host>().pages.lock().unwrap().ask(&label);
     std::thread::spawn(move || {
         let host = app.state::<Host>();
         let opened = host.core.wait().connect(Role::Page, &format!("tasktap-app {label}"));
@@ -103,17 +155,30 @@ fn bridge_open(webview: tauri::Webview, frames: Channel<InvokeResponseBody>, app
             let _ = frames.send(InvokeResponseBody::Raw(Vec::new()));
             return;
         };
-        // A window closed while its page waited does not hold a connection the core would keep streams for.
-        if app.get_webview_window(&label).is_none() {
-            let _ = stream.shutdown(Shutdown::Both);
-            return;
-        }
         let Ok(mut reader) = stream.try_clone() else {
             let _ = frames.send(InvokeResponseBody::Raw(Vec::new()));
             return;
         };
-        if let Some(old) = host.pages.lock().unwrap().insert(label, stream) {
+        // Held first, then the window looked at: a window closed before the hold is found gone, one closed after it
+        // lets go of it as its page is forgotten. Either way no connection the core would keep streams for is held
+        // for a window that is gone.
+        let held = host.pages.lock().unwrap().hold(&label, asked, stream);
+        let replaced = match held {
+            Ok(replaced) => replaced,
+            // A page that asked since holds the label's connection: this one is no one's.
+            Err(superseded) => {
+                let _ = superseded.shutdown(Shutdown::Both);
+                return;
+            }
+        };
+        if let Some(old) = replaced {
             let _ = old.shutdown(Shutdown::Both);
+        }
+        if app.get_webview_window(&label).is_none() {
+            if let Some(stream) = host.pages.lock().unwrap().gone(&label, asked) {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+            return;
         }
         let _ = frames.send(InvokeResponseBody::Raw(first));
         let mut buf = vec![0u8; 64 << 10];
@@ -130,7 +195,7 @@ fn bridge_open(webview: tauri::Webview, frames: Channel<InvokeResponseBody>, app
 /// A page whose window is gone lets go of its connection, so the core stops holding its streams
 /// for it and answers its terminals' questions again while no window is attached (design §9).
 fn forget_page(app: &AppHandle, label: &str) {
-    if let Some(stream) = app.state::<Host>().pages.lock().unwrap().remove(label) {
+    if let Some(stream) = app.state::<Host>().pages.lock().unwrap().forget(label) {
         let _ = stream.shutdown(Shutdown::Both);
     }
 }
@@ -789,14 +854,16 @@ fn main() {
                         let _ = handle.run_on_main_thread(move || takeover::tell(&words));
                     }
                 }
+                // Why, and then out through the app's own exit, as a quit goes: the window's frame is kept and, on
+                // Windows, the icon taken away.
                 Ok(Err(e)) if !core::abandoned() => {
                     eprintln!("Tasktap failed to start: {e}");
-                    std::process::exit(101);
+                    handle.exit(101);
                 }
                 Ok(Err(_)) => {}
                 Err(_) => {
                     eprintln!("Tasktap failed to start: the core's start panicked");
-                    std::process::exit(101);
+                    handle.exit(101);
                 }
             });
             Ok(())
@@ -837,6 +904,35 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_closed_while_its_page_waited_for_the_core_keeps_no_connection() {
+        let mut pages = Pages::default();
+        let asked = pages.ask("workspace");
+        // Closed before the connection is held: forgetting the page finds nothing, the look after the hold the window
+        // gone.
+        assert_eq!(pages.forget("workspace"), None);
+        assert_eq!(pages.hold("workspace", asked, 1), Ok(None));
+        assert_eq!(pages.gone("workspace", asked), Some(1));
+        assert_eq!(pages.get_mut("workspace"), None);
+    }
+
+    #[test]
+    fn only_the_page_that_asked_last_holds_its_windows_connection() {
+        let mut pages = Pages::default();
+        let first = pages.ask("workspace");
+        let reloaded = pages.ask("workspace");
+        // The page reloaded while both waited for the core: the first page's connection, made last, is not held.
+        assert_eq!(pages.hold("workspace", reloaded, 2), Ok(None));
+        assert_eq!(pages.hold("workspace", first, 1), Err(1));
+        assert_eq!(pages.get_mut("workspace"), Some(&mut 2));
+        // A window made again holds its own, and gives back the one it replaces; the look for the earlier window
+        // finding it gone takes nothing from the new one.
+        let again = pages.ask("workspace");
+        assert_eq!(pages.hold("workspace", again, 3), Ok(Some(2)));
+        assert_eq!(pages.gone("workspace", reloaded), None);
+        assert_eq!(pages.get_mut("workspace"), Some(&mut 3));
+    }
 
     #[test]
     fn a_passive_run_is_never_given_the_microphone_and_no_run_anything_else() {

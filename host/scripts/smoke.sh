@@ -232,16 +232,34 @@ left="$(pgrep -fl "$early" | cut -c1-120 | tr '\n' ';')"
 kill "$app" 2>/dev/null; pkill -f "$early" 2>/dev/null
 fi
 
+if part "A core that cannot start (a short launch of its own)"; then
+# A core that ends before it listens: the app says why on its standard error and ends with 101 through its own exit,
+# as a quit does (it says "quitting" and "quit"; the window's frame is kept, on Windows the icon taken away), not from
+# the thread that waited for the core.
+printf '#!/bin/sh\nexit 3\n' > "$tmp/no-core" && chmod +x "$tmp/no-core"
+env HOME="$tmp/home" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/no-core-data" CLAUDE_CONFIG_DIR="$tmp/no-history/claude" CODEX_HOME="$tmp/no-history/codex" \
+  TASKTAP_CORE_EXE="$tmp/no-core" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
+  "$host/target/debug/tasktap-app" < /dev/null > "$tmp/no-core.log" 2>&1 &
+failing=$!
+for _ in $(seq 1 100); do kill -0 "$failing" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$failing" 2>/dev/null; then kill "$failing"; code="still running after 10 s"; else wait "$failing"; code=$?; fi
+said="$(grep -c 'Tasktap failed to start: the core ended before it listened' "$tmp/no-core.log") $(grep -c '"event":"quitting"' "$tmp/no-core.log") $(grep -c '"event":"quit"}' "$tmp/no-core.log")"
+[ "$code" = 101 ] && [ "$said" = "1 1 1" ] \
+  && pass "a core that cannot start: the app says why and ends with 101 through its own exit, as a quit does" \
+  || fail "a core that cannot start" "exit $code; why, quitting, quit said: $said; $(grep -v '"event":"report"' "$tmp/no-core.log" | tail -3 | tr '\n' '|' | cut -c1-300)"
+fi
+
 section "Driving the app on $tmp/data"
-# Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: it is shown
-# by the host's fallback, 3 s after the window is made (a moment into the launch), since the page's own word that it has
-# drawn waits for the core; and the page has the core once it is there, for all that follows.
+# Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: its page,
+# which waits a second and a half for its records, says it has drawn without the core (host.ready goes out before the
+# core's welcome), about two seconds into the launch; the host's own fallback, 3 s after the window is made, would be
+# later than the bound. The page has the core once it is there, for all that follows.
 launch "$tmp/data" 10
 for _ in $(seq 1 50); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done
 shown="$(grep -o '"event":"window","ms":[0-9]*' "$log" | head -1 | grep -o '[0-9]*$')"
 shot core-starting workspace
-[ -n "$shown" ] && [ "$shown" -le 3500 ] && ! grep -q '"event":"ready"' "$log" \
-  && pass "with a core ten seconds slow to start, the window is shown before it is there, by the 3 s fallback ($shown ms after the launch)" \
+[ -n "$shown" ] && [ "$shown" -le 2500 ] && ! grep -q '"event":"ready"' "$log" \
+  && pass "with a core ten seconds slow to start, the window is shown before it is there, once its page has drawn ($shown ms after the launch)" \
   || fail "the window does not wait for the core" "window at ${shown:-no} ms after the launch; the core $(grep -q '"event":"ready"' "$log" && echo was || echo "was not") there first"
 for _ in $(seq 1 200); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 # FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a

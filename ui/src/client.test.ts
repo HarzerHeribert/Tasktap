@@ -15,15 +15,18 @@ const thought = (id: string, rev: number, status: 'working' | 'done' = 'working'
 });
 const glance = { rev: 4, working: 1, needs_you: 0, done: 0, failed: 0, question: null, retiring: false };
 
-/** A bridge whose core is the test: `push` delivers frames as the host would. */
-function fake() {
+const welcome: Control = { t: 'welcome', v: 1, core: '019a8b6c-0000-7000-8000-000000000000', build: 'test', as: 'device', calls: ['sub'] };
+
+/** A bridge whose core is the test: `push` delivers frames as the host would. The core has answered unless
+ *  `welcomed` is false. */
+function fake(welcomed = true) {
   const sent: (string | Uint8Array)[] = [];
   const host: string[] = [];
   const bridge: Bridge = { send: (f) => sent.push(f), host: (f) => host.push(f), onframe: () => {} };
   const push = (...frames: (Control | Uint8Array)[]) =>
     frames.forEach((f) => bridge.onframe(f instanceof Uint8Array ? f : JSON.stringify(f)));
   const client = new Client(bridge);
-  push({ t: 'welcome', v: 1, core: '019a8b6c-0000-7000-8000-000000000000', build: 'test', as: 'device', calls: ['sub'] });
+  if (welcomed) push(welcome);
   return { client, sent, host, push };
 }
 const settle = () => new Promise((ok) => setTimeout(ok, 0));
@@ -116,6 +119,26 @@ test('host calls go to the host, and a failed call rejects with its code', async
   await settle();
   push({ t: 'reply', id: lastCall(sent).id, err: { code: 'gone', message: 'no such thought' } });
   await assert.rejects(stop, { code: 'gone' });
+});
+
+test('before the core answers, what shows the window and its buttons goes to the host at once; every other call waits', async () => {
+  const { client, sent, host, push } = fake(false);
+  const names = (frames: string[]) => frames.map((f) => (JSON.parse(f) as { name: string }).name);
+  const shown = client.call('host.ready', {});
+  const minimised = client.call('host.window', { do: 'minimize' });
+  const power = client.call('host.power', {});
+  const stop = client.call('thought.stop', { id: T1 });
+  await settle();
+  assert.deepEqual(names(host), ['host.ready', 'host.window']);
+  assert.equal(sent.length, 0);
+  for (const f of host) push({ t: 'reply', id: (JSON.parse(f) as { id: number }).id, ok: null });
+  assert.deepEqual(await Promise.all([shown, minimised]), [null, null]);
+  push(welcome);
+  await settle();
+  assert.deepEqual(names(host), ['host.ready', 'host.window', 'host.power']);
+  assert.equal(lastCall(sent).name, 'thought.stop');
+  push({ t: 'reply', id: JSON.parse(host[2]!).id, ok: false }, { t: 'reply', id: lastCall(sent).id, ok: null });
+  assert.deepEqual(await Promise.all([power, stop]), [false, null]);
 });
 
 test('the agents collection is held like any other, in the order the core lists it, and a new snapshot replaces it', async () => {

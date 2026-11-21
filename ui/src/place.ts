@@ -36,6 +36,9 @@ export function says(why: Why, f: { place: string; is: Is; fresh?: boolean; agen
             : why === 'only' ? `${f.place} is the only folder open, so a task that names no other project goes to ${f.place}.`
               : `The task goes to ${f.place}.${opens}`} ${click} change the place.` };
       break;
+    case 'asked':
+      c = { mark: 'arrow', name: 'Auto', auto: false, title: `Auto: the task names more than one project, so Tasktap asks you which. ${click} choose the place yourself.` };
+      break;
     default:
       // Nothing known yet ('starting' is hidden, and keeps the place these words take).
       c = { mark: 'arrow', name: 'Auto', auto: false, title: `Auto: Tasktap sends the task to the project the task names${
@@ -61,6 +64,9 @@ export function rows(o: { found: { id: string; name: string; why: string; fresh:
     ...(all && !o.moving ? [row('later', 'later', 'For later')] : []),
   ];
 }
+
+/** A task's words where a name or a tooltip carries them: the first 300 characters, then an ellipsis. */
+export const short = (text: string) => ([...text].length <= 300 ? text : `${[...text].slice(0, 300).join('')}…`);
 
 /** A row of the question Tasktap asks when Auto cannot place a task: `at` is a place's index among the question's own
  *  (`places`, `notes`), which answering with it chooses; the person's own answers have none. `dim`: why it is

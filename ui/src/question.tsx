@@ -6,7 +6,7 @@ import type { AnswerQuestion, Found, Question } from '../../core/proto/protocol.
 import { useEffect, useState } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { keyName } from './keys.ts';
-import { type Asked, asked } from './place.ts';
+import { type Asked, asked, short } from './place.ts';
 import { talkKey } from './page.ts';
 import { agentName, call, fail, focus, openQuestions, placeArgs, pref, projectName, records, redraw, sessionName } from './page.ts';
 import { control, mine, talk } from './speech/record.ts';
@@ -60,8 +60,12 @@ function usual(): string | undefined {
   return most && most[1] >= 2 ? most[0] : undefined;
 }
 /** "Open or create a folder…": the system's folder panel, where the person keeps their projects; the folder chosen
- *  opens as a workspace, and the task goes there. Closed without a choice, the question stays. */
+ *  opens as a workspace, and the task goes there. Closed without a choice, the question stays. Once at a time: a
+ *  second press while the panel is open does nothing. */
+let picking = false;
 async function openFolder(thought: string) {
+  if (picking) return;
+  picking = true;
   try {
     const at = usual();
     const chosen = await call('host.pick', { folder: true, ...(at ? { at } : {}) });
@@ -69,6 +73,8 @@ async function openFolder(thought: string) {
     if (added) await call('thought.update', { id: thought, project_id: added });
   } catch (e) {
     fail(e);
+  } finally {
+    picking = false;
   }
 }
 
@@ -228,9 +234,9 @@ export function Ask({ q, size, terminal, who, class: cls = '', on }: { q: Questi
   if (q.source === 'router') {
     const text = said?.text.trim() ?? '';
     return (
-      <div class={`ask-${size} ask-place ${cls}`} data-question={q.id} role="group" aria-label={`${q.prompt} ${text}`.trim()}
+      <div class={`ask-${size} ask-place ${cls}`} data-question={q.id} role="group" aria-label={`${q.prompt} ${short(text)}`.trim()}
         {...(size === 'cap' ? { 'data-keys': 'field' } : { 'data-keys': true, tabIndex: -1, onKeyDown: (e: KeyboardEvent) => keys(q, e, terminal) })}>
-        {text && <p class="q-words" title={text}>{text}</p>}
+        {text && <p class="q-words" dir="auto" title={short(text)}>{text}</p>}
         <p class="q-asks">{size === 'cap' && <Mark s="asks" label="" />}{q.prompt}</p>
         {said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}
         <Answers q={q} on={on} terminal={terminal} who={who} />

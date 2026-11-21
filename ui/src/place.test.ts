@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project } from '../../core/proto/protocol.ts';
 import { Records } from './client.ts';
-import { asked, rows, says, type Why } from './place.ts';
+import { asked, rows, says, short, type Why } from './place.ts';
 
 const K = { key: '⌘K' };
 const AUTO = 'Auto: Tasktap sends the task to the project the task names, and asks you when the task names none. Click (or ⌘K) to choose the place yourself.';
@@ -14,6 +14,9 @@ test('Auto with nothing known yet is one word under the arrow, and its tooltip s
     const c = says(why, { place: '', is: 'folder', ...K });
     assert.deepEqual([c.mark, c.name, c.auto], ['arrow', 'Auto', false], why);
   }
+  // A task that names more than one project: Tasktap asks which.
+  assert.equal(says('asked', { place: '', is: 'folder', ...K }).title,
+    'Auto: the task names more than one project, so Tasktap asks you which. Click (or ⌘K) to choose the place yourself.');
   assert.equal(says('words', { place: '', is: 'folder', ...K }).title, AUTO);
   // An agent may choose: the tooltip names the agent that reads the task.
   assert.equal(says('model', { place: '', is: 'folder', agent: 'Claude Code', ...K }).title,
@@ -118,6 +121,13 @@ test('with nothing its words name or describe, the question leads with a folder 
   assert.deepEqual(ask([], false), ['folder / Open or create a folder… /  / ', 'scratch / Scratchpad /  / ', 'later / Keep for later /  / ']);
   for (const r of [...asked({ places: [], known: true }), ...asked({ places: [{ name: 'kiln', why: 'matches “static”', fresh: true, session: false }], known: true })])
     assert.ok(![r.name, r.dim, r.title ?? ''].some((x) => x.includes('·') || x.includes('not open yet')), r.name);
+});
+
+test('a task\'s words in a name or a tooltip are cut after 300 characters, never inside a character', () => {
+  assert.equal(short('fix the export'), 'fix the export');
+  const long = 'é'.repeat(299) + '😀😀';
+  assert.equal(short(long), 'é'.repeat(299) + '😀…');
+  assert.equal([...short('a'.repeat(1000))].length, 301);
 });
 
 test('the built-in project reads Scratchpad by its kind, whatever name is stored', () => {

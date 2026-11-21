@@ -183,6 +183,12 @@ kbd .i{width:12px;height:12px}
 .capture:not(.raised):is(:focus-within,.has) .cap::after{opacity:.9}
 .capture:not(.raised) .cap-row{padding-top:2px;border-top:0}
 .capture:not(.raised) textarea::placeholder{color:var(--fg-field)}
+/* The empty field's line rolling to the next (lines.ts rollIn): the field's own placeholder, already the next line, is
+   hidden while two copies laid exactly over it move, one going up as the next comes from below, seen only within the
+   field's text box; at rest there is only the placeholder. (The field's box, .cap, is positioned on Home and on a sheet alike.) */
+.capture .cap textarea[data-rolling]::placeholder{color:transparent}
+.cap-lines{position:absolute;overflow:hidden;pointer-events:none}
+.cap .cap-lines>textarea{position:absolute;max-height:none;margin:0;background:none;overflow:hidden}
 .capture:not(.raised) :is(.cap-to,.cap-list button,.cap-agent,.mic){border-radius:var(--r-in)}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}

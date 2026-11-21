@@ -12,7 +12,7 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer, FIRST } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { atComposer, cap, followSpeech, toAsk, typedPast } from '../capture.tsx';
+import { atComposer, cap, followSpeech, invite, toAsk, typedPast } from '../capture.tsx';
 import { live, talk } from '../speech/record.ts';
 import { effectsOf, lookOf, power } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -258,7 +258,7 @@ watchLayout(() => call('host.layout', {}), redraw);
 watchHeld(true);
 render(<App />, body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
-Object.assign(window, { __records: records, __where: where, __speech: { talk, live, cap }, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
+Object.assign(window, { __records: records, __where: where, __speech: { talk, live, cap }, __lines: invite, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
 void client
   .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'cards', 'prefs', 'agents', 'terminals', 'dictations'], records)
   .then(() => call('host.notch', {}))

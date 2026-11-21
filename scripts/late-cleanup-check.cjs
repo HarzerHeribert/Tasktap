@@ -13,6 +13,8 @@
 //     as it does when it is opened again a while later.
 //   - Home left for a workspace and shown again while a question waits at its Composer: the question waits in Needs
 //     you and the field has the keyboard, as when the two are a while apart.
+//   - A letter typed while the empty field's line rolls to the next (lines.ts): nothing of the roll is left, not its
+//     copies, not the field's hidden line, not its timer; and the same with a real key pressed during a roll.
 // usage: node scripts/late-cleanup-check.cjs   (ui/dist must be built)
 const path = require('node:path');
 const { chromium, webkit } = require('playwright');
@@ -150,6 +152,35 @@ async function leftWhileAsking(browser, url, system) {
   await done(page, at);
 }
 
+async function typedMidRoll(browser, url, system) {
+  const at = `${system}, a letter typed in one go with the empty field's line rolling`;
+  const page = await open(browser, { label: 'workspace', records: scene('normal'), url, dpr: 1, system });
+  await page.evaluate(() => window.__fake.emit({ do: 'where', front: true, notch: false }));
+  await page.focus('#capture-input');
+  await settled(page, 150);
+  const left = () => [document.querySelectorAll('.cap-lines').length, document.querySelectorAll('[data-rolling]').length, window.__lines.rolling].join(' ');
+  const now = await page.evaluate(new Function(`return (async () => {
+    const f = document.activeElement;
+    window.__lines.next(true);
+    const rolled = !!document.querySelector('.cap-lines');
+    f.value = 'a';
+    f.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'a' }));
+    ${RENDERED}
+    return [rolled, (${left})()];
+  })()`));
+  expect(now[0] && now[1] === '0 0 false', `${at}: the roll was ${now[0] ? 'under way' : 'not under way'}, and after the letter copies, hidden lines and the timer are ${now[1]}, not 0 0 false`);
+  await settled(page);
+  expect((await page.evaluate(left)) === '0 0 false' && (await page.inputValue('#capture-input')) === 'a', `${at}: a moment later something of the roll is back, or the letter is lost`);
+  // A real key, pressed while a roll moves.
+  await page.keyboard.press('Backspace');
+  await settled(page, 150);
+  await page.evaluate(() => window.__lines.next(true));
+  await page.keyboard.press('KeyB');
+  const real = await page.evaluate(left);
+  expect(real === '0 0 false' && (await page.inputValue('#capture-input')) === 'b', `${at}, with a real key: what is left of the roll is ${real}, the field "${await page.inputValue('#capture-input')}"`);
+  await done(page, at);
+}
+
 async function main() {
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
   const engines = [['chromium', chromium, ['mac', 'windows']], ['webkit', webkit, ['mac']]], tried = [];
@@ -171,6 +202,7 @@ async function main() {
           await trial(browser, server.url, system);
           await notNow(browser, server.url, system);
           await leftWhileAsking(browser, server.url, system);
+          await typedMidRoll(browser, server.url, system);
         }
       } finally {
         await browser.close();

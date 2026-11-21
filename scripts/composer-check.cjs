@@ -30,7 +30,15 @@
 //   control has no key ⌘J, Tab does not reach the foot's controls, "co" does not put Codex first, or a signed-out usual
 //   agent keeps the list shut; the chip's reason is cut; or a real pointer's click on "Open another folder…" or a
 //   project in the chip's list does not land (also in WebKit, the Mac's engine, where Playwright's WebKit is installed:
-//   at a desk without it a NOTE says what was not tried; where CI is set a missing WebKit is a failure).
+//   at a desk without it a NOTE says what was not tried; where CI is set a missing WebKit is a failure);
+// - the empty field's line (lines.ts): a fresh start does not show "What's next?" on Home, in the New Task sheet and in
+//   the notch, or the notch opened again does not show the next line; the line does not roll to the next about every 5 s with the field empty, holding the keyboard, the window
+//   in front and the effects Full, or its roll is seen by a screen reader or changes the field's name; a timer runs, or
+//   anything moves, with the window behind, the keyboard elsewhere, words in the field, a dictation, a composition, the
+//   effects at Still or Off, or Reduce Motion, or the roll does not start again once that is over; a task handed off
+//   does not show the next line, or shows it with a roll at Still, Off or Reduce Motion; the line with the key held to
+//   talk does not say the key as set (as Windows names it there), or is there without voice; or a line is wider than
+//   the notch's field at any text size.
 // Every step waits for what it acts on or reads by the page, never for a fixed time; SLOW_CORE (ms) makes the stand-in
 // core answer that much later and CPU_THROTTLE (n) runs the Chromium pages n times slower, to prove it.
 // usage: [SLOW_CORE=400] [CPU_THROTTLE=6] node scripts/composer-check.cjs [--dist folder] [--review]   (ui/dist must be built)
@@ -1366,6 +1374,146 @@ async function main() {
       const [ink, arrow, face, talkWords] = win.split(' | ');
       expect(ink === 'rgb(13, 13, 14)' && arrow === ink && face === 'true' && !!talkWords && !/[⌥⌘⌃⇧]/.test(talkWords), `on Windows the Composer's key, its arrow and the microphone's key say "${win}": not metal with its arrow in its ink, or a key in a Mac's signs`);
       await page.context().close();
+
+      // The empty field's line (lines.ts).
+      {
+        const placeholderOf = (p, sel = '#capture-input') => p.evaluate((s) => document.querySelector(s)?.placeholder, sel);
+        const rolling = (p) => p.evaluate(() => window.__lines.rolling);
+        const front = (p, on) => p.evaluate((on) => window.__fake.emit({ do: 'where', front: on, notch: !on }), on);
+        const setPref = (p, id, value) => p.evaluate(([id, value]) => window.__fake.push({ t: 'change', rev: (window.__rev = (window.__rev ?? 90000) + 1), sets: [{ c: 'prefs', put: [{ id, value, rev: window.__rev }] }] }), [id, value]);
+        // Every roll that starts, counted from here (two copies laid over the field, hidden from screen readers).
+        const watchRolls = (p) => p.evaluate(() => {
+          window.__rolls = [];
+          new MutationObserver((m) => m.forEach((r) => r.addedNodes.forEach((n) => n.classList?.contains('cap-lines') && window.__rolls.push({ hidden: n.getAttribute('aria-hidden') === 'true' && n.inert, name: document.querySelector('#capture-input').getAttribute('aria-label') }))))
+            .observe(document.body, { childList: true, subtree: true });
+        });
+        const rolls = (p) => p.evaluate(() => window.__rolls.length);
+        // A whole round of lines, from the one shown: until "What's next?" comes back.
+        const round = (p) => p.evaluate(() => {
+          const seen = [window.__lines.line];
+          for (let k = 0; k < 100; k++) {
+            window.__lines.next(false);
+            if (window.__lines.line === "What's next?") break;
+            seen.push(window.__lines.line);
+          }
+          return seen;
+        });
+        // A fresh start: "What's next?" on Home, in the New Task sheet and in the notch.
+        page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
+        expect((await placeholderOf(page)) === "What's next?", `a fresh start: Home's field says "${await placeholderOf(page)}", not "What's next?"`);
+        await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'capture' }), window.__motion.redraw()));
+        await whenThere(page, `.sheet ${FIELD}`, 'the New Task sheet\'s field');
+        expect((await placeholderOf(page, `.sheet ${FIELD}`)) === "What's next?", `a fresh start: the New Task sheet's field says "${await placeholderOf(page, `.sheet ${FIELD}`)}", not "What's next?"`);
+        await page.context().close();
+        page = await open(browser, { label: 'notch', records: scene('normal'), url: server.url, dpr: 1 });
+        await page.evaluate((g) => window.__fake.emit(g), GEO);
+        await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+        await whenThere(page, FIELD, 'the notch\'s field');
+        expect((await placeholderOf(page)) === "What's next?", `a fresh start: the notch's field says "${await placeholderOf(page)}", not "What's next?"`);
+        // Folded and opened again: the next line.
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+        const again = await until(() => placeholderOf(page), (v) => !!v && v !== "What's next?", 3000);
+        expect(!!again && again !== "What's next?" && again === (await page.evaluate(() => window.__lines.line)), `the notch opened again: its field says "${again}", not the next line`);
+        // No line is wider than the notch's field, at any text size.
+        for (const size of ['small', 'default', 'large']) {
+          await setPref(page, 'text_size', size);
+          await until(() => page.evaluate(() => document.documentElement.dataset.text), (v) => v === size);
+          const wide = await page.evaluate(() => {
+            const f = document.querySelector('#capture-input'), cs = getComputedStyle(f), x = document.createElement('canvas').getContext('2d');
+            x.font = cs.font;
+            const room = f.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), out = [];
+            const lines = [window.__lines.line];
+            for (let k = 0; k < 100; k++) {
+              window.__lines.next(false);
+              if (window.__lines.line === "What's next?") break;
+              lines.push(window.__lines.line);
+            }
+            for (const l of lines) {
+              const w = x.measureText(l).width + l.length * (parseFloat(cs.letterSpacing) || 0);
+              if (w > room) out.push(`"${l}" ${Math.ceil(w)} px in ${Math.floor(room)}`);
+            }
+            return out;
+          });
+          expect(!wide.length, `the notch at ${size} text: ${wide.join(', ')} is wider than its field`);
+        }
+        await page.context().close();
+
+        // Home in front, the keyboard in its field, the effects Full: the line rolls about every 5 s, by copies that
+        // screen readers do not see, the field's name staying "New task".
+        page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
+        await watchRolls(page);
+        await front(page, true);
+        // (Timed by the page from the moment the field takes the keyboard, which is when its timer starts.)
+        const took = await page.evaluate(() => new Promise((done) => {
+          const f = document.querySelector('#capture-input'), was = f.placeholder;
+          f.focus();
+          const t0 = performance.now();
+          const look = () => (f.placeholder !== was ? done([Math.round(performance.now() - t0), f.placeholder]) : performance.now() - t0 > 9000 ? done([-1, was]) : setTimeout(look, 20));
+          look();
+        }));
+        const first = await rolls(page), seen = await page.evaluate(() => window.__rolls[0] ?? null);
+        expect(took[0] > 4900 && took[0] < 8000 && took[1] !== "What's next?" && first === 1 && seen?.hidden && seen?.name === 'New task',
+          `Home in front with the keyboard: the line rolled after ${took[0]} ms to "${took[1]}" by ${first} rolls (${JSON.stringify(seen)}), not after about 5 s, once, by copies screen readers do not see, the field still "New task"`);
+        // Every way it holds still: the timer goes at once and nothing rolls; once that is over, it rolls again.
+        const DICTATION = '019a8b6c-7d10-7000-8000-0000000d1c7a';
+        for (const [why, stop, go] of [
+          ['the window behind', (p) => front(p, false), (p) => front(p, true)],
+          ['the keyboard elsewhere', (p) => p.evaluate(() => document.activeElement.blur()), (p) => p.focus(FIELD)],
+          ['words in the field', (p) => p.keyboard.type('a'), (p) => p.keyboard.press('Backspace')],
+          ['a dictation', (p) => p.evaluate((id) => window.__fake.push({ t: 'change', rev: 95001, sets: [{ c: 'dictations', put: [{ id, rev: 95001, phase: 'recording', text: '', level: 0, target: { kind: 'thought' }, error: null }] }] }), DICTATION),
+            (p) => p.evaluate((id) => window.__fake.push({ t: 'change', rev: 95002, sets: [{ c: 'dictations', del: [id] }] }), DICTATION)],
+          ['a composition', (p) => p.evaluate(() => document.activeElement.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))), (p) => p.evaluate(() => document.querySelector('#capture-input').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })))],
+          ['Effects at Still', (p) => setPref(p, 'motion_ambient', 'still'), (p) => setPref(p, 'motion_ambient', 'breathing')],
+          ['Effects Off', (p) => setPref(p, 'motion_ambient', 'off'), (p) => setPref(p, 'motion_ambient', 'breathing')],
+          ['Reduce Motion', (p) => p.emulateMedia({ reducedMotion: 'reduce' }), (p) => p.emulateMedia({ reducedMotion: 'no-preference' })],
+        ]) {
+          await stop(page);
+          const off = await until(() => rolling(page), (v) => !v, 3000);
+          expect(!off, `with ${why} the line's timer still runs`);
+          await go(page);
+          const on = await until(() => rolling(page), (v) => v, 3000);
+          expect(on, `after ${why} the line does not roll again`);
+        }
+        // Held still long enough to roll twice, nothing moves (the window behind).
+        const before = await rolls(page);
+        await front(page, false);
+        await page.waitForTimeout(11000);
+        expect((await rolls(page)) === before, 'with the window behind for 11 s, the line rolled');
+        await front(page, true);
+        await page.focus(FIELD);
+        // A task handed off: the next line, rolled in at Full; simply there at Still, Off and Reduce Motion.
+        for (const [how, set, unset] of [
+          ['Full', () => {}, () => {}],
+          ['Still', (p) => setPref(p, 'motion_ambient', 'still'), (p) => setPref(p, 'motion_ambient', 'breathing')],
+          ['Off', (p) => setPref(p, 'motion_ambient', 'off'), (p) => setPref(p, 'motion_ambient', 'breathing')],
+          ['Reduce Motion', (p) => p.emulateMedia({ reducedMotion: 'reduce' }), (p) => p.emulateMedia({ reducedMotion: 'no-preference' })],
+        ]) {
+          await set(page);
+          await until(() => page.evaluate(() => document.documentElement.dataset.effects), (v) => (how === 'Full' ? v === 'full' : v !== 'full'), 3000);
+          const was = await placeholderOf(page), n = await rolls(page);
+          await page.keyboard.type(`a task handed off at ${how}`);
+          await page.keyboard.press('Enter');
+          const next = await until(() => placeholderOf(page), (v) => v !== was, 3000);
+          const rolled = (await rolls(page)) - n;
+          expect(next !== was && (how === 'Full' ? rolled === 1 : rolled === 0), `a task handed off at ${how}: the field says "${next}" after "${was}", by ${rolled} rolls`);
+          await unset(page);
+        }
+        await page.context().close();
+
+        // The line with the key held to talk: the key as set, on a Mac and as Windows names it; not there without voice.
+        for (const [system, says] of [['mac', 'Hold ⌃⌥T and talk'], ['windows', 'Hold Ctrl+Alt+T and talk']]) {
+          const voice = { ...scene('normal') };
+          voice.prefs = [...(voice.prefs || []).filter((x) => !['speech_by', 'talk_key'].includes(x.id)), { id: 'speech_by', value: { server: 'https://api.openai.com', model: 'gpt-transcribe' }, rev: 1 }, { id: 'talk_key', value: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' }, rev: 1 }];
+          page = await open(browser, { label: 'workspace', records: voice, url: server.url, dpr: 1, system });
+          const lines = await round(page);
+          expect(lines[0] === "What's next?" && lines.includes(says) && !lines.some((l) => /and talk/.test(l) && l !== says), `${system}, voice set up and ⌃⌥T to talk: a round of lines is ${JSON.stringify(lines)}, without "${says}"`);
+          await setPref(page, 'speech_by', null);
+          const none = await round(page);
+          expect(!none.some((l) => /and talk/.test(l)), `${system}, no voice: a round of lines still has ${none.filter((l) => /and talk/.test(l)).join(', ')}`);
+          await page.context().close();
+        }
+      }
 
       // "Open another folder…" in the chip's list, clicked with a real pointer, asks for the folder panel and the chip
       // takes what was chosen. In WebKit (the Mac's engine) where it is installed: there a button takes no keyboard on

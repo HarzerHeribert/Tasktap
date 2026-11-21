@@ -1,6 +1,8 @@
 // The Node modules the client tests use, declared here rather than adding @types/node.
 declare module 'node:test' {
   export default function test(name: string, body: () => void | Promise<void>): void;
+  /** Timers the test moves by hand (lines.test.ts). */
+  export const mock: { timers: { enable(o: { apis: string[] }): void; tick(ms: number): void; reset(): void } };
 }
 declare module 'node:assert/strict' {
   const assert: {

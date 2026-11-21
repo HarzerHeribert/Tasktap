@@ -250,15 +250,16 @@ said="$(grep -c 'Tasktap failed to start: the core ended before it listened' "$t
 fi
 
 section "Driving the app on $tmp/data"
-# Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: it is shown
-# by the host's fallback, 3 s after the window is made (a moment into the launch), since the page's own word that it has
-# drawn waits for the core; and the page has the core once it is there, for all that follows.
+# Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: its page,
+# which waits a second and a half for its records, says it has drawn without the core (host.ready goes out before the
+# core's welcome), about two seconds into the launch; the host's own fallback, 3 s after the window is made, would be
+# later than the bound. The page has the core once it is there, for all that follows.
 launch "$tmp/data" 10
 for _ in $(seq 1 50); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done
 shown="$(grep -o '"event":"window","ms":[0-9]*' "$log" | head -1 | grep -o '[0-9]*$')"
 shot core-starting workspace
-[ -n "$shown" ] && [ "$shown" -le 3500 ] && ! grep -q '"event":"ready"' "$log" \
-  && pass "with a core ten seconds slow to start, the window is shown before it is there, by the 3 s fallback ($shown ms after the launch)" \
+[ -n "$shown" ] && [ "$shown" -le 2500 ] && ! grep -q '"event":"ready"' "$log" \
+  && pass "with a core ten seconds slow to start, the window is shown before it is there, once its page has drawn ($shown ms after the launch)" \
   || fail "the window does not wait for the core" "window at ${shown:-no} ms after the launch; the core $(grep -q '"event":"ready"' "$log" && echo was || echo "was not") there first"
 for _ in $(seq 1 200); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 # FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a

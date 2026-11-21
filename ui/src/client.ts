@@ -205,6 +205,10 @@ export class Stream {
   }
 }
 
+/** What a page asks of the host before the core has answered: the host answers these itself, and the window needs
+ *  them at once (shown once the page has drawn, and its own buttons and menu). Every other call waits for the welcome. */
+const UNWAITED: ReadonlySet<Name> = new Set<Name>(['host.ready', 'host.window']);
+
 export class Client {
   /** The core's answer to the host's hello on this connection. */
   readonly welcome: Promise<Welcome>;
@@ -275,7 +279,7 @@ export class Client {
 
   /** A call whose reply `map` turns into its result as it arrives, before any later frame. */
   private async request<T>(name: Name, args: unknown, map: (ok: unknown) => T): Promise<T> {
-    await this.welcome;
+    if (!UNWAITED.has(name)) await this.welcome;
     const id = (this.next = (this.next + 1) >>> 0);
     const frame = JSON.stringify({ t: 'call', id, name, args });
     const reply = new Promise<T>((ok, no) => this.waiting.set(id, { ok: (v: unknown) => ok(map(v)), no }));

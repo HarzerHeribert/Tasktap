@@ -1,8 +1,8 @@
 # host\scripts\smoke.ps1: what smoke.sh proves on the Mac, as far as it is built for Windows. It starts the built app on a temporary data folder, passive (it takes no keyboard and uses a clipboard
 # of its own), with a core that has the fixture agent, drives it only through its debug channel (one command per
 # line on standard input), and says PASS or FAIL for:
-#   - the window not waiting for a core slow to start, and quitting while it starts leaving nothing running (a launch
-#     of its own, first);
+#   - a core ten seconds slow to start: quitting while it starts leaves nothing running (a launch of its own, first),
+#     and the window does not wait for it (the main launch, whose page has the core once it is there);
 #   - the core starting and the host reaching it over its pipe, the workspace page running and having the core's
 #     records through the bridge, the first start's Setup sheet coming down by itself and Not now putting it away, a
 #     folder becoming a workspace, a terminal with the system's shell answering what is typed into it; closing a
@@ -59,21 +59,21 @@ Set-Content "$tmp\opener.cmd" "@echo %* >> `"$tmp\opened`""
 Set-Content "$tmp\opened" '' -NoNewline
 
 . (Join-Path $PSScriptRoot 'app.ps1')
-# A core slow to start, as a first start's can be (its new copy looked at by a virus scanner, a slow disk): a stand-in
-# that waits SMOKE_CORE_DELAY seconds and then runs the fixture core with what it was given, for as long as that runs
-# (Windows has no exec), built here by rustc, which built the app. In a launch of its own on a folder of its own, its
-# core ten seconds slow: the window is shown before the core is there, by the host's fallback 3 s after the window is
-# made (within 4 s of the launch: on the VM the window is made half a second in); told to quit then, the core still
-# starting, the app ends, and 12 s after the launch nothing runs from that folder (the stand-in, ended before it ran
-# the core, is the only thing that would start one). smoke.sh has the same case, but quits at the second second in a
-# launch of its own.
+$build = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
+# A core slow to start, as a first start's can be (its new copy looked at by a virus scanner, a slow disk), as smoke.sh
+# has it: a stand-in that waits SMOKE_CORE_DELAY seconds (none unless a launch sets it) and then runs a copy of the
+# fixture core with what it was given, for as long as that runs (Windows has no exec); built here by rustc, which built
+# the app. The app copies the stand-in into its data folder and starts it from there; the core it runs is under this
+# run's folder, where what is left running is looked for.
 $slow = $null
 if (Get-Command rustc -ErrorAction SilentlyContinue) {
+    New-Item -ItemType Directory -Force "$tmp\fixture-core" | Out-Null
+    Copy-Item $Core "$tmp\fixture-core\tasktap.exe"
     Set-Content "$tmp\slow-core.rs" @"
 fn main() {
     let wait = std::env::var("SMOKE_CORE_DELAY").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
     std::thread::sleep(std::time::Duration::from_secs(wait));
-    let ran = std::process::Command::new(r"$Core").args(std::env::args_os().skip(1)).status();
+    let ran = std::process::Command::new(r"$tmp\fixture-core\tasktap.exe").args(std::env::args_os().skip(1)).status();
     std::process::exit(ran.ok().and_then(|s| s.code()).unwrap_or(1));
 }
 "@
@@ -81,21 +81,21 @@ fn main() {
     if ($LASTEXITCODE -eq 0) { $slow = "$tmp\slow-core.exe" }
 }
 if ($slow) {
+    # Told to quit at the second second of a launch of its own, its core ten seconds slow: the app ends, and 12 s after
+    # the launch nothing runs from its folder (the stand-in, ended before it ran the core, is the only thing that would
+    # start one).
     New-Item -ItemType Directory -Force "$tmp\early" | Out-Null
     $launched = Get-Date
     Start-App (Join-Path $App 'tasktap-app.exe') @{
         TASKTAP_PASSIVE = '1'
         TASKTAP_DATA = "$tmp\early"
         TASKTAP_CORE_EXE = $slow
-        TASKTAP_CORE_BUILD = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
+        TASKTAP_CORE_BUILD = $build
         SMOKE_CORE_DELAY = '10'
         CLAUDE_CONFIG_DIR = "$tmp\no-history\claude"
         CODEX_HOME = "$tmp\no-history\codex"
     } 60
-    $window = Until '"event":"window"' 5
-    $ms = if ("$window" -match '"ms":(\d+)') { [int]$Matches[1] }
-    $first = [bool]($seen | Where-Object { $_.Contains('"event":"ready"') })
-    if ($ms -and $ms -le 4000 -and -not $first) { Pass "with a core ten seconds slow to start, the window is shown before it is there, by the 3 s fallback ($ms ms after the launch)" } else { Fail 'the window does not wait for the core' "window at $(if ($ms) { "$ms ms after the launch" } else { 'no time' }); the core there first: $first" }
+    Start-Sleep -Seconds 2
     Send 'quit'
     $ended = $proc.WaitForExit(10000)
     # The app alone: a core it started, or the stand-in, would be seen left running.
@@ -106,16 +106,18 @@ if ($slow) {
     # With no desktop (session 0) the app takes the quit and its event loop never ends (as below, "the app quits when
     # told"): there only what is left running counts.
     $desk = [Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0
-    if (($ended -or -not $desk) -and -not $left.Count) { Pass "told to quit while the core still starts, $(if ($ended) { 'the app ends' } else { 'the app gives the start up (no desktop here: its end is not waited for)' }), and nothing runs from its folder after or starts there" } else { Fail 'quit while the core starts' "the app ended when told: $ended; running from its folder 12 s after the launch: $(($left | ForEach-Object Name) -join ', ')"; $left | Stop-Process -Force -ErrorAction SilentlyContinue }
-} else { Note 'no rustc here to build the slow core''s stand-in: the window with a core slow to start is not tried' }
+    if (($ended -or -not $desk) -and -not $left.Count) { Pass "told to quit two seconds into a core's ten-second start, $(if ($ended) { 'the app ends' } else { 'the app gives the start up (no desktop here: its end is not waited for)' }), and nothing runs from its folder after or starts there" } else { Fail 'quit while the core starts' "the app ended when told: $ended; running from its folder 12 s after the launch: $(($left | ForEach-Object Name) -join ', ')"; $left | Stop-Process -Force -ErrorAction SilentlyContinue }
+} else { Note 'no rustc here to build the slow core''s stand-in: the app starts with the fixture core as it is, and a core slow to start is not tried' }
 
+# Its first start's core is slow too, through the stand-in: ten seconds pass before it listens.
 Start-App (Join-Path $App 'tasktap-app.exe') @{
     TASKTAP_PASSIVE = '1'
     TASKTAP_DATA = "$tmp\data"
     TASKTAP_PICK = "$tmp\project"
     TASKTAP_OPEN = "$tmp\opener.cmd"
-    TASKTAP_CORE_EXE = $Core
-    TASKTAP_CORE_BUILD = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
+    TASKTAP_CORE_EXE = $(if ($slow) { $slow } else { $Core })
+    TASKTAP_CORE_BUILD = $build
+    SMOKE_CORE_DELAY = $(if ($slow) { '10' } else { '0' })
     PATH = "$tmp\agents;$env:PATH"
     GIT_CONFIG_GLOBAL = "$tmp\gitconfig"
     GIT_CONFIG_NOSYSTEM = '1'
@@ -158,8 +160,17 @@ function Seen($text, $seconds = 0) {
 $fixture = $null
 
 try {
+    # The window does not wait for the slow core: it is shown once the page has drawn, before the core is there (2.1 s
+    # into the launch on the VM; the host's fallback, 3 s after the window is made, comes at 3.5 s there).
+    $ready = { [bool]($seen | Where-Object { $_.Contains('"event":"ready"') }) }
+    if ($slow) {
+        $window = Until '"event":"window"' 8
+        $ms = if ("$window" -match '"ms":(\d+)') { [int]$Matches[1] }
+        $first = & $ready
+        if ($ms -and $ms -le 2800 -and -not $first) { Pass "with a core ten seconds slow to start, the window is shown before it is there, once the page has drawn ($ms ms after the launch)" } else { Fail 'the window does not wait for the core' "window at $(if ($ms) { "$ms ms after the launch" } else { 'no time' }); the core there first: $first" }
+    }
     # The first start of the web view on a machine takes its time.
-    if (Until '"event":"ready"' 45) { Pass 'the core starts and the host reaches it over its pipe' } else { Fail 'the core starts and the host reaches it' }
+    if ((& $ready) -or (Until '"event":"ready"' 45)) { Pass 'the core starts and the host reaches it over its pipe' } else { Fail 'the core starts and the host reaches it' }
     Send 'call core.status {}'
     $status = Until '"event":"reply"' 5
     if ($status -match '"terminals":0') { Pass 'the core answers the host: no terminal runs' } else { Fail "the core answers the host: $status" }

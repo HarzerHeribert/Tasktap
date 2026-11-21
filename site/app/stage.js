@@ -590,6 +590,14 @@
     cap.style.cssText = '';
   };
 
+  /** The notch folds a question nobody touched after ten seconds (ui/src/notch/main.tsx, UNTOUCHED), which on the page
+   *  would take the question away from a visitor who reads it under Reduce Motion or pauses on it. In the app the
+   *  pointer resting on the notch holds it open; so here, once it is open: the question stays for as long as it is shown. */
+  async function rest(g) {
+    for (let i = 0; i < 25 && !isOpen(); i++) await wait(40, g);
+    fake.emit({ do: 'hover-enter' });
+  }
+
   /** Back to nothing running, folded. */
   async function clear(g) {
     if (isOpen()) tab().click();
@@ -673,9 +681,11 @@
       ids.question = uid();
       change(put('questions', question()), put('thoughts', running({ status: 'needs_you' })), glance({ needs_you: 1, question: ids.question }));
       tell('ask', 'needs');
+      await rest(g);
       await wait(5600, g);
       await press(document.querySelector('#sheet [data-question] .ans kbd'), g);
       key(document.querySelector('#sheet [data-question]'), '1');
+      fake.emit({ do: 'hover-exit' });
       answered();
       await wait(3000, g);
     },
@@ -688,7 +698,9 @@
       }
       change(put('thoughts', finished({})), put('sessions', session('idle', ['Ran npm test -- rehearsal'])), put('results', result()), glance({ done: 1 }));
       tell('result', 'done');
-      await wait(1500, g);
+      // A beat with the folded notch saying so, then the pointer on it opens the result: shorter than the fold between
+      // rounds, so the step never stands longer on a shut notch than the loop does between rounds.
+      await wait(600, g);
       fake.emit({ do: 'hover-enter' });
       await wait(5600, g);
       await press(document.querySelector('#sheet .result .act kbd'), g);
@@ -745,6 +757,7 @@
       else if (step === 'ask') {
         ids.question = uid();
         change(put('questions', question()), put('thoughts', running({ status: 'needs_you' })), put('sessions', session('working', ['Checking the layout at 390 px'])), glance({ needs_you: 1, question: ids.question }));
+        await rest(g);
       } else if (step === 'result') {
         change(put('thoughts', finished({})), put('sessions', session('idle', ['Ran npm test -- rehearsal'])), put('results', result()), glance({ done: 1 }));
         fake.emit({ do: 'hover-enter' });

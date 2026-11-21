@@ -58,7 +58,7 @@ export function Answer({ questions }: { questions: Question[] }) {
         {about && <p class="ctx">{q.source === 'permission' ? `${who} asks permission · ${about}` : about}</p>}
         <Ask q={q} size="notch" who={who} terminal={q.reply_via === 'terminal' && s ? () => peek(s.id) : undefined} />
         {ui.capturing ? <div class="under"><Capture {...hooks} /></div> : (
-          <button type="button" class="act quiet" onClick={capture}><Key k="C" cap /><span>Put a thought in</span></button>
+          <button type="button" class="act quiet" aria-label="New task" onClick={capture}><Key k="C" cap /><span>New task</span></button>
         )}
       </div>
     </div>

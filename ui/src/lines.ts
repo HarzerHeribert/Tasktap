@@ -119,18 +119,25 @@ export function rollIn(field: HTMLTextAreaElement, from: string, to: string) {
   field.placeholder = to;
   const box = field.offsetParent as HTMLElement | null;
   if (!box || !from || typeof field.animate !== 'function') return;
-  const root = getComputedStyle(document.documentElement), at = field.getBoundingClientRect(), of = box.getBoundingClientRect();
-  // The field's own box, where its placeholder is drawn; nothing of the roll is drawn outside it.
+  const root = getComputedStyle(document.documentElement), cs = getComputedStyle(field), at = field.getBoundingClientRect(), of = box.getBoundingClientRect();
+  // The field's text box, where its placeholder is drawn (its box less its border and padding); nothing of the roll is
+  // drawn outside it. Each copy is the whole field, placed so that its text box lies on this one.
+  const edge = (side: 'Left' | 'Top' | 'Right' | 'Bottom') => parseFloat(cs.getPropertyValue(`border-${side.toLowerCase()}-width`)) + parseFloat(cs.getPropertyValue(`padding-${side.toLowerCase()}`));
+  const left = edge('Left'), top = edge('Top');
   const over = document.createElement('div');
   over.className = 'cap-lines';
   over.setAttribute('aria-hidden', 'true');
   over.inert = true;
-  Object.assign(over.style, { left: `${at.left - of.left - box.clientLeft}px`, top: `${at.top - of.top - box.clientTop}px`, width: `${at.width}px`, height: `${at.height}px` });
+  Object.assign(over.style, {
+    left: `${at.left - of.left - box.clientLeft + left}px`, top: `${at.top - of.top - box.clientTop + top}px`,
+    width: `${at.width - left - edge('Right')}px`, height: `${at.height - top - edge('Bottom')}px`,
+  });
   const copy = (words: string) => {
     const t = document.createElement('textarea');
     t.rows = 1;
     t.tabIndex = -1;
     t.placeholder = words;
+    Object.assign(t.style, { left: `${-left}px`, top: `${-top}px`, width: `${at.width}px`, height: `${at.height}px` });
     return over.appendChild(t);
   };
   const out = copy(from), inn = copy(to);

@@ -40,6 +40,10 @@ try {
         New-Item -ItemType Directory -Force "$hostDir\binaries\fixtures" | Out-Null
         Copy-Item "$hostDir\target\core-fixtures\$triple\release\tasktap.exe" "$hostDir\binaries\fixtures\tasktap.exe" -Force
         Set-Content -Path "$hostDir\binaries\fixtures\build.txt" -Value "$build.fixtures" -NoNewline
+        # smoke.ps1's stand-in for a core slow to start, built here where rustc is: the account a desktop round runs the
+        # smoke script in may have none (on the VM it is a standard account of its own).
+        rustc -O -o "$hostDir\binaries\fixtures\slow-core.exe" "$root\host\scripts\slow-core.rs"
+        if ($LASTEXITCODE -ne 0) { throw 'host\scripts\slow-core.rs did not build' }
     }
 } finally { Remove-Item Env:TASKTAP_BUILD }
 Copy-Item "$hostDir\target\core\$triple\release\tasktap.exe" "$hostDir\binaries\tasktap-$triple.exe" -Force

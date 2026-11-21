@@ -20,7 +20,7 @@ import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { QUIET, agent, agentName, byPerson, call, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placedBy, placing, step } from './way.ts';
 
 /** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
@@ -120,9 +120,11 @@ export function hinted(): Route | undefined {
  *  when it is the only place there is; else Tasktap decides by its words, and asks where a thought goes that names
  *  none. With no project known a thought is saved for later. Scratch is never a default: a thought goes there only
  *  when the person chooses it. */
-export function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'named' | 'said' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'ask' | 'none' } {
-  const pick = picked(), route = hinted(), all = known();
-  const usual = pick === undefined && cap.usual ? records.projects.get(cap.usual) : undefined;
+export function where(pick = picked(), route = hinted(), usualId = cap.usual): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'named' | 'said' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'ask' | 'none' | 'starting' } {
+  // The core has not answered yet: nothing is known, and nothing is said; a task started now is placed once it has.
+  if (!core.in) return { to: '', by: 'router', why: 'starting' };
+  const all = known();
+  const usual = pick === undefined && usualId ? records.projects.get(usualId) : undefined;
   if (pick === 'later') return { to: pick, by: 'later', why: 'chosen' };
   if (pick) return { to: pick, by: 'pick', why: 'chosen' };
   if (route?.confidence === 'clear' && 'session' in route.to) return { to: '', by: 'router', why: 'follows' };
@@ -162,9 +164,11 @@ function says(w: ReturnType<typeof where>, route: Route | undefined): [string, s
       return ['Tasktap decides', 'asks you if unsure'];
     case 'none':
       return ['No projects yet', 'saved for later'];
+    case 'starting':
+      return ['', ''];
   }
 }
-const named = (w: ReturnType<typeof where>): Partial<CaptureArgs> => (w.by === 'router' ? { current: cap.current } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' });
+const named = (w: ReturnType<typeof where>, current = cap.current): Partial<CaptureArgs> => (w.by === 'router' ? { current } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' });
 
 /** The thoughts on their way, newest first: being placed, or placed and held. Undo still takes each back. */
 export const going = () => [...records.thoughts.values()].filter((t) => onWay(t)).sort((a, b) => b.created - a.created);
@@ -223,8 +227,13 @@ async function send(e: Event, hooks: Hooks) {
     const t = waiting();
     return void (t && start(t));
   }
-  const w = where(), pick = picked(), { dest, undone, agent: by } = cap;
+  // Before the core has answered, where the task goes is worked out the moment it and its records are there, from
+  // what the person had chosen when they started it (nothing can be chosen before); the task goes then, once.
+  const pick = picked(), { dest, undone, agent: by, usual, current } = cap;
+  let w = where();
+  const waited = !core.in;
   const gone = leave(cap, async (text) => {
+    if (waited) (await coreIn, (w = where(pick, undefined, usual)));
     let id = uuid7();
     // (An agent is a capture's to name: a thought that goes out again to another agent is captured anew.)
     if (undone && w.to && w.to !== 'later' && by === undone.agent) {
@@ -235,7 +244,7 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.update', { id, ...placeArgs(w.to) });
     } else {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
-      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w), ...(by ? { agent: by } : {}) });
+      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current), ...(by ? { agent: by } : {}) });
     }
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by } });
     page.error = '';
@@ -856,7 +865,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
         ) : cap.agents ? <AgentList signIn={hooks.agents} /> : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
           // The foot: where it goes, who runs it, the microphone, and the key that says what Return does, in that order.
           <div key="foot" class="cap-row" ref={foot}>
-            <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
+            <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false} data-starting={w.why === 'starting' || undefined}
               title={`${back ? 'Your choice was for the thought before. ' : ''}${!all ? 'No project is known yet: a thought is saved for later until a folder is open. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
                 : model ? `${agentName(first(pref('route_by'), placers()))} reads the thought and places it. Click to choose the place yourself`
                   : w.why === 'words' || w.why === 'ask' ? 'Tasktap places it in the project its words name, and asks you where when they name none. Click (or ⌘K) to choose the place yourself'

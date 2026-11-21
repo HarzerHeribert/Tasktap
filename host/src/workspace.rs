@@ -266,13 +266,14 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(3));
         let inner = handle.clone();
-        let _ = handle.run_on_main_thread(move || ready(&inner));
+        let _ = handle.run_on_main_thread(move || ready(&inner, "fallback"));
     });
     Ok(())
 }
 
-/// `host.ready`: the page has drawn its first frame; the window appears with it, not blank.
-pub fn ready(app: &AppHandle) {
+/// `host.ready`: the page has drawn its first frame; the window appears with it, not blank. `by` says which showed it:
+/// the page (`ready`) or the fallback 3 s after the window was made (`fallback`).
+pub fn ready(app: &AppHandle, by: &str) {
     let Some(window) = app.get_webview_window(LABEL) else { return };
     if with(|st| std::mem::replace(&mut st.shown, true)) {
         return;
@@ -282,7 +283,7 @@ pub fn ready(app: &AppHandle) {
     if !passive {
         let _ = window.set_focus();
     }
-    println!("{}", json!({"event": "window", "ms": crate::since_start()}));
+    println!("{}", json!({"event": "window", "ms": crate::since_start(), "by": by}));
     // The tab's page is made after the window's first picture, not before it.
     #[cfg(windows)]
     crate::edge::ready(app);

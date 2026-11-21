@@ -252,15 +252,21 @@ fi
 section "Driving the app on $tmp/data"
 # Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: its page,
 # which waits a second and a half for its records, says it has drawn without the core (host.ready goes out before the
-# core's welcome), about two seconds into the launch; the host's own fallback, 3 s after the window is made, would be
-# later than the bound. The page has the core once it is there, for all that follows.
+# core's welcome). Judged by cause, not by the clock, which runs slower on some Macs than on others: the window is
+# shown before the core is there, and because the page said it had drawn (its line says which showed it), not by the
+# host's fallback 3 s after the window is made. 5 s is only a net. The page has the core once it is there, for all
+# that follows.
 launch "$tmp/data" 10
-for _ in $(seq 1 50); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done
-shown="$(grep -o '"event":"window","ms":[0-9]*' "$log" | head -1 | grep -o '[0-9]*$')"
+for _ in $(seq 1 60); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done
+window="$(grep '"event":"window"' "$log" | head -1)"
+shown="$(echo "$window" | grep -o '"ms":[0-9]*' | grep -o '[0-9]*$')"
+by="$(echo "$window" | grep -o '"by":"[a-z]*"' | cut -d'"' -f4)"
+# Which the app said first: the window, or the core there.
+first="$(grep -m1 -o '"event":"window"\|"event":"ready"' "$log")"
 shot core-starting workspace
-[ -n "$shown" ] && [ "$shown" -le 2500 ] && ! grep -q '"event":"ready"' "$log" \
-  && pass "with a core ten seconds slow to start, the window is shown before it is there, once its page has drawn ($shown ms after the launch)" \
-  || fail "the window does not wait for the core" "window at ${shown:-no} ms after the launch; the core $(grep -q '"event":"ready"' "$log" && echo was || echo "was not") there first"
+[ "$by" = ready ] && [ "$first" = '"event":"window"' ] && [ "${shown:-99999}" -le 5000 ] \
+  && pass "with a core ten seconds slow to start, the window is shown before it is there, once its page said it had drawn ($shown ms after the launch)" \
+  || fail "the window does not wait for the core" "shown by the ${by:-nothing} at ${shown:-no} ms after the launch; the core $([ "$first" = '"event":"ready"' ] && echo was || echo "was not") there first"
 for _ in $(seq 1 200); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 # FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a
 # covered window would not draw is checked too.

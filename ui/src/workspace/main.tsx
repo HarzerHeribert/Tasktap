@@ -33,8 +33,8 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, agentName, answerKey, askGlobalKeys, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
-  open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
+  LOOSE, agentName, answerKey, askGlobalKeys, call, client, closeTab, copy, core, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
+  open, openQuestions, page, paste, pref, records, recordsIn, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
 import { SECTIONS, shown } from './settings.tsx';
@@ -280,7 +280,7 @@ function Rail() {
   return (
     <footer class="rail">
       <span class="rail-l" role="status">
-        {page.error ? <span class="err">{page.error}</span> : <><Mark s={mark} label="" />{words.length ? words : <span>Nothing running</span>}</>}
+        {page.error ? <span class="err">{page.error}</span> : !core.in ? <span>Starting…</span> : <><Mark s={mark} label="" />{words.length ? words : <span>Nothing running</span>}</>}
       </span>
       <span class="rail-r">
         {newer && <button type="button" class="newer" onClick={() => arrive('settings:about')}>Version {newer} is ready</button>}
@@ -451,6 +451,7 @@ void client
   .sub(['thoughts', 'projects', 'cards', 'looks', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations', 'previews'], records)
   .then(() => {
     ui.ready = true;
+    recordsIn();
     reconcile();
     const at = new URLSearchParams(location.search).get('focus');
     if (at) arrive(at);

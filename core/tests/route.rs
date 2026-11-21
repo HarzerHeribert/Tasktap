@@ -1840,14 +1840,16 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
         assert!(!said.contains(word), "{word} in {said}");
     }
     assert_eq!(terms.terms, tasktap_core::route::TERMS);
-    // Tasktap's order: what costs the person nothing more first, the
-    // fastest first among those; then what their provider bills.
+    // Tasktap's order: ChatGPT first, which starts no agent; then what
+    // costs the person nothing more, the fastest first among those; then
+    // what their provider bills.
     let tools: Vec<_> = (terms.tools.iter())
         .map(|t| (t.agent.as_str(), t.model.as_str(), t.pays, t.ms))
         .collect();
     assert_eq!(
         tools,
         [
+            ("chatgpt", "gpt-6.2-sol", Pays::Plan, Some(4000)),
             ("fixture-silent", "fixture-small", Pays::Plan, Some(600)),
             ("fixture", "fixture-small", Pays::Plan, Some(900)),
             ("claude", "haiku", Pays::Plan, Some(3700)),
@@ -1868,11 +1870,12 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
     assert_eq!(pays("claude", Some("api_key")), Pays::Billed);
     assert_eq!(pays("an-agent-of-their-own", None), Pays::Billed);
     let mut keyed = terms.tools.clone();
-    keyed[0].pays = pays(&keyed[0].agent, Some("an API key"));
+    keyed[1].pays = pays(&keyed[1].agent, Some("an API key"));
     let order: Vec<_> = proposed(keyed).into_iter().map(|t| t.agent).collect();
     assert_eq!(
         order,
         [
+            "chatgpt",
             "fixture",
             "claude",
             "codex",

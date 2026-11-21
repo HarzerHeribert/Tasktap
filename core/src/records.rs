@@ -683,7 +683,9 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             own = value.key() == PrefKey::OwnAgents;
             // An agreement names what this core would really ask (design §8).
             if let PrefValue::RouteBy(Some(by)) = &value {
-                crate::route::valid(by).map_err(|why| Error::new(Code::Invalid, why))?;
+                let chatgpt = crate::chatgpt::model(&tx).map_err(fail)?;
+                let valid = crate::route::valid(by, chatgpt.as_deref());
+                valid.map_err(|why| Error::new(Code::Invalid, why))?;
             }
             // As is a consent to a speech service, and the languages spoken.
             match &value {
@@ -772,6 +774,12 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         // The servers a key is stored for change with the keys alone.
         Delete::Prefs { id: PrefKey::Keys } => {
             return Err(invalid("key.set and key.remove change keys".into()));
+        }
+        Delete::Prefs {
+            id: PrefKey::Chatgpt,
+        } => {
+            let why = "chatgpt.sign_in and chatgpt.sign_out change the sign-in with ChatGPT";
+            return Err(invalid(why.into()));
         }
         Delete::Prefs { id } => tx.delete_pref(id),
         Delete::Layouts { id } => tx.delete_layout(id),

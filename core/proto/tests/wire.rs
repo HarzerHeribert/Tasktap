@@ -408,6 +408,9 @@ fn every_call_round_trips() {
         agents: vec![health],
     };
     round_trip::<call::AgentsDetect>(detect, agents, seen);
+    let address = "https://auth.openai.com/api/accounts/authorize?client_id=x".to_owned();
+    round_trip::<call::ChatgptSignIn>(Empty {}, address, seen);
+    round_trip::<call::ChatgptSignOut>(Empty {}, (), seen);
     for (start, from) in [
         (None, None),
         (
@@ -689,7 +692,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 52);
+    assert_eq!(Name::ALL.len(), 54);
 }
 
 #[test]
@@ -724,7 +727,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 43);
+    assert_eq!(by(Access::Device).len(), 45);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);

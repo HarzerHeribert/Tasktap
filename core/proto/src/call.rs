@@ -89,6 +89,8 @@ table! {
     RouteHint "route.hint" Device (Hint) -> Route;
     RouteTerms "route.terms" Device (Empty) -> crate::args::RouteTerms;
     AgentsDetect "agents.detect" Device (DetectAgents) -> Agents;
+    ChatgptSignIn "chatgpt.sign_in" Device (Empty) -> String;
+    ChatgptSignOut "chatgpt.sign_out" Device (Empty) -> ();
     // Terminals
     TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;
     TerminalResize "terminal.resize" Device (ResizeTerminal) -> ();

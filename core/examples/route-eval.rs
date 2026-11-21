@@ -148,6 +148,7 @@ fn main() {
             let ms = began.elapsed().as_millis();
             let answer = answer.map_err(|failed| match failed {
                 checks::Failed::Gone => route::gone(agent.name()),
+                checks::Failed::SignedOut => "it is signed out".into(),
                 checks::Failed::Limit(_, why) | checks::Failed::Why(why) => why,
             });
             let accepted = answer.and_then(|answer| route::accept(&request, &answer));

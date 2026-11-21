@@ -7,6 +7,7 @@
 
 pub mod agents;
 mod calls;
+mod chatgpt;
 pub mod client;
 mod command;
 mod conn;

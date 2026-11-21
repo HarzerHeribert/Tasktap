@@ -1152,7 +1152,7 @@ js workspace "((s => s.classList.contains('open') || s.querySelector('.fold-h').
 js workspace "(document.querySelector('.home .setup [data-step=placing] .act').click(), 1)" >/dev/null
 terms="$(ask workspace "text .sheet")"
 # The signed-in agents in Tasktap's order: what costs nothing more first, the fastest first among those.
-ranks="[...document.querySelectorAll('.sheet .rank')].map(r => r.querySelector('.t').textContent + (r.querySelector('.switch').getAttribute('aria-checked') === 'true' ? '' : ' off')).join('|')"
+ranks="[...document.querySelectorAll('.sheet .rank:not(.sign)')].map(r => r.querySelector('.t').textContent + (r.querySelector('.switch').getAttribute('aria-checked') === 'true' ? '' : ' off')).join('|')"
 until_has workspace "text .sheet" 5 "goes to the first agent below that answers" && terms="$(ask workspace "text .sheet")" \
   && echo "$terms" | grep -q "the task, as you said or typed it" && echo "$terms" | grep -q "of up to 8 of your projects" \
   && [ "$(js workspace "$ranks")" = "fixture-silent|Fixture agent|fixture-probed" ] \
@@ -1163,7 +1163,7 @@ js workspace "(document.querySelector('.sheet .disc').click(), 1)" >/dev/null
 until_has workspace "text .sheet .instr" 3 "You are the router of Tasktap" && pass "the instructions the model follows are there to read in full, behind one quiet line" || fail "the instructions"
 shot placing-terms workspace
 # The person's own order, by the keyboard: the fixture agent up to the first place, the two others switched off.
-row_key() { js workspace "(()=>{const r=[...document.querySelectorAll('.sheet .rank')].find(r=>r.querySelector('.t').textContent==='$1');r?.focus();r?.dispatchEvent(new KeyboardEvent('keydown',{key:'$2',altKey:${3:-false},bubbles:true,cancelable:true}));return !!r})()" >/dev/null; }
+row_key() { js workspace "(()=>{const r=[...document.querySelectorAll('.sheet .rank:not(.sign)')].find(r=>r.querySelector('.t').textContent==='$1');r?.focus();r?.dispatchEvent(new KeyboardEvent('keydown',{key:'$2',altKey:${3:-false},bubbles:true,cancelable:true}));return !!r})()" >/dev/null; }
 row_key "Fixture agent" ArrowUp true && row_key fixture-silent " " && row_key fixture-probed " "
 until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed off" || fail "the order by the keyboard" "$(js workspace "$ranks")"
 press workspace ".sheet" Enter >/dev/null

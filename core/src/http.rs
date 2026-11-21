@@ -1,7 +1,7 @@
 //! Web calls (design §8, "Web calls"): one request through the system's own
 //! `curl`, started for that call and given everything on its standard
-//! input as a configuration, so a key is in no argument, no file and no
-//! process list. It uses the system's certificates and the environment's
+//! input as a configuration, so a key or a token is in no argument, no file
+//! and no process list. It uses the system's certificates and the environment's
 //! proxy, which is what a laptop at work needs, and adds nothing to the
 //! binary. A call blocks, so the core makes it on a thread of its own.
 
@@ -16,17 +16,57 @@ pub const MAX_ANSWER: usize = 1 << 20;
 /// Seconds a connection may take to come about, within the call's limit.
 const CONNECT: u64 = 10;
 
-/// A form posted to an address: text fields and one file.
-pub struct Post<'a> {
+/// A request to an address: a GET when it sends nothing, else a POST.
+pub struct Request<'a> {
     pub url: &'a str,
     /// Sent as `Authorization: Bearer`.
     pub key: Option<&'a str>,
-    pub fields: &'a [(&'a str, &'a str)],
-    /// The form's `file`: a file of `folder` by its name there, the name
-    /// the server is told, and its type.
-    pub file: (&'a Path, &'a str, &'a str, &'a str),
+    pub body: Body<'a>,
     /// The longest the whole call takes.
     pub limit: Duration,
+}
+
+/// What a request sends.
+pub enum Body<'a> {
+    None,
+    /// A form of text fields and one file, its `file`: a file of `folder`
+    /// by its name there, the name the server is told, and its type.
+    Form(
+        &'a [(&'a str, &'a str)],
+        (&'a Path, &'a str, &'a str, &'a str),
+    ),
+    /// Text fields, URL-encoded, as a sign-in's token endpoint takes them.
+    Fields(&'a [(&'a str, &'a str)]),
+    /// A JSON text with no control character, as `serde_json` writes one
+    /// once [`plain_json`] has escaped those it leaves.
+    Json(&'a str),
+}
+
+/// A JSON text with every control character escaped: `serde_json` leaves
+/// DEL and the C1 controls as they are, which no configuration line holds.
+/// Outside a string a JSON text has none, so each is inside one.
+pub fn plain_json(json: &str) -> String {
+    let mut out = String::with_capacity(json.len());
+    for c in json.chars() {
+        match c.is_control() {
+            true => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            false => out.push(c),
+        }
+    }
+    out
+}
+
+/// `text` as a part of an address or a URL-encoded form: every byte but
+/// letters, digits and `-._~` as `%` and two hex digits.
+pub fn escaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        match b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+            true => out.push(char::from(b)),
+            false => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 /// An answer, whatever its status.
@@ -79,16 +119,7 @@ fn quoted(value: &str) -> Option<String> {
 
 /// What curl is told: one option a line, as its `--config` reads them.
 /// Every option is older than the curl of Windows 10.
-fn configuration(post: &Post) -> Option<String> {
-    let (_, name, sent_as, kind) = post.file;
-    // Inside a form's value `;`, `,` and quotes have a meaning of their own.
-    let simple = |text: &str| {
-        let fits = |c: char| c.is_ascii_alphanumeric() || "._-/".contains(c);
-        !text.is_empty() && text.chars().all(fits)
-    };
-    if ![name, sent_as, kind].into_iter().all(simple) {
-        return None;
-    }
+fn configuration(post: &Request) -> Option<String> {
     let mut lines = vec![
         format!("url = {}", quoted(post.url)?),
         // Only these, and no redirect is followed: a key goes nowhere else.
@@ -99,29 +130,58 @@ fn configuration(post: &Post) -> Option<String> {
         "show-error".to_owned(),
         // The status is the last line of what it prints.
         "write-out = \"\\n%{http_code}\"".to_owned(),
-        format!("form = \"file=@{name};filename={sent_as};type={kind}\""),
     ];
     if let Some(key) = post.key {
         let header = format!("Authorization: Bearer {key}");
         lines.push(format!("header = {}", quoted(&header)?));
     }
-    for (name, value) in post.fields {
-        lines.push(format!(
-            "form-string = {}",
-            quoted(&format!("{name}={value}"))?
-        ));
+    match post.body {
+        Body::None => {}
+        Body::Form(fields, (_, name, sent_as, kind)) => {
+            // Inside a form's value `;`, `,` and quotes have a meaning of their own.
+            let simple = |text: &str| {
+                let fits = |c: char| c.is_ascii_alphanumeric() || "._-/".contains(c);
+                !text.is_empty() && text.chars().all(fits)
+            };
+            if ![name, sent_as, kind].into_iter().all(simple) {
+                return None;
+            }
+            lines.push(format!(
+                "form = \"file=@{name};filename={sent_as};type={kind}\""
+            ));
+            for (name, value) in fields {
+                lines.push(format!(
+                    "form-string = {}",
+                    quoted(&format!("{name}={value}"))?
+                ));
+            }
+        }
+        // `data-raw`: an `@` at its start names no file.
+        Body::Fields(fields) => {
+            let pairs: Vec<_> = (fields.iter())
+                .map(|(name, value)| format!("{}={}", escaped(name), escaped(value)))
+                .collect();
+            lines.push(format!("data-raw = {}", quoted(&pairs.join("&"))?));
+        }
+        Body::Json(json) => {
+            lines.push("header = \"Content-Type: application/json\"".to_owned());
+            lines.push(format!("data-raw = {}", quoted(json)?));
+        }
     }
     Some(lines.join("\n") + "\n")
 }
 
 /// Makes the call and returns the server's answer. `wait` is what a
 /// [`command::Signal::Stop`] is sent on to end it.
-pub fn post(post: &Post, wait: Wait) -> Result<Answer, Failed> {
+pub fn send(post: &Request, wait: Wait) -> Result<Answer, Failed> {
     let unusable = || Failed::Other("the request cannot be written for curl".into());
     let configuration = configuration(post).ok_or_else(unusable)?;
     let mut curl = Command::new(curl());
     // `-q` first: no `.curlrc` changes the call.
-    curl.args(["-q", "--config", "-"]).current_dir(post.file.0);
+    curl.args(["-q", "--config", "-"]);
+    if let Body::Form(_, (folder, ..)) = post.body {
+        curl.current_dir(folder);
+    }
     // curl's own limit ends the call; this one only ends a curl that hangs.
     let limit = post.limit + Duration::from_secs(5);
     let most = MAX_ANSWER + 16;

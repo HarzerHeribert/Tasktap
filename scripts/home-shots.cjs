@@ -73,12 +73,12 @@ function shots() {
     'settings-about': { records: speech({ ...answered(looked(scene('normal'))), prefs: [{ id: 'setup_hidden', value: true, rev: 9 }, { id: 'route_by', value: null, rev: 9 }] }),
       act: (p) => p.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw())) },
     // ——— 2 and 3. A thought sent: where it went, or its question ———
-    'sent-asked': { records: speech({ ...looked(scene('normal')), asks: { notes: ['named in it', 'where your last task went', 'worked on last'] } }), act: both(send('make the export faster'), wait(900)) },
-    'sent-asked-key-1': { records: speech({ ...looked(scene('normal')), asks: { notes: ['named in it', 'where your last task went', 'worked on last'] } }), act: both(send('make the export faster'), wait(900), press('1'), wait(500)) },
-    'sent-asked-typing': { records: speech({ ...looked(scene('normal')), asks: { ms: 900, notes: ['named in it', 'where your last task went', 'worked on last'] } }),
+    'sent-asked': { records: speech({ ...looked(scene('normal')), asks: { notes: ['', 'matches “export”, “invoices”', ''] } }), act: both(send('make the export faster'), wait(900)) },
+    'sent-asked-key-1': { records: speech({ ...looked(scene('normal')), asks: { notes: ['', 'matches “export”, “invoices”', ''] } }), act: both(send('make the export faster'), wait(900), press('1'), wait(500)) },
+    'sent-asked-typing': { records: speech({ ...looked(scene('normal')), asks: { ms: 900, notes: ['', 'matches “export”, “invoices”', ''] } }),
       act: both(send('make the export faster'), wait(150), type('1 more thing'), wait(1200)) },
-    'sent-asked-given-back': { records: speech({ ...looked(scene('normal')), asks: { notes: ['named in it', 'where your last task went', 'worked on last'] } }), act: both(send('make the export faster'), wait(900), press('Escape'), wait(300)) },
-    'sent-asked-arrows': { records: speech({ ...looked(scene('normal')), asks: { notes: ['named in it', 'where your last task went', 'worked on last'] } }), act: both(send('make the export faster'), wait(900), press('ArrowDown'), press('ArrowDown'), wait(200)) },
+    'sent-asked-given-back': { records: speech({ ...looked(scene('normal')), asks: { notes: ['', 'matches “export”, “invoices”', ''] } }), act: both(send('make the export faster'), wait(900), press('Escape'), wait(300)) },
+    'sent-asked-arrows': { records: speech({ ...looked(scene('normal')), asks: { notes: ['', 'matches “export”, “invoices”', ''] } }), act: both(send('make the export faster'), wait(900), press('ArrowDown'), press('ArrowDown'), wait(200)) },
     // A thought placed: where it goes, the brief and the person's words, and Undo for its hold; nothing else under.
     'sent-placed': { records: speech(answered(looked(flow(scene('normal'), 'held')))), act: wait(300) },
     // ——— 4. The Composer's foot and the agent control ———
@@ -123,7 +123,7 @@ function shots() {
     await p.waitForTimeout(900);
   };
   // ——— The review's findings (docs/trial-checklist.md R1–R15), each in the state it was found in ———
-  const NOTES = ['named in it', 'where your last task went', 'worked on last'];
+  const NOTES = ['', 'matches “export”, “invoices”', ''];
   const asked = (o = {}) => speech({ ...looked(scene('normal')), asks: { notes: NOTES, ...o } });
   Object.assign(s, {
     // R1: typed at the first start's sheet: the letters are the Composer's, the sheet put away as Not now.

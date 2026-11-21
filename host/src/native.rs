@@ -419,14 +419,18 @@ pub fn confine(webview: *mut std::ffi::c_void, rules: &str, store: &std::path::P
     }
 }
 
-/// A folder panel, in front of every app; the person chose to open it.
-pub fn pick_folder() -> Option<PathBuf> {
+/// A folder panel, in front of every app; the person chose to open it. It opens in `at` where one is given.
+pub fn pick_folder(at: Option<&str>) -> Option<PathBuf> {
+    use objc2_foundation::{NSString, NSURL};
     let mtm = mtm();
     let open = NSOpenPanel::openPanel(mtm);
     open.setCanChooseDirectories(true);
     open.setCanChooseFiles(false);
     open.setAllowsMultipleSelection(false);
     open.setCanCreateDirectories(true);
+    if let Some(at) = at {
+        open.setDirectoryURL(Some(&NSURL::fileURLWithPath_isDirectory(&NSString::from_str(at), true)));
+    }
     // The panel needs this app active; the app the person was in gets it back afterwards, so the
     // notch can take the keyboard again without activating anything.
     let previous = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication();

@@ -163,7 +163,7 @@ async function main() {
       r.hints = {
         'fix the export in ledger-api': { confidence: 'clear', to: { project: P.ledger }, brief: 'fix the export in ledger-api' },
         'and the timer too': { confidence: 'clear', to: { session: r.ids.timer.session }, brief: 'and the timer too' },
-        'move the timer from cuegrid to fieldnotes': { confidence: 'ambiguous', prompt: 'Where should this go?', candidates: [{ label: 'cuegrid', to: { project: P.cuegrid } }, { label: 'fieldnotes', to: { project: P.fieldnotes } }] },
+        'move the timer from cuegrid to fieldnotes': { confidence: 'ambiguous', prompt: 'Which project is this task for?', candidates: [{ label: 'cuegrid', to: { project: P.cuegrid } }, { label: 'fieldnotes', to: { project: P.fieldnotes } }] },
       };
       // Clicked with the pointer, as a person clicks: Chromium's click focuses the chip, which the list then replaces.
       const exact = (name) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
@@ -412,9 +412,24 @@ async function main() {
       }
       await page.context().close();
 
-      // No folder open: saved for later, and the chip says so.
-      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' })) }, url: server.url, dpr: 1 });
-      await says(page, 'No project yet', 'Home, no folder open');
+      // A first user with no project (the owner, 2026-11-21): the chip says Auto and Return sends the task, which is
+      // asked about, never saved for later unasked: "Where should the agent work?", with a folder to open or create, the
+      // Scratchpad (put away, and there to choose all the same) and keeping it for later.
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: false })), asks: {} }, url: server.url, dpr: 1 });
+      await says(page, 'Auto', 'Home, no project');
+      expect((await page.evaluate(() => document.querySelector('.home .capture .cap-row > .key')?.textContent.trim())) === 'Start', 'Home, no project: the key does not say Start');
+      await page.focus(FIELD);
+      await typed(page, 'make the build faster');
+      await page.keyboard.press('Enter');
+      const first = await sent(page);
+      expect(first && first.mode !== 'note' && !first.project_id, `Home, no project: the task was sent ${JSON.stringify(first && { mode: first.mode, project_id: first.project_id })}, not for Tasktap to ask`);
+      const firstAsked = await until(() => page.evaluate(() => { const q = document.querySelector('.cap-ask'); return q ? `${q.querySelector('.q-asks')?.textContent} | ${[...q.querySelectorAll('.qa > .ans > span')].map((s) => s.textContent).join(', ')}` : ''; }),
+        (v) => v.startsWith('Where should the agent work?'));
+      expect(firstAsked === 'Where should the agent work? | Open or create a folder…, Scratchpad, Keep for later', `Home, no project: the question reads "${firstAsked}"`);
+      // The Scratchpad, chosen there, sends the task to it.
+      await page.keyboard.press('2');
+      const toPad = await until(() => page.evaluate(() => window.__fake.updated ?? null), (u) => !!u);
+      expect(toPad?.project_id === P.scratch, `Home, no project: the Scratchpad chosen moved the task ${JSON.stringify(toPad)}`);
       await page.context().close();
 
       // Projects Tasktap knows and has not opened (docs/projects-design.md, the owner's decisions of 2026-11-19): never
@@ -568,7 +583,7 @@ async function main() {
     // Not now. A cap shows only where its key works.
     {
       const { projects } = require('./projects-fixtures.cjs');
-      const NOTES = ['named in it', 'where your last task went', 'worked on last'];
+      const NOTES = ['', 'matches “export”, “invoices”', ''];
       const asking = async (o = {}, extra = {}) => {
         const page = await open(browser, { label: 'workspace', records: { ...scene('normal'), asks: { notes: NOTES, ...o }, ...extra }, url: server.url, dpr: 1 });
         await page.focus(FIELD);
@@ -593,15 +608,26 @@ async function main() {
       const metal = (k) => !!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
       const key = (page, sel = '.home .capture .cap-row:not(.hear) > .key') => page.evaluate(([s, m]) => { const k = document.querySelector(s); return k ? `${(0, eval)(m)(k) ? 'metal' : 'quiet'} "${k.textContent.trim()}"` : 'none'; }, [sel, String(metal)]);
 
-      // R2, R10: asked at the Composer, the field keeping the keyboard; its rows numbered 1 to 5, the last two
-      // "Another project…" and "Keep for later"; the metal key says what Return will do.
+      // R2, R10: asked at the Composer, the field keeping the keyboard; its rows numbered 1 to 6, the last three
+      // "Another project…", the Scratchpad and "Keep for later"; the metal key says what Return will do. The person's
+      // words lead the card, larger than the quiet question under them, and the card is named by both (the owner,
+      // 2026-11-21).
       let page = await asking();
       expect((await key(page)).startsWith('metal'), 'Home, empty: the Composer\'s key is not the metal key');
       await sendIt(page);
       await arrived(page);
       expect((await where(page)) === 'composer', `a question about the thought just sent, the field empty: it is shown ${await where(page) || 'nowhere'}, not once at the Composer`);
       expect(await inField(page), 'a question asked at the Composer took the keyboard from the field');
-      expect((await caps(page, '.cap-ask')) === '1 2 3 4 5', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 4 5 (every row a number, no letters)`);
+      expect((await caps(page, '.cap-ask')) === '1 2 3 4 5 6', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 4 5 6 (every row a number, no letters)`);
+      const card = await page.evaluate(() => {
+        const q = document.querySelector('.cap-ask'), words = q?.querySelector('.q-words'), asks = q?.querySelector('.q-asks');
+        const size = (e) => parseFloat(getComputedStyle(e).fontSize);
+        return { order: words && asks ? !!(words.compareDocumentPosition(asks) & Node.DOCUMENT_POSITION_FOLLOWING) : false, larger: words && asks ? size(words) > size(asks) : false,
+          name: q?.getAttribute('aria-label'), rows: [...q.querySelectorAll('.qa > .ans > span')].map((s) => s.textContent).join(', ') };
+      });
+      expect(card.order && card.larger, `the question at the Composer: its words do not lead, larger than the question (${JSON.stringify(card)})`);
+      expect(card.name === 'Which project is this task for? make the export faster', `the question at the Composer is named "${card.name}", not the question and then the words`);
+      expect(card.rows === 'cuegrid, fieldnotes, ledger-api, Another project…, Scratchpad, Keep for later', `the question at the Composer offers ${card.rows}`);
       await ready(page);
       expect((await key(page)) === 'metal "Start in cuegrid"', `with the question at the Composer its key is ${await key(page)}, not the metal key saying "Start in cuegrid"`);
       expect(await page.evaluate(() => [...document.querySelectorAll('.cap-ask .qa > .ans')].every((a, i, all) => !i || a.getBoundingClientRect().top >= all[i - 1].getBoundingClientRect().bottom - 0.5)), 'the question\'s places are not one under another');

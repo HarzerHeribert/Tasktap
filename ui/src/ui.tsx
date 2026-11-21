@@ -148,11 +148,11 @@ export function Ring({ agent, s, turns = s === 'working', size, tone, one = (siz
 }
 
 /** An answer: its key cap and its label; `lead` is the mark of what it is, `more` a few quiet words about it. */
-export function Answer({ k, label, primary = false, danger = false, onClick, cls = 'ans', lead, more }: {
-  k: string; label: string; primary?: boolean; danger?: boolean; onClick: () => void; cls?: string; lead?: ComponentChildren; more?: string;
+export function Answer({ k, label, primary = false, danger = false, onClick, cls = 'ans', lead, more, title }: {
+  k: string; label: string; primary?: boolean; danger?: boolean; onClick: () => void; cls?: string; lead?: ComponentChildren; more?: string; title?: string;
 }) {
   return (
-    <button type="button" class={`${cls}${primary ? ' primary' : ''}${danger ? ' danger' : ''}`} onClick={onClick}>
+    <button type="button" class={`${cls}${primary ? ' primary' : ''}${danger ? ' danger' : ''}`} title={title} onClick={onClick}>
       <Key k={k} cap />{lead}<span>{label}</span>{more && <i>{more}</i>}
     </button>
   );

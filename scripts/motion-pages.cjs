@@ -199,8 +199,9 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       return reply(id, null);
     }
     // `asks`: a thought left to the router is asked about, as the match on names asks when it is unsure: the thought,
-    // then (`asks.ms` later, 300 by default) "Where should this go?" with the folders `asks.choices` names. Answered by
-    // a choice it starts there; by Keep for later it is kept.
+    // then (`asks.ms` later, 300 by default) "Which project is this task for?" with the folders `asks.choices` names
+    // ("Where should the agent work?" with none, where no project is known). Answered by a choice it starts there; by
+    // Keep for later it is kept.
     if (name === 'thought.capture' && records.asks && !args.project_id && !args.card_id && args.mode !== 'note') {
       const now = Date.now(), thought = { id: args.id, rev: ++rev, text: args.text, strokes: [], source: args.source || 'typed', mode: 'ask', phase: 'captured', status: 'needs_you',
         reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: 1 },
@@ -209,7 +210,9 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       reply(id, null);
       const projects = (records.projects || []).filter((p) => p.open && p.kind === 'folder');
       const choices = (records.asks.choices || projects.slice(0, 3).map((p) => p.name)).slice(0, 3);
-      const q = { id: `019a8b6c-7d10-7000-a000-${String(++rev).padStart(12, '0')}`, rev, thought_id: args.id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null,
+      const known = projects.length || (records.cards || []).length;
+      const q = { id: `019a8b6c-7d10-7000-a000-${String(++rev).padStart(12, '0')}`, rev, thought_id: args.id, session_id: null, turn: null, source: 'router',
+        prompt: known ? 'Which project is this task for?' : 'Where should the agent work?', detail: null,
         reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices, places: choices.map((n) => ({ project: (projects.find((p) => p.name === n) || {}).id })), notes: records.asks.notes || choices.map(() => '') };
       setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'questions', put: [{ ...q, rev }] }] }), records.asks.ms ?? 300);
       window.__fake.asked = q;

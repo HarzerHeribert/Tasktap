@@ -57,7 +57,7 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
   // Where a thought should go is Tasktap's own question, about a thought that has no folder yet.
   const router = q.source === 'router';
   const agent = router ? null : (s?.agent ?? t?.agent);
-  const who = router ? 'A task with no place yet' : agentName(agent ?? undefined);
+  const who = router ? '' : agentName(agent ?? undefined);
   const where = router ? 'No place yet' : projectName(t?.project_id ?? s?.project_id);
   const seat = <Seat agent={agent} s="asks" size={20} label={router ? 'Needs your answer' : `${who} asks`} />;
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
@@ -68,12 +68,12 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
         <Meta where={where} who={router ? undefined : who} fact={t ? title(t) : undefined} />
       </button>
     );
+  // Tasktap's own question has no line above it: the person's words lead it, and the question says what it asks
+  // (question.tsx `Ask`); the time stays where it is.
   return (
-    <article class="hq open">
+    <article class={`hq open${router ? ' place' : ''}`}>
       {seat}
-      <span class="hq-m">
-        {router ? <b>{who}</b> : <><b>{where}</b><span>{who}</span>{t && <span class="hq-t">{title(t)}</span>}</>}
-      </span>
+      {!router && <span class="hq-m"><b>{where}</b><span>{who}</span>{t && <span class="hq-t">{title(t)}</span>}</span>}
       {time}
       <Ask q={q} size="home" who={who} class="hq-a" terminal={q.reply_via === 'terminal' && s ? () => focusSession(s.id) : undefined} />
     </article>

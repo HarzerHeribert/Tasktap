@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project } from '../../core/proto/protocol.ts';
 import { Records } from './client.ts';
-import { rows, says, type Why } from './place.ts';
+import { asked, rows, says, type Why } from './place.ts';
 
 const K = { key: '⌘K' };
 const AUTO = 'Auto: Tasktap sends the task to the project the task names, and asks you when the task names none. Click (or ⌘K) to choose the place yourself.';
@@ -58,9 +58,6 @@ test('the Scratchpad, For later and no project yet are one name each', () => {
   assert.deepEqual(says('chosen', { place: 'For later', is: 'later', ...K }), {
     mark: 'later', name: 'For later', auto: false, title: 'For later: the task waits on Home, and nothing starts. Click (or ⌘K) to change the place.',
   });
-  assert.deepEqual(says('none', { place: 'For later', is: 'later', ...K }), {
-    mark: 'folder', name: 'No project yet', auto: false, title: 'No project is open yet, so the task is saved for later. Click (or ⌘K) to open a folder.',
-  });
 });
 
 test('after a task with a place of its own, the chip says it is back, and its tooltip why', () => {
@@ -70,7 +67,7 @@ test('after a task with a place of its own, the chip says it is back, and its to
 });
 
 test('nothing the chip says is joined by a dot', () => {
-  const all: Why[] = ['chosen', 'follows', 'named', 'said', 'asked', 'in', 'model', 'only', 'words', 'ask', 'none', 'starting'];
+  const all: Why[] = ['chosen', 'follows', 'named', 'said', 'asked', 'in', 'model', 'only', 'words', 'ask', 'starting'];
   for (const why of all) for (const is of ['folder', 'scratch', 'session', 'later'] as const) {
     const c = says(why, { place: 'cuegrid', is, fresh: true, agent: 'Codex', ...K });
     assert.ok(!`${c.name} ${c.title}`.includes('·'), `${why} ${is}: ${c.name} / ${c.title}`);
@@ -80,7 +77,7 @@ test('nothing the chip says is joined by a dot', () => {
 const folder = (id: string, name: string) => ({ id, name, kind: 'folder' as const });
 const scratch = { id: 's', name: 'Scratch', kind: 'scratch' as const };
 const list = (o: Partial<Parameters<typeof rows>[0]> = {}) =>
-  rows({ found: [], open: [folder('c', 'cuegrid'), folder('f', 'fieldnotes'), scratch], typed: false, moving: false, auto: true, most: 3, ...o });
+  rows({ found: [], open: [folder('c', 'cuegrid'), folder('f', 'fieldnotes'), scratch], typed: false, moving: false, most: 3, ...o });
 const names = (r: ReturnType<typeof rows>) => r.map((x) => [x.name, ...x.dim].join(' / '));
 
 test('the list offers Auto, the open folders, the Scratchpad, another folder and For later, in that order', () => {
@@ -93,12 +90,34 @@ test('the list offers Auto, the open folders, the Scratchpad, another folder and
   assert.deepEqual(names(list({ found, typed: true })), ['kiln / static site / not open yet', 'Open another folder…']);
   // Sending a task kept for later: a place, never Auto or For later again.
   assert.deepEqual(names(list({ moving: true })), ['cuegrid', 'fieldnotes', 'Scratchpad / no project needed', 'Open another folder…']);
-  // No project known: no Auto, which would have nothing to find.
-  assert.deepEqual(names(list({ auto: false, open: [scratch] })), ['Scratchpad / no project needed', 'Open another folder…', 'For later']);
+  // No project known: Auto still, which then asks where the agent should work; the three choices are always there.
+  assert.deepEqual(names(list({ open: [scratch] })), ['Auto / finds the project', 'Scratchpad / no project needed', 'Open another folder…', 'For later']);
   // In the notch three folders at most; the Scratchpad stays.
   const many = ['a', 'b', 'c', 'd', 'e'].map((n) => folder(n, n));
   assert.deepEqual(names(list({ open: [...many, scratch] })).slice(1, 5), ['a', 'b', 'c', 'Scratchpad / no project needed']);
   for (const r of list({ found })) assert.ok(![r.name, ...r.dim].some((x) => x.includes('·')), r.name);
+});
+
+const ask = (places: Parameters<typeof asked>[0]['places'], known = true) => asked({ places, known }).map((r) => [r.does, r.name, r.dim, r.title ?? ''].join(' / '));
+
+test('the question about a task offers what its words name or describe, then another project, the Scratchpad, and keeping it for later', () => {
+  const earshot = { name: 'earshot', why: '', fresh: false, session: false }, kiln = { name: 'kiln', why: 'matches “static”, “site”', fresh: true, session: false };
+  assert.deepEqual(ask([earshot, kiln]), [
+    'place / earshot /  / ', 'place / kiln / matches “static”, “site” / Sending the task opens kiln.',
+    'other / Another project… /  / ', 'scratch / Scratchpad /  / ', 'later / Keep for later /  / ',
+  ]);
+  // Its rows are numbered 1 to 9: three places at most, and the three answers of the person's own.
+  assert.equal(asked({ places: Array(9).fill(earshot), known: true }).length, 9);
+  // A session it may continue is a place too.
+  assert.deepEqual(ask([{ name: 'timer fix', why: '', fresh: false, session: true }])[0], 'session / timer fix /  / ');
+});
+
+test('with nothing its words name or describe, the question leads with a folder to open or create', () => {
+  assert.deepEqual(ask([]), ['folder / Open or create a folder… /  / ', 'scratch / Scratchpad /  / ', 'other / Another project… /  / ', 'later / Keep for later /  / ']);
+  // A first user with no project: nothing else to find.
+  assert.deepEqual(ask([], false), ['folder / Open or create a folder… /  / ', 'scratch / Scratchpad /  / ', 'later / Keep for later /  / ']);
+  for (const r of [...asked({ places: [], known: true }), ...asked({ places: [{ name: 'kiln', why: 'matches “static”', fresh: true, session: false }], known: true })])
+    assert.ok(![r.name, r.dim, r.title ?? ''].some((x) => x.includes('·') || x.includes('not open yet')), r.name);
 });
 
 test('the built-in project reads Scratchpad by its kind, whatever name is stored', () => {

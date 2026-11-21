@@ -2,7 +2,8 @@
 // the field, where it will go and why (`where`), who runs it (rings.tsx: the usual agent, or another picked for this
 // thought alone), the microphone, and the key that says what Return does. The question about the thought it sent last
 // is asked under it (`atComposer`).
-// A thought with no folder to go to is saved for later: it waits on Home until it is sent to one.
+// A thought no name places is asked about (question.tsx): where it goes, also when no project is known at all; it is
+// saved for later only when the person says so.
 //
 // Under the row is what is on its way, by one mechanism for typing and for voice (way.ts): speech being heard and
 // written down, then the thought being placed, then where it goes with its brief, readable for the length of its hold,
@@ -106,7 +107,9 @@ const known = () => {
 const modelPlaces = () => placing(pref('route_by'), placers()) === 'on';
 
 /** The person's pick, while it can still be used. */
-export const picked = () => (cap.dest === '' || cap.dest === 'later' || (cap.dest && (records.projects.get(cap.dest)?.open || unopened(cap.dest))) ? cap.dest : undefined);
+export const picked = () => (cap.dest === '' || cap.dest === 'later' || (cap.dest && (records.projects.get(cap.dest)?.open || scratchpad(cap.dest) || unopened(cap.dest))) ? cap.dest : undefined);
+/** The Scratchpad, which a thought may go to also when it was put away: it opens again as the thought starts there. */
+const scratchpad = (id: string) => records.projects.get(id)?.kind === 'scratch';
 
 /** Where the router would send the text typed now, when it knows (route.hint): then Enter
  *  leaves the routing to it rather than picking for the person. */
@@ -121,9 +124,9 @@ export function hinted(): Route | undefined {
  *  name, as written or with its parts said apart, open or only known (it opens when the thought starts there), or a
  *  question when they name several or only sound like one; else the folder of the workspace this Composer was opened
  *  in; else Auto, by a model, where placing by one is agreed to; else the one folder the person opened, when it is the
- *  only place there is; else Auto by its words, which asks where a thought goes that names none. With no project known
- *  a thought is saved for later. The Scratchpad is never a default: a thought goes there only when the person chooses
- *  it or says it (the core's route). What the chip says of it is place.ts's. */
+ *  only place there is; else Auto by its words, which asks where a thought goes that names none, also with no project
+ *  known ("Where should the agent work?"). The Scratchpad is never a default: a thought goes there only when the person
+ *  chooses it or says it (the core's route). What the chip says of it is place.ts's. */
 export function where(pick = picked(), route = hinted(), usualId = cap.usual): { to: string; by: 'router' | 'pick' | 'later'; why: Why } {
   // The core has not answered yet: nothing is known, and nothing is said; a task started now is placed once it has.
   if (!core.in) return { to: '', by: 'router', why: 'starting' };
@@ -138,7 +141,6 @@ export function where(pick = picked(), route = hinted(), usualId = cap.usual): {
   if (all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
   // The one place there is, when it is a folder the person opened: a project Tasktap only knows of is never a default.
   if (pick === undefined && all.length === 1 && records.projects.get(all[0]!)?.kind === 'folder') return { to: all[0]!, by: 'pick', why: 'only' };
-  if (!all.length) return { to: 'later', by: 'later', why: 'none' };
   return { to: '', by: 'router', why: cap.draft.trim() ? 'ask' : 'words' };
 }
 /** What the chip says of where the thought goes (place.ts), from the records. `back`: the thought before had a place
@@ -392,8 +394,10 @@ function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; late
   const most = raised ? 6 : 3;
   const id = (f: Found) => ('project' in f.to ? f.to.project : 'card' in f.to ? f.to.card : '');
   const shown = answers.filter((f) => id(f)).slice(0, typed ? most : 3);
-  const list = rows({ found: shown.map((f) => ({ id: id(f), name: f.name, why: f.why, fresh: 'card' in f.to })), open: recent().filter((p) => !shown.some((f) => id(f) === p.id)),
-    typed: !!typed, moving: !!cap.moving, auto: known().length > 0, most });
+  // The Scratchpad is there to choose also when it was put away (closed): choosing it opens it.
+  const put = [...records.projects.values()].filter((p) => p.kind === 'scratch' && !p.open);
+  const list = rows({ found: shown.map((f) => ({ id: id(f), name: f.name, why: f.why, fresh: 'card' in f.to })), open: [...recent(), ...put].filter((p) => !shown.some((f) => id(f) === p.id)),
+    typed: !!typed, moving: !!cap.moving, most });
   const on = (to: string) => !cap.moving && (to === 'later' ? later : to ? to === w.to : w.by === 'router' && !w.to);
   return (
     <div key="list" class="cap-row cap-list" role="listbox" aria-label={cap.moving ? 'Send the task to' : 'Where the task goes'} data-keys onKeyDown={arrows}
@@ -702,11 +706,13 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   // With the question at the Composer the key does what Return does, and says so: the row the arrows are on.
   const row = q && !cap.draft ? chosenRow(q) : undefined;
   if (q && row) settle(q, row);
-  const does = row ? (row.does === 'place' ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
+  // A place (a project, the Scratchpad) starts the task there; a session is sent the task.
+  const into = row?.does === 'place' || row?.does === 'scratch';
+  const does = row ? (into ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
     : now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   // On the key the place is cut short, and where the foot has no room for it the key says only what it does (`.k-in`
   // goes, parts.css); the row the arrows are on says where. Quiet until Return answers, metal from then on.
-  const verb = row && (row.does === 'place' || row.does === 'session') ? (row.does === 'place' ? 'Start' : 'Send') : '';
+  const verb = row && (into || row.does === 'session') ? (into ? 'Start' : 'Send') : '';
   const waits = !!q && !!row && !answers(q);
   const ready = q ? (asked.get(q.id)?.ready ?? 0) : 0;
   useEffect(() => {

@@ -332,7 +332,7 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
     gone: () => routed({ brief: text, placed: 'name', route: { ...local, fallback: GONE } }),
     asked: () => {
       thought({ status: 'needs_you', brief, route: model });
-      records.questions.unshift({ id: uid(now, 900), rev: 62, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null, reply_via: 'core', state: 'open', answer: null,
+      records.questions.unshift({ id: uid(now, 900), rev: 62, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Which project is this task for?', detail: null, reply_via: 'core', state: 'open', answer: null,
         kind: 'choice', choices: ['cuegrid', 'fieldnotes', 'The codex session in fieldnotes'],
         places: [{ project: P.cuegrid }, { project: P.fieldnotes }, { session: records.ids.search?.session ?? records.ids.sync.session }] });
       records.glance = { ...records.glance, needs_you: records.glance.needs_you + 1, question: records.questions[0].id };

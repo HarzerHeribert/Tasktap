@@ -338,10 +338,11 @@ pub fn watch_power(_changed: impl Fn() + 'static) {}
 
 /// The system's own folder dialog, modal to the window `owner`: the folder the person chose, as they know it (no
 /// `\\?\` in front), or none when they closed it without choosing, which is no error. It starts where Windows
-/// keeps for this app: in the folder last chosen from, and the first time in the person's own folder. It runs a
+/// keeps for this app: in the folder last chosen from, and the first time in the person's own folder; or in `at`,
+/// where the person keeps their projects, when the page names it. It runs a
 /// message loop of its own until it is closed, so it must be called from the event loop and never from inside one
 /// of the web view's callbacks (WebView2 allows no nested loop there: main.rs, `bridge_host`).
-pub fn pick_folder(owner: Option<isize>) -> Result<Option<PathBuf>, String> {
+pub fn pick_folder(owner: Option<isize>, at: Option<&str>) -> Result<Option<PathBuf>, String> {
     use windows::core::{GUID, HSTRING};
     use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
     use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER};
@@ -364,6 +365,13 @@ pub fn pick_folder(owner: Option<isize>) -> Result<Option<PathBuf>, String> {
                 SHCreateItemFromParsingName(&HSTRING::from(home.as_os_str()), None);
             if let Ok(home) = home {
                 let _ = dialog.SetDefaultFolder(&home);
+            }
+        }
+        // Where the person keeps their projects, when the page knows it: over the folder last chosen from.
+        if let Some(at) = at {
+            let at: windows::core::Result<IShellItem> = SHCreateItemFromParsingName(&HSTRING::from(at), None);
+            if let Ok(at) = at {
+                let _ = dialog.SetFolder(&at);
             }
         }
         match dialog.Show(owner.map(|window| HWND(window as *mut _))) {

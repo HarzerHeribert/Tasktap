@@ -1,14 +1,15 @@
 // What the Composer's place chooser says (capture.tsx draws it): Auto, a folder, or the Scratchpad, in plain names
 // (the owner's decision of 2026-11-21). The chip, closed, is one name; why the task goes there is its tooltip, one
 // sentence each. The list, opened, offers the same three, each row's few dim words set apart by a gap, never a dot.
+// And the rows of the question Tasktap asks when Auto cannot place a task (question.tsx draws them).
 import { SCRATCHPAD } from './client.ts';
 
 /** Why the task in the field goes where it goes (capture.tsx `where`). */
-export type Why = 'chosen' | 'follows' | 'named' | 'said' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'ask' | 'none' | 'starting';
+export type Why = 'chosen' | 'follows' | 'named' | 'said' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'ask' | 'starting';
 /** What a place is: a folder (open, or a project Tasktap knows), the Scratchpad, a session followed up, or For later. */
 export type Is = 'folder' | 'scratch' | 'session' | 'later';
 /** The icon a row or the chip shows (ui.tsx), or For later's mark. */
-export type Icon = 'arrow' | 'folder' | 'pad' | 'term' | 'plus' | 'later';
+export type Icon = 'arrow' | 'folder' | 'pad' | 'term' | 'plus' | 'search' | 'later';
 const ICON: Record<Is, Icon> = { folder: 'folder', scratch: 'pad', session: 'term', later: 'later' };
 
 export type Chip = { mark: Icon; name: string; auto: boolean; title: string };
@@ -35,9 +36,6 @@ export function says(why: Why, f: { place: string; is: Is; fresh?: boolean; agen
             : why === 'only' ? `${f.place} is the only folder open, so a task that names no other project goes to ${f.place}.`
               : `The task goes to ${f.place}.${opens}`} ${click} change the place.` };
       break;
-    case 'none':
-      c = { mark: 'folder', name: 'No project yet', auto: false, title: `No project is open yet, so the task is saved for later. ${click} open a folder.` };
-      break;
     default:
       // Nothing known yet ('starting' is hidden, and keeps the place these words take).
       c = { mark: 'arrow', name: 'Auto', auto: false, title: `Auto: Tasktap sends the task to the project the task names${
@@ -49,16 +47,34 @@ export function says(why: Why, f: { place: string; is: Is; fresh?: boolean; agen
 /** A row of the list: `to` is what choosing it picks ('' Auto, 'later', or a project), or 'add' to open a folder. */
 export type Row = { to: string; mark: Icon; name: string; dim: string[] };
 /** The list's rows under its field, top to bottom: what the field or the task's words found; Auto; the open folders,
- *  `most` at most; the Scratchpad; Open another folder…; For later. While something is typed in the field, only what it
- *  found; sending a task kept for later, never Auto or For later; with no project known, no Auto. */
-export function rows(o: { found: { id: string; name: string; why: string; fresh: boolean }[]; open: { id: string; name: string; kind: string }[]; typed: boolean; moving: boolean; auto: boolean; most: number }): Row[] {
+ *  `most` at most; the Scratchpad, also when it was put away; Open another folder…; For later. While something is typed
+ *  in the field, only what it found; sending a task kept for later, never Auto or For later. With no project known Auto
+ *  is there still: it asks where the agent should work. */
+export function rows(o: { found: { id: string; name: string; why: string; fresh: boolean }[]; open: { id: string; name: string; kind: string }[]; typed: boolean; moving: boolean; most: number }): Row[] {
   const all = !o.typed, row = (to: string, mark: Icon, name: string, ...dim: string[]): Row => ({ to, mark, name, dim });
   return [
     ...o.found.map((f) => row(f.id, 'folder', f.name, ...[f.why, f.fresh ? 'not open yet' : ''].filter(Boolean))),
-    ...(all && !o.moving && o.auto ? [row('', 'arrow', 'Auto', 'finds the project')] : []),
+    ...(all && !o.moving ? [row('', 'arrow', 'Auto', 'finds the project')] : []),
     ...(all ? o.open.filter((p) => p.kind !== 'scratch').slice(0, o.most).map((p) => row(p.id, 'folder', p.name)) : []),
     ...(all ? o.open.filter((p) => p.kind === 'scratch').map((p) => row(p.id, 'pad', SCRATCHPAD, 'no project needed')) : []),
     row('add', 'plus', 'Open another folder…'),
     ...(all && !o.moving ? [row('later', 'later', 'For later')] : []),
   ];
+}
+
+/** A row of the question Tasktap asks when Auto cannot place a task: `at` is a place's index among the question's own
+ *  (`places`, `notes`), which answering with it chooses; the person's own answers have none. `dim`: why it is
+ *  offered, in the dim tone after its name (nothing for a name the task says); `title`: what sending it there does. */
+export type Asked = { does: 'place' | 'session' | 'folder' | 'scratch' | 'other' | 'later'; name: string; mark: Icon; dim: string; title?: string; at?: number };
+/** The question's rows, each on its number from 1 (NOTES §13). With places its words name or clearly describe (the
+ *  core's, three at most): those, then Another project…, the Scratchpad and Keep for later. With none: Open or create a
+ *  folder… first, then the Scratchpad, Another project… where Tasktap knows any project (`known`), and Keep for later.
+ *  Whether a project is open in Tasktap is no reason to choose it: only its tooltip says that sending opens it. */
+export function asked(o: { places: { name: string; why: string; fresh: boolean; session: boolean }[]; known: boolean }): Asked[] {
+  const other: Asked = { does: 'other', name: 'Another project…', mark: 'search', dim: '' };
+  const own: Asked[] = [{ does: 'scratch', name: SCRATCHPAD, mark: 'pad', dim: '' }, { does: 'later', name: 'Keep for later', mark: 'later', dim: '' }];
+  if (!o.places.length) return [{ does: 'folder', name: 'Open or create a folder…', mark: 'plus', dim: '' }, own[0]!, ...(o.known ? [other] : []), own[1]!];
+  const places = o.places.map((p, at): Asked => ({ does: p.session ? 'session' : 'place', name: p.name, mark: p.session ? 'term' : 'folder', dim: p.why, at,
+    ...(p.fresh ? { title: `Sending the task opens ${p.name}.` } : {}) }));
+  return [...places.slice(0, 6), other, ...own];
 }

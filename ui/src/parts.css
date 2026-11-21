@@ -263,6 +263,12 @@ kbd .i{width:12px;height:12px}
 .qp{font:var(--f-question);letter-spacing:var(--ls-question);text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .qa{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-left:-6px}
 .q-detail{margin-top:var(--sp1);font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
+/* Tasktap's own question (question.tsx Ask, the owner's of 2026-11-21): the person's words lead, in the size a question
+   has, three lines at most and the rest in the tooltip; under them, quietly, what it asks. */
+.q-words{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;font:var(--f-question);letter-spacing:var(--ls-question);color:var(--fg);white-space:pre-line;text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+.q-asks{display:flex;align-items:center;gap:var(--sp2);margin-top:3px;font:var(--f-text);color:var(--fg3)}
+.q-asks>.st{flex:none}
+.ask-place>.qa{margin-top:var(--sp2)}
 
 @media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}/* Where a thought should go: its places one under another, each whole; what a place is wraps under its name rather
    than being cut at the window's edge (the owner, 2026-11-19). */

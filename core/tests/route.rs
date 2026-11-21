@@ -840,7 +840,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         assert_eq!(taken, Ok((clear(to, brief), quoted)));
     }
     for quote in ["", "it", "the login bug", "login from before"] {
-        refused(&request, follow(quote), "not in the thought");
+        refused(&request, follow(quote), "not in the task");
     }
     // A follow-up to the session the capture was made in needs none.
     let here = Request {
@@ -855,7 +855,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
             Routing::default()
         ))
     );
-    refused(&here, follow(""), "not in the thought");
+    refused(&here, follow(""), "not in the task");
 
     // Only what was offered is a destination.
     for to in ["p4", "s3", "p0", "p", "", "x1", "p-1", "folio"] {
@@ -906,7 +906,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
     let most = 2 * text.chars().count() + 400;
     let long = |chars: usize| with("brief", "ä".repeat(chars).into());
     assert!(accept(&request, &long(most)).is_ok());
-    refused(&request, long(most + 1), "longer than the thought allows");
+    refused(&request, long(most + 1), "longer than the task allows");
 
     // A title is one plain line of at most 60 characters. Another is no
     // title, and the rest of the answer is taken all the same.

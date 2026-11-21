@@ -906,7 +906,7 @@ impl Shortcut {
     /// the sentence that refuses another key preference the same key.
     pub fn taken(id: PrefKey) -> Option<&'static str> {
         Some(match id {
-            PrefKey::CaptureKey => "Tasktap already uses that combination to put a thought in",
+            PrefKey::CaptureKey => "Tasktap already uses that combination to start a task",
             PrefKey::QuestionKey => {
                 "Tasktap already uses that combination to go to an agent’s question"
             }

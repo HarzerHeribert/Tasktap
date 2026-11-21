@@ -103,7 +103,7 @@ fn capital(text: &str) -> String {
 
 fn moved_words(old: &Path, data: &Path, moved: &Value) -> Words {
     let mut body = format!(
-        "Its thoughts, sessions, results and settings are here now. Its folder moved from {} to {}, with a copy of its \
+        "Tasktap Next's tasks, sessions, results and settings are here now. Its folder moved from {} to {}, with a copy of its \
          database as it was (core.before-move.db). Tasktap Next is no longer needed: do not open it again, and you can \
          move it to the Bin.",
         old.display(),

@@ -780,7 +780,7 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         // Forgets a project Tasktap knows; a later look may find it again.
         Delete::Cards { id } => {
             if tx.bound(id).map_err(fail)? {
-                let why = "a thought on its way goes there: undo it or let it start first";
+                let why = "a task on its way goes there: undo the task or let the task start first";
                 return Err(Error::new(Code::Conflict, why));
             }
             tx.delete_card(id).and_then(|deleted| {
@@ -801,7 +801,7 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
             plain(&tx, id)?;
             match tx.delete_thought(id) {
                 Err(store::Error::Reference) => {
-                    let why = "a session works on this thought";
+                    let why = "a session works on this task";
                     return Err(Error::new(Code::Conflict, why));
                 }
                 deleted => deleted,
@@ -861,7 +861,7 @@ pub fn history(cx: &mut Cx, args: History) -> Result<HistoryPage, Error> {
 fn plain(tx: &Tx, id: ThoughtId) -> Result<Thought, Error> {
     let t = tx.thought(id).map_err(fail)?.ok_or_else(|| gone(id))?;
     if !crate::state::plain(tx, &t).map_err(fail)? {
-        let why = "only a thought that is captured and never started is plain data";
+        let why = "only a task that is captured and never started is plain data";
         return Err(invalid(why.into()));
     }
     Ok(t)

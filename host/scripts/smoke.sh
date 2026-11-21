@@ -954,7 +954,7 @@ until_has workspace "$(key_row "Key to answer No, from any app")" 5 "⌃⌥N | f
 # (The capture key as it is now: the system's own, or ⌃⌥⇧F9 where another app on this Mac holds that.)
 read -r code control alt shift meta <<< "$(js workspace "__ws.call('host.capture_key', {}).then((r) => [r.key.code, r.key.control, r.key.alt, r.key.shift, r.key.meta].join(' '))")"
 record "Key to answer No, from any app" "$code" "$control" "$alt" "$shift" "$meta"
-until_has workspace "$(key_row "Key to answer No, from any app")" 3 "Tasktap already uses that combination to put a thought in." || fail "the capture key refused as the No key" "$(ask workspace "$(key_row "Key to answer No, from any app")")"
+until_has workspace "$(key_row "Key to answer No, from any app")" 3 "Tasktap already uses that combination to start a task." || fail "the capture key refused as the No key" "$(ask workspace "$(key_row "Key to answer No, from any app")")"
 record "Key to answer No, from any app" F8 true true true
 until_has workspace "$(key_row "Key to answer No, from any app")" 5 "⌃⌥⇧F8 | false | " && until_has workspace "$(pref no_key)" 3 '"code":"F8"' \
   && [ "$(js workspace "__ws.call('host.answer_key', {}).then((r) => r.no?.code + ' ' + r.question?.code + ' ' + r.yes?.code)")" = "F8 KeyJ KeyY" ] \
@@ -1065,7 +1065,7 @@ echo "mine" > "$tmp/project/kept.txt" && git -C "$tmp/project" commit -qam "Mine
 js workspace "(__ws.show('home'), 1)" >/dev/null
 until_has workspace "text .waiting" 5 "Keep" || fail "the third run waits"
 ask workspace "click .waiting .hr-a .btn" >/dev/null
-until_has workspace "text .waiting .told" 30 "Not kept" && ask workspace "text .waiting .told" | grep -q "conflict with this thought's in kept.txt" && ask workspace "text .waiting .told" | grep -q "tasktap/" \
+until_has workspace "text .waiting .told" 30 "Not kept" && ask workspace "text .waiting .told" | grep -q "conflict with this task's in kept.txt" && ask workspace "text .waiting .told" | grep -q "tasktap/" \
   && pass "a refused Keep says the branch is as it was and shows the core's reason in full: the file in conflict and the branch to merge by hand" || fail "Keep refused" "$(ask workspace "text .waiting")"
 # What the core says when it stops short is shown as what it is. A file of the person's in the way: git's own words
 # name it, in full; once it is moved away, Keep goes through.
@@ -1143,7 +1143,7 @@ terms="$(ask workspace "text .sheet")"
 # The signed-in agents in Tasktap's order: what costs nothing more first, the fastest first among those.
 ranks="[...document.querySelectorAll('.sheet .rank')].map(r => r.querySelector('.t').textContent + (r.querySelector('.switch').getAttribute('aria-checked') === 'true' ? '' : ' off')).join('|')"
 until_has workspace "text .sheet" 5 "goes to the first agent below that answers" && terms="$(ask workspace "text .sheet")" \
-  && echo "$terms" | grep -q "the thought, as you said or typed it" && echo "$terms" | grep -q "of up to 8 of your projects" \
+  && echo "$terms" | grep -q "the task, as you said or typed it" && echo "$terms" | grep -q "of up to 8 of your projects" \
   && [ "$(js workspace "$ranks")" = "fixture-silent|Fixture agent|fixture-probed" ] \
   && echo "$terms" | grep -q "fixture-small · included in your subscription · about 1 s" \
   && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] && [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] \

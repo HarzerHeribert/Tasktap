@@ -805,7 +805,7 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
     ));
     assert_eq!(
         said(&mut w, "keep_days", json!(3651)),
-        invalid("Finished thoughts are kept for 1 to 3650 days, or for ever with 0")
+        invalid("Finished tasks are kept for 1 to 3650 days, or for ever with 0")
     );
     for (id, patch) in [
         ("return_sends", json!("always")),

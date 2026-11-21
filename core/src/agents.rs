@@ -659,12 +659,15 @@ pub fn args<'a>(program: &str, words: &'a [String]) -> &'a [String] {
 
 /// What starts an agent, up to the arguments Tasktap gives it: the program
 /// that is run, found; the words after it up to the agent's own program,
-/// that program among them; and the person's arguments after it.
+/// that program among them; and the person's arguments after it. `theirs`:
+/// it is the person's command, whose program may start the agent as a
+/// child of its own, so that a check of Tasktap's ends the two together.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Start {
     pub program: PathBuf,
     pub head: Vec<String>,
     pub args: Vec<String>,
+    pub theirs: bool,
 }
 
 impl Start {
@@ -707,6 +710,7 @@ pub fn start(
             program: found,
             head: Vec::new(),
             args: Vec::new(),
+            theirs: false,
         });
     };
     let found = match bare(first) {
@@ -732,6 +736,7 @@ pub fn start(
         program: found,
         head,
         args,
+        theirs: true,
     })
 }
 

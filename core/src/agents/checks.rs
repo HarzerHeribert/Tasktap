@@ -66,7 +66,7 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let checks = agent.detect();
     let asked = |args: &'static [&'static str]| match args.is_empty() {
         true => Err(String::new()),
-        false => output(&start.program, &[&start.head[..], &words(args)].concat()),
+        false => output(&start, args),
     };
     if let Ok((_, out)) = asked(checks.version) {
         health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
@@ -118,10 +118,6 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
     };
     health.installed = super::started(agent).is_ok();
     health
-}
-
-fn words(args: &[&str]) -> Vec<String> {
-    args.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
 /// What an agent's commands said when a core last ran them, kept in the
@@ -254,8 +250,9 @@ pub fn keep(home: &Path, files: &[(&'static str, String)]) -> Result<(), String>
     Ok(())
 }
 
-/// Runs a probe in `cwd` and returns the arguments it adds to the run.
-pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
+/// Runs a probe in `cwd` and returns the arguments it adds to the run;
+/// `theirs` as [`super::Start`] has it.
+pub fn probe(mut probe: Probe, cwd: &Path, theirs: bool) -> Result<Vec<String>, String> {
     let Some((name, args)) = probe.argv.split_first() else {
         return Err("the check names no program".into());
     };
@@ -267,7 +264,7 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
     let program =
         program.ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
     let spawned = crate::sys::Tree::spawn(
-        command(&program, args)
+        command(&program, args, theirs)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -310,7 +307,7 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
         }
     };
     drop(input);
-    end(&mut child, &tree);
+    end(&mut child, &tree, theirs);
     result
 }
 
@@ -342,11 +339,15 @@ pub fn ask(
         file: &file,
     };
     let spawned = crate::sys::Tree::spawn(
-        command(&start.program, &[start.head, (how.args)(&schema)].concat())
-            .current_dir(folder)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
+        command(
+            &start.program,
+            &[&start.head[..], &(how.args)(&schema)].concat(),
+            start.theirs,
+        )
+        .current_dir(folder)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped()),
     );
     let (mut child, tree) = spawned.map_err(|e| format!("{name} could not run: {e}"))?;
     let (input, mut out, err) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
@@ -401,7 +402,7 @@ pub fn ask(
         )),
     };
     // It has printed everything or is no longer wanted: either way it ends.
-    end(&mut child, &tree);
+    end(&mut child, &tree, start.theirs);
     let printed = printed?;
     if printed.len() as u64 > MAX_ANSWER {
         return Err("its answer is too large".to_owned().into());
@@ -420,21 +421,34 @@ pub fn ask(
     })
 }
 
-/// `program` with `args` in the checks' environment.
-fn command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>]) -> Command {
+/// `program` with `args` in the checks' environment. One that is the
+/// person's command (`theirs`) leads a process group of its own on Mac and
+/// Linux, which [`end`] ends whole: the agent its program started with it.
+fn command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>], theirs: bool) -> Command {
     let mut command = Command::new(program);
     command
         .args(args)
         .env_clear()
         .envs(crate::terminal::environment_of_checks());
+    #[cfg(unix)]
+    if theirs {
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    }
+    #[cfg(windows)]
+    let _ = theirs;
     command
 }
 
-/// Runs `program` with `args`, and returns its exit code and what it
-/// printed on either output, within [`LIMIT`].
-fn output(program: &Path, args: &[String]) -> Result<(Option<i32>, String), String> {
+/// Runs what starts the agent with `args`, and returns its exit code and
+/// what it printed on either output, within [`LIMIT`].
+fn output(start: &super::Start, args: &[&str]) -> Result<(Option<i32>, String), String> {
+    let args = start
+        .head
+        .iter()
+        .map(String::as_str)
+        .chain(args.iter().copied());
     let spawned = crate::sys::Tree::spawn(
-        command(program, args)
+        command(&start.program, &args.collect::<Vec<_>>(), start.theirs)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -469,7 +483,7 @@ fn output(program: &Path, args: &[String]) -> Result<(Option<i32>, String), Stri
             Ok(part) => text.extend(part),
             Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {
-                end(&mut child, &tree);
+                end(&mut child, &tree, start.theirs);
                 return Err(format!("it did not answer within {} s", LIMIT.as_secs()));
             }
         }
@@ -479,7 +493,7 @@ fn output(program: &Path, args: &[String]) -> Result<(Option<i32>, String), Stri
             Ok(Some(status)) => break status.code(),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             _ => {
-                end(&mut child, &tree);
+                end(&mut child, &tree, start.theirs);
                 break None;
             }
         }
@@ -488,9 +502,16 @@ fn output(program: &Path, args: &[String]) -> Result<(Option<i32>, String), Stri
 }
 
 /// Ends the program and, on Windows, what it started: a tool installed as
-/// a batch file is the command prompt running the tool.
-fn end(child: &mut Child, tree: &crate::sys::Tree) {
+/// a batch file is the command prompt running the tool. Elsewhere so does a
+/// program of the person's (`theirs`), by its process group.
+fn end(child: &mut Child, tree: &crate::sys::Tree, theirs: bool) {
     tree.kill();
+    #[cfg(unix)]
+    if theirs {
+        crate::sys::signal_group(child.id(), true);
+    }
+    #[cfg(windows)]
+    let _ = theirs;
     let _ = child.kill();
     let _ = child.wait();
 }

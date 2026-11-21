@@ -114,7 +114,7 @@ impl Prepared {
                     if !command.is_empty() {
                         probe.argv.splice(..1, start.asks());
                     }
-                    agents::checks::probe(probe, &cwd)?
+                    agents::checks::probe(probe, &cwd, start.theirs)?
                 }
                 None => Vec::new(),
             };

@@ -24,8 +24,8 @@
 //       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
 //       has no switch.
 //   P6  Agents, the command that starts each agent Tasktap brings: a row under each, empty, the agent's program in its
-//       field, a sentence of what an empty field does and an example of a start of the person's own (caffeinate on a
-//       Mac; on Windows an argument of Claude Code's, none for Codex); a command typed and Tab keep it as
+//       field, one sentence with an example of a start of the person's own (caffeinate on a Mac; on Windows an
+//       argument of Claude Code's, none for Codex); a command typed and Tab keep it as
 //       `agent_commands`; one that holds what Tasktap sets for a run, then Return, is refused in the core's sentence
 //       under the field and the one before stays; emptied, the command goes. One whose first word Tasktap does not
 //       find stays in sight, not folded away, and says which word.
@@ -408,8 +408,8 @@ async function starts(browser, url, system) {
     const field = row(name).locator('input');
     expect(await row(name).count() === 1 && await field.inputValue() === '' && await field.getAttribute('placeholder') === program, `${at}: ${name} has its row, empty, with ${program} in its field`);
     const hint = await row(name).locator('.hint').textContent();
-    const says = `Leave the field empty and Tasktap starts ${name} as ${program}.${example ? ` Write your own start instead, for example ${example}, and Tasktap adds the task after your words.` : ''} Aliases of your shell do not count: write out what the alias stands for.`;
-    expect(hint === says, `${at}: ${name}'s row says what an empty field does${example ? `, with ${example} for an example` : ', with no example'}: "${hint}"`);
+    const says = `Write how you start ${name}${example ? `, such as ${example}` : ''}, without shell aliases; leave the field empty for Tasktap's own start.`;
+    expect(hint === says, `${at}: ${name}'s row says in one sentence how to write a start${example ? `, with ${example} for an example` : ', with no example'}: "${hint}"`);
   }
   await picture(page, 'agents', system);
   // A click in the field, the command, Tab: kept.

@@ -54,13 +54,13 @@ function keepCommand(a: AgentHealth, typed: string) {
   void call('put', { c: 'prefs', id: 'agent_commands', patch: command ? [...rest, { agent: a.id, command }] : rest })
     .then(() => refused.delete(a.id), (e: Error) => refused.set(a.id, sentence(e.message))).then(redraw);
 }
-/** The row under an agent Tasktap brings: the command that starts it, what Tasktap starts with none, and an example of
- *  a program of the person's around it (on Windows an argument of Claude Code's; none for Codex, which has no such
- *  harmless one to show). */
+/** The row under an agent Tasktap brings: the command that starts it, with its program in the empty field, and in one
+ *  sentence an example of a start of the person's own (on Windows an argument of Claude Code's; none for Codex, which
+ *  has no such harmless one to show). */
 function Start({ a }: { a: AgentHealth }) {
   const name = `Command that starts ${a.name}`, p = a.program, why = refused.get(a.id);
   const example = mac ? `caffeinate -i ${p}` : a.id === 'claude' ? `${p} --verbose` : '';
-  const hint = <>Leave the field empty and Tasktap starts {a.name} as <code>{p}</code>.{example && <> Write your own start instead, for example <code>{example}</code>, and Tasktap adds the task after your words.</>} Aliases of your shell do not count: write out what the alias stands for.</>;
+  const hint = <>Write how you start {a.name}{example && <>, such as <code>{example}</code></>}, without shell aliases; leave the field empty for Tasktap's own start.</>;
   return (
     <Row name={name} hint={why ? undefined : hint}>
       <input key={a.id} class="text wide" aria-label={name} placeholder={p} spellcheck={false} autocomplete="off" maxLength={2000} defaultValue={commandOf(a.id)}

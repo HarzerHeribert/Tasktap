@@ -367,7 +367,7 @@ fn observe(
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Some(mut probe) = agent.probe(&exe, &cwd) {
         probe.argv.splice(..1, real.start.asks());
-        match agents::checks::probe(probe, &cwd) {
+        match agents::checks::probe(probe, &cwd, real.theirs) {
             Ok(more) => {
                 run.args(more);
             }

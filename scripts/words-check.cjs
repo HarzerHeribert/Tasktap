@@ -20,12 +20,7 @@ const OLD = ['Key to put a thought in', 'Delete finished thoughts after', 'Wait 
   'Thoughts and history', "A service's key", 'Looked', 'Where your agents have worked', 'Folders Tasktap looks in', 'Workspace'];
 /** Words a person does not use (the checklist's rule): placing may stay, its row says what it is. */
 const WORDS = /\b(briefs?|briefed|sessions?|harness|router|worktrees?|isolated?|cards?|look|looks|looked|looking)\b/i;
-const SECTIONS = ['thoughts', 'agents', 'projects', 'voice', 'terminal', 'about'];
-/** The rows whose help was given word for word with the row, longer than the rule: the command that starts one of
- *  Tasktap's agents (Settings › Agents), whose three sentences say what an empty field does, how a start of the
- *  person's own goes on, and that the aliases of their shell do not count. Their help is held to every other rule. */
-const GIVEN = /^Command that starts /;
-const MB = 574_000_000;
+const SECTIONS = ['thoughts', 'agents', 'projects', 'voice', 'terminal', 'about'];const MB = 574_000_000;
 
 /** An agent's switch as the core words it, from its own source: what the row shows. */
 function option(file, id) {
@@ -141,8 +136,8 @@ async function main() {
           for (const h of r.help) {
             helped++;
             const ends = (h.match(/[.!?](?=\s|$)/g) ?? []).length, n = h.split(' ').length;
-            if (!/[.!?]$/.test(h) || (ends !== 1 && !GIVEN.test(r.label))) failures.add(`${where}: the help of "${r.label}" is not one sentence: "${h}"`);
-            if (n > (GIVEN.test(r.label) ? 46 : 26)) failures.add(`${where}: the help of "${r.label}" is ${n} words, not about twenty: "${h}"`);
+            if (ends !== 1 || !/[.!?]$/.test(h)) failures.add(`${where}: the help of "${r.label}" is not one sentence: "${h}"`);
+            if (n > 26) failures.add(`${where}: the help of "${r.label}" is ${n} words, not about twenty: "${h}"`);
             if (n > longest.n) Object.assign(longest, { n, at: `${r.label}: ${h}` });
           }
         }

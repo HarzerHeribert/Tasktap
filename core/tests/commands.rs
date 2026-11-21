@@ -86,7 +86,6 @@ fn commands(list: &[(&str, &str)]) -> PrefPatch {
 fn an_agent_with_no_command_starts_as_it_always_did() {
     for agent in agents::all() {
         let (name, program) = (agent.name(), agent.program());
-        assert!(agents::command(agent).is_empty(), "{name}");
         let start = agents::start(name, program, &[], found).unwrap();
         assert_eq!(
             start,
@@ -94,6 +93,7 @@ fn an_agent_with_no_command_starts_as_it_always_did() {
                 program: found(program).unwrap(),
                 head: Vec::new(),
                 args: Vec::new(),
+                theirs: false,
             }
         );
         assert!(start.asks() == [at(program)], "{name}");
@@ -123,6 +123,7 @@ fn a_program_of_the_persons_runs_the_agent_with_their_arguments_before_tasktaps(
         assert_eq!(start.program, found("caffeinate").unwrap(), "{name}");
         assert_eq!(start.head, ["-i".to_owned(), at(program)], "{name}");
         assert_eq!(start.args, ["--verbose", "two words"], "{name}");
+        assert!(start.theirs, "{name}");
         let theirs = agents::args(program, &command);
         assert_eq!(theirs, ["--verbose", "two words"]);
         // A new run and one that continues a conversation alike: what
@@ -464,4 +465,52 @@ fn a_script_that_runs_the_agent_by_its_name_runs_it_once() {
     assert_eq!(text.matches("script-ran").count(), 1, "{text}");
     assert_eq!(text.matches("fixture-agent").count(), 1, "{text}");
     screen.line("exit");
+}
+
+/// A question of Tasktap's own to an agent the person starts through a
+/// program of theirs that keeps the agent as its child (`sh`, after
+/// `/usr/bin/env`), which outlives its time: the program and the agent end
+/// with it, and the agent does nothing after. The only test here that sets
+/// the person's commands in this process.
+#[cfg(unix)]
+#[test]
+fn a_question_that_outlives_its_time_ends_the_persons_program_and_the_agent_it_started() {
+    use std::time::{Duration, Instant};
+    let data = Folder::new("ct");
+    let fixture = common::agents(&data.0).join("fixture-agent");
+    let wrap = data.0.join("wrap.sh");
+    std::fs::write(
+        &wrap,
+        format!("'{}' \"$@\"\necho after\n", fixture.display()),
+    )
+    .unwrap();
+    // Asked, the silent fixture agent has a second to answer; it sleeps
+    // longer, then would write a file.
+    let folder = data.0.join("asked");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("ask-silent"), "sleep:2000\nwrite:late:yes\n").unwrap();
+    let command = AgentCommand {
+        agent: "fixture-silent".into(),
+        command: format!("/usr/bin/env sh '{}'", wrap.display()),
+    };
+    agents::set_commands(&[command]).unwrap();
+    let agent = agents::find("fixture-silent").unwrap();
+    let how = agent.headless().unwrap();
+    let asked = Instant::now();
+    let channel = std::sync::mpsc::channel();
+    let e = agents::checks::ask(agent, &how, "where?".into(), "{}", &folder, channel);
+    agents::set_commands(&[]).unwrap();
+    let why = format!("{:?}", e.unwrap_err());
+    assert!(why.contains("did not answer within 1 s"), "{why}");
+    assert!(
+        asked.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        asked.elapsed()
+    );
+    assert!(folder.join("asked-silent").exists(), "it was asked");
+    std::thread::sleep(Duration::from_millis(2500));
+    assert!(
+        !folder.join("late").exists(),
+        "the agent ran on after its question"
+    );
 }

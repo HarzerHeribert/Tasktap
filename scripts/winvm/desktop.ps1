@@ -359,7 +359,8 @@ function Window-Of($process, $seconds) {
     } while ((Get-Date) -lt $until -and -not $process.HasExited)
 }
 # The cores that run from a data folder, and everything else that does.
-function Under($folder) { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($folder, [StringComparison]::OrdinalIgnoreCase) }) }
+# (A process's path read once: one that ends between two reads has none the second time.)
+function Under($folder) { @(Get-Process | Where-Object { $path = $_.Path; $path -and $path.StartsWith($folder, [StringComparison]::OrdinalIgnoreCase) }) }
 function Children($process, $name) { @(Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Parent.Id -eq $process.Id }) }
 # The page's answer once it is one: the page and the core need a moment after a command. `notch` asks the tab's page.
 function Soon($expr, $want, $tries = 15, $page = 'workspace') {
@@ -452,7 +453,9 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     # library, as the rounds before this check took their pictures.
     $picture = Picture $window.Handle; $specks = Specks $picture; $picture.Dispose()
     $picture = Picture $window.Handle -Library; $lost = Specks $picture; $picture.Dispose()
-    Check 1 'the faint light is drawn whole: no single black point in the window''s picture' ($specks[0] -eq 0) "single black points: $($specks[0]), at the foot of Home and of the sidebar: $($specks[1]); the same window taken through System.Drawing has $($lost[0]) and $($lost[1]): holes of that library's making, wherever the window is rgb 13 11 12"
+    # Judged where the light is: over the whole window a first start's sheet, black, shows through the inside of its own
+    # letters, each such point black and alone (nine of them on the VM's first start, 2026-11-21).
+    Check 1 'the faint light is drawn whole: no single black point at the foot of Home and of the sidebar' ($specks[1] -eq 0) "single black points there: $($specks[1]), in the whole window: $($specks[0]); the same window taken through System.Drawing has $($lost[0]) and $($lost[1]): holes of that library's making, wherever the window is rgb 13 11 12"
     $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before -and $_.Handle -ne $window.Handle })
     $consoles = @($new | Where-Object { $_.Class -match 'ConsoleWindowClass|CASCADIA_HOSTING_WINDOW_CLASS' })
     Check 1 'no console window opens' (-not $consoles) "new windows besides the app's: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
@@ -523,9 +526,6 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     Check 3 'it hangs centred from the top edge of the work area, at the arithmetic''s place and size' (($t.pixels -join ' ') -eq ($want -join ' ')) "window (left top width height): $($t.pixels -join ' '); the arithmetic for a display of $($screen.Bounds.Width) x $($screen.Bounds.Height) at $([int]($scale * 100)) %, $bar pixels of taskbar at the top: $($want -join ' ') (the tab $tw x $th points, with room for its light around it)"
     $drawn = Js "(r => [r.x, r.y, r.width, r.height, devicePixelRatio].join(' '))(document.getElementById('tab').getBoundingClientRect())" 5 'notch'
     Check 3 'the page draws the tab at the Mac''s size for a display without a camera housing, centred in the window, a point of the page a point of the display' ($drawn -eq "64 0 $tw $th $scale") "the tab in its page (left top width height, pixels a point): $drawn"
-    $styles = [Tasktap.Desk]::Styles($tab)
-    $listed = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -eq $tab })
-    Check 3 'above every window, no taskbar button and no place in Alt+Tab, never activated by a click, and the pointer passes through it' (($styles -band 0x8) -and ($styles -band 0x80) -and -not ($styles -band 0x40000) -and ($styles -band 0x8000000) -and ($styles -band 0x20) -and $listed) ('extended styles 0x{0:x}: topmost {1}, tool window {2}, taskbar button {3}, never activated {4}, pointer passes {5}' -f $styles, [bool]($styles -band 0x8), [bool]($styles -band 0x80), [bool]($styles -band 0x40000), [bool]($styles -band 0x8000000), [bool]($styles -band 0x20))
     Check 3 'showing it took the keyboard from nobody' ([Tasktap.Desk]::GetForegroundWindow() -ne $tab -and -not (Notch).key) "the window in front is the tab: $([Tasktap.Desk]::GetForegroundWindow() -eq $tab)"
     # Two windows under the tab's window, as a person has them there: the app's own, dark, under its left margin, and
     # the script's Notepad, light, in front under the tab itself and the rest.
@@ -537,6 +537,11 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     Start-Sleep -Milliseconds 600
     $t = Tab-Soon { param($t) $t.shown }
     Check 3 'with another program in front the tab shows' ([bool]$t.shown) "the tab shown: $($t.shown); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle)"
+    # Its styles once it shows: hidden while the app's window was in front (rule 1), it is placed above every window as
+    # it is shown (edge.rs `show`), and Windows makes a window topmost only so, not by its style alone.
+    $styles = [Tasktap.Desk]::Styles($tab)
+    $listed = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -eq $tab })
+    Check 3 'above every window, no taskbar button and no place in Alt+Tab, never activated by a click, and the pointer passes through it' (($styles -band 0x8) -and ($styles -band 0x80) -and -not ($styles -band 0x40000) -and ($styles -band 0x8000000) -and ($styles -band 0x20) -and $listed) ('extended styles 0x{0:x}: topmost {1}, tool window {2}, taskbar button {3}, never activated {4}, pointer passes {5}' -f $styles, [bool]($styles -band 0x8), [bool]($styles -band 0x80), [bool]($styles -band 0x40000), [bool]($styles -band 0x8000000), [bool]($styles -band 0x20))
     Say 'LOOK' 3 'the tab collapsed, with nothing running: its own window, and as it stands on the screen over the app''s window and Notepad' (Tab-Picture $tab 'row3-tab-collapsed')
     $was = [Tasktap.Desk+Point]::new()
     $null = [Tasktap.Desk]::GetCursorPos([ref]$was)
@@ -623,6 +628,9 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     # A click on the icon, as the shell tells of one: the sheet opens. (Whether it also gets the keyboard is the
     # system's to say: it gives it after a real click on the icon, and may not after this telling.)
     if ($where) {
+        # With Notepad in front: the app's window was clicked in front just before, and with it in front the tab opens
+        # no sheet (rule 1).
+        $null = Front $notepad.Handle
         [Tasktap.Desk]::Tell([IntPtr][long]$t.helper, 0x8001, ($y -shl 16) -bor ($x -band 0xffff), (1 -shl 16) -bor 0x400)
         $body = Soon "String(document.body.classList.contains('open')) + ' ' + (document.activeElement?.id ?? '')" 'true capture-input' 10 'notch'
         $keyed = [Tasktap.Desk]::GetForegroundWindow() -eq $tab
@@ -635,7 +643,9 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $null = Front $window
     Send 'fullscreen on'
     $hidden = Tab-Soon { param($t) -not $t.shown }
-    Check 3 'the tab hides while a window fills the whole display' (-not $hidden.shown -and $hidden.hidden) "the tab shown: $($hidden.shown); Windows says to hide: $($hidden.hidden)"
+    # The app's own window over the whole display is in front, which hides the tab by rule 1 whatever Windows says of
+    # full screen: what Windows says is told, not asked for.
+    Check 3 'the tab hides while a window fills the whole display' (-not $hidden.shown) "the tab shown: $($hidden.shown); Windows says to hide: $($hidden.hidden); the app's window in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $window)"
     Send 'fullscreen off'
     # Back in its frame the app's window is still in front, which keeps the tab away (rule 1): Notepad is put in front.
     $null = Front $notepad.Handle
@@ -672,7 +682,8 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $null = Until '"event":"tab","set"' 5
     $again = Tab-Soon { param($t) $t.shown }
     Check 3 'at rest nothing moves: the tab''s window stays, the pointer is not read, and the app with the tab uses no more processor time than without it' (-not $with.moved -and $with.cpu -le $without.cpu + 150) "collapsed, over $($with.over) s: $($with.cpu) ms of processor time in $($with.processes) processes$(if ($null -ne $with.switches) { ", $($with.switches) context switches a second" }), $($with.memory) MB of their own; with the tab switched off, over $($without.over) s: $($without.cpu) ms in $($without.processes) processes$(if ($null -ne $without.switches) { ", $($without.switches) a second" }), $($without.memory) MB"
-    Check 3 'switched off the tab is gone, and switched on it is back where it was' ($again.shown -and ($again.pixels -join ' ') -eq ($want -join ' ')) "back: $($again.pixels -join ' ')"
+    $front = [Tasktap.Desk]::GetForegroundWindow() -eq $window
+    Check 3 'switched off the tab is gone, and switched on it is back where it was, shown unless the app''s window is in front' ([bool]$again.shown -ne $front -and ($again.pixels -join ' ') -eq ($want -join ' ')) "back: $($again.pixels -join ' '); shown: $($again.shown); the app's window in front: $front"
     End-Own 'row3-app.txt'
     Start-Sleep -Milliseconds 500
     $left = Under $tmp
@@ -695,7 +706,7 @@ $rows['4'] = 'Starts the app with its debug channel on a data folder of its own 
     Set-Content "$tmp\$marker.txt" ''
     Start-Process notepad.exe -ArgumentList "$tmp\$marker.txt"
     $notepad = $null
-    for ($i = 0; $i -lt 50 -and -not $notepad; $i++) {
+    for ($i = 0; $i -lt 150 -and -not $notepad; $i++) {
         Start-Sleep -Milliseconds 200
         $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1
     }
@@ -945,7 +956,7 @@ $rows['10'] = 'In the same app, with its window in front and the pointer used on
     Set-Content "$tmp\$marker.txt" ''
     Start-Process notepad.exe -ArgumentList "$tmp\$marker.txt"
     $notepad = $null
-    for ($i = 0; $i -lt 50 -and -not $notepad; $i++) { Start-Sleep -Milliseconds 200; $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1 }
+    for ($i = 0; $i -lt 150 -and -not $notepad; $i++) { Start-Sleep -Milliseconds 200; $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1 }
     if ($notepad) {
         $null = Front $notepad.Handle
         Start-Sleep -Milliseconds 600
@@ -1051,11 +1062,13 @@ function End-Own($name) {
     if ($seen) { $seen | Set-Content "$Out\$name" }
 }
 # Notepad in front with a file of the round's own, as another program a person is in; nothing when it cannot be.
+# Notepad is waited for up to 30 s, there and in rows 4 and 10: an account's first start of it (an app of the Store)
+# takes longer than the 10 s that were enough before (the VM's desktop account, 2026-11-21).
 function Other-Program($marker) {
     Set-Content "$tmp\$marker.txt" ''
     Start-Process notepad.exe -ArgumentList "$tmp\$marker.txt"
     $notepad = $null
-    for ($i = 0; $i -lt 50 -and -not $notepad; $i++) {
+    for ($i = 0; $i -lt 150 -and -not $notepad; $i++) {
         Start-Sleep -Milliseconds 200
         $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1
     }

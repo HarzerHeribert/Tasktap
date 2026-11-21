@@ -46,7 +46,9 @@ pub fn vault() -> Arc<dyn Vault> {
     Arc::new(System(SERVICE))
 }
 
-/// Keys in memory, gone with the process: what the tests use.
+/// Keys in memory, gone with the process: what the tests use. It keeps
+/// nothing while the file `TASKTAP_VAULT_REFUSES` names is there, as a
+/// store that is locked or full.
 #[cfg(feature = "fixtures")]
 #[derive(Default)]
 pub struct Memory(std::sync::Mutex<std::collections::HashMap<String, String>>);
@@ -54,6 +56,10 @@ pub struct Memory(std::sync::Mutex<std::collections::HashMap<String, String>>);
 #[cfg(feature = "fixtures")]
 impl Vault for Memory {
     fn set(&self, name: &str, key: &str) -> Result<(), String> {
+        let refuses = std::env::var_os("TASKTAP_VAULT_REFUSES");
+        if refuses.is_some_and(|file| std::path::Path::new(&file).exists()) {
+            return Err("the credential store refused to keep it (a test's refusal)".into());
+        }
         let mut keys = self.0.lock().map_err(|e| e.to_string())?;
         keys.insert(name.into(), key.into());
         Ok(())

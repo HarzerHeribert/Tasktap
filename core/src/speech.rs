@@ -702,14 +702,13 @@ fn ask(
         false => fields.extend(languages.filter(|_| one).map(|l| ("language", l))),
     }
     let url = format!("{}{PATH}", service.server);
-    let post = http::Post {
+    let post = http::Request {
         url: &url,
         key: key.as_deref(),
-        fields: &fields,
-        file: (folder, name, "audio.wav", "audio/wav"),
+        body: http::Body::Form(&fields, (folder, name, "audio.wav", "audio/wav")),
         limit,
     };
-    let answer = http::post(&post, wait);
+    let answer = http::send(&post, wait);
     let _ = std::fs::remove_file(folder.join(name));
     (read(answer, service, key.as_deref()), None)
 }

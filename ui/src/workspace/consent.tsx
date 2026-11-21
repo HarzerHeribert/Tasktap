@@ -9,12 +9,13 @@
 // Its row says what it needs, how far the download is, that it is ready and how large, or why it failed, and removes
 // it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
 import type { RouteBy } from '../../../core/proto/protocol.ts';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
-import { type Rank, agreement, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
-import { agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
+import { type Rank, agreement, chatgptOffer, chatgptRow, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
+import { CHATGPT, agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
 import { HERE, KEYS_KEPT, mac } from '../system.ts';
@@ -27,14 +28,15 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const at = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** The agents that place thoughts, in the person's order: a row each, with its place among those switched on, its
- *  ring, its name, the model it is asked for and why it stands there (or until when it is passed over), and its
- *  switch. ↑ ↓ go from row to row, ⌥↑ ⌥↓ move the one in focus, Space switches it; a row is dragged by any part but
- *  its switch. `set` is given the rows after each change. */
-function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
+ *  ring, its name, the model it is asked for (ChatGPT's by its name) and why it stands there (or until when it is
+ *  passed over), and its switch. ↑ ↓ go from row to row, ⌥↑ ⌥↓ move the one in focus, Space switches it; a row is
+ *  dragged by any part but its switch. `set` is given the rows after each change. `lead`: ChatGPT's row while it is
+ *  not signed in, first, which is none of those. */
+function Ranks({ rows, set, lead }: { rows: Rank[]; set: (rows: Rank[]) => void; lead?: ComponentChildren }) {
   const list = useRef<HTMLDivElement>(null);
   const [held, hold] = useState<number | null>(null);
   const n = places(rows), tools = terms.route?.tools ?? [];
-  const row = (i: number) => list.current?.querySelectorAll<HTMLElement>('.rank')[i];
+  const row = (i: number) => list.current?.querySelectorAll<HTMLElement>('.rank:not(.sign)')[i];
   const toggle = (i: number) => set(rows.map((r, j) => (j === i ? { ...r, on: !r.on } : r)));
   const keys = (i: number) => (e: KeyboardEvent) => {
     const step = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0, plain = !e.metaKey && !e.ctrlKey && !e.shiftKey;
@@ -57,7 +59,7 @@ function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
   };
   const drag = (e: PointerEvent) => {
     if (held === null) return;
-    const to = [...(list.current?.querySelectorAll<HTMLElement>('.rank') ?? [])].findIndex((el) => {
+    const to = [...(list.current?.querySelectorAll<HTMLElement>('.rank:not(.sign)') ?? [])].findIndex((el) => {
       const b = el.getBoundingClientRect();
       return e.clientY >= b.top && e.clientY < b.bottom;
     });
@@ -66,10 +68,12 @@ function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
   const drop = () => held !== null && (row(held)?.focus(), hold(null));
   return (
     <div class="ranks" role="list" aria-label="Who finds the project, the first asked first" ref={list}>
+      {lead}
       {rows.map((r, i) => {
         const t = tools.find((x) => x.agent === r.agent);
         const limited = records.agents.get(r.agent)?.limited;
         const why = t ? placeWhy(t, limited, Date.now(), at) : '';
+        const model = (r.agent === CHATGPT && chatgptRow(pref('chatgpt')).name) || r.model;
         return (
           <div key={r.agent} class={`line rank${held === i ? ' held' : ''}${r.on ? '' : ' off'}`} role="listitem" tabIndex={0}
             aria-label={`${n[i] ? `${n[i]}, ` : ''}${agentName(r.agent)}, ${r.on ? 'on' : 'off'}, ${why}`}
@@ -77,7 +81,7 @@ function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
             <span class="n">{n[i] ?? ''}</span>
             <Ring agent={r.agent} s="" />
             <span class="t">{agentName(r.agent)}</span>
-            <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={`${r.model} · ${why}`}>{r.model} · {why}</span>
+            <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={`${model} · ${why}`}>{model} · {why}</span>
             <button type="button" role="switch" class="switch" tabIndex={-1} aria-checked={r.on} aria-label={`${agentName(r.agent)} helps find the project`} onClick={() => toggle(i)}><span /></button>
           </div>
         );
@@ -86,12 +90,37 @@ function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
   );
 }
 
+const signOut = () => void call('chatgpt.sign_out', {}).catch(fail);
+/** A sign-in with ChatGPT asked for and not answered yet. */
+let signing = false;
+
+/** ChatGPT's row while it is not signed in: its name and the button that signs in with ChatGPT, or Cancel while the
+ *  browser is waited for. `sign`: what the button does; in the sheet, which says above it what is sent to OpenAI, it
+ *  signs in, and elsewhere it opens the sheet. `says`: why the last sign-in did not finish, in the row itself. */
+function SignIn({ sign, says }: { sign: () => void; says?: boolean }) {
+  const c = chatgptRow(pref('chatgpt'));
+  if (c.state === 'in') return null;
+  return (
+    <div class="line rank sign off" role="listitem" aria-label={`ChatGPT, not signed in${c.says ? `. ${c.says}` : ''}`}>
+      <span class="n" />
+      <Ring agent={CHATGPT} s="" />
+      <span class="t">ChatGPT</span>
+      <span class={`x${c.state === 'out' ? ' warn' : ''}`}>{says ? c.says : ''}</span>
+      {c.state === 'waiting' ? <button type="button" class="btn" onClick={signOut}>Cancel</button>
+        : <button type="button" class="btn" onClick={sign}>Sign in with ChatGPT</button>}
+    </div>
+  );
+}
+
 /** The rows of the placing group and what changes them: with an agreement to these terms each change is written at
- *  once; without one, the rows are Tasktap's proposal until the person allows them. */
+ *  once; without one, the rows are Tasktap's proposal until the person allows them. A sign-in with ChatGPT that ends
+ *  puts its row in or takes it out, whatever was moved before. */
 function useRanks() {
   const t = terms.route, tools = placers(), by = pref('route_by');
   const agreed = !!by && !!t && by.terms === t.terms;
   const [draft, setDraft] = useState<Rank[] | null>(null);
+  const chatgpt = pref('chatgpt')?.state;
+  useEffect(() => setDraft(null), [chatgpt]);
   const rows = draft ?? ranked(agreed ? by : null, tools);
   const write = (next: Rank[]) => call('put', { c: 'prefs', id: 'route_by', patch: agreement(next, by, t?.tools ?? [], t?.terms ?? 0) });
   const set = (next: Rank[]) => (setDraft(next), agreed && void write(next).catch(fail));
@@ -112,22 +141,23 @@ export const FINDING = 'Finding the project for a task';
 export function Finding() {
   const { tools, agreed, rows, set, reset, state } = useRanks();
   const sheet = () => open({ kind: 'placing', back: true });
-  const on = rows.filter((r) => r.on).map((r) => agentName(r.agent));
+  const on = rows.filter((r) => r.on).map((r) => agentName(r.agent)), c = chatgptRow(pref('chatgpt'));
   if (agreed && tools.length)
     return (
       <Row name={FINDING} hint={on.length ? `Names in your words come first; ${on.length > 1 ? 'the first of these to answer' : on[0]} places the rest, and reads every long task for its summary.`
         : 'Every agent here is switched off, so only tasks that name their project are placed; Tasktap asks you about the rest.'}>
-        <Ranks rows={rows} set={set} />
+        <Ranks rows={rows} set={set} lead={<SignIn sign={sheet} says />} />
         <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
         <button type="button" class="btn" onClick={sheet}>What is sent…</button>
+        {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
         <span class="v dim">{MOVES}</span>
       </Row>
     );
   return (
-    <Row name={FINDING} hint={state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
-      : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ' until an agent is signed in under Agents' : ''}.`}>
+    <Row name={FINDING} hint={c.says ?? (state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
+      : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ', until you sign in with ChatGPT, or an agent under Agents' : ''}.`)}>
       {state === 'again' ? <span class="v warn">The terms changed. Agree again to keep it on.</span> : <span class="v">Off: only tasks that name their project</span>}
-      {tools.length > 0 && <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : 'Let your agents help…'}</button>}
+      <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : tools.length > 0 ? 'Let your agents help…' : 'Sign in with ChatGPT…'}</button>
     </Row>
   );
 }
@@ -140,6 +170,14 @@ export function PlacingSheet({ back }: { back?: boolean }) {
   const { t, tools, by, agreed, rows, set, write, reset, state } = useRanks();
   const [reads, setReads] = useState(false);
   useEffect(() => void loadTerms(), []);
+  const c = chatgptRow(pref('chatgpt')), asks = t?.tools.find((x) => x.agent === CHATGPT)?.model;
+  // Pressed here, below what is sent and to whom: the agreement for ChatGPT's row (core chatgpt.rs `agree`). Once:
+  // a second press while the first is on its way does nothing.
+  const signIn = () => {
+    if (signing) return;
+    signing = true;
+    void call('chatgpt.sign_in', {}).then((target) => call('host.open', { target })).catch(fail).finally(() => (signing = false));
+  };
   const done = () => (back ? open({ kind: 'settings', at: 'projects' }) : dismiss());
   const put = (patch: RouteBy | null) => void call('put', { c: 'prefs', id: 'route_by', patch }).then(done, fail);
   const no = () => {
@@ -160,15 +198,20 @@ export function PlacingSheet({ back }: { back?: boolean }) {
       <div class="terms">
         {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Now your agents are asked one after another, so until you agree again, only tasks that name their project are placed.</p>}
         <p>Give a task without naming its project, and one of your own agents finds where the task belongs; for a long task that agent also writes a summary for the agent that runs the task. Your own words always go along.</p>
-        {!t ? <p>Asking what is sent…</p> : !tools.length ? <p>No agent that can do this is signed in yet. Sign one in under Settings › Agents, then come back.</p> : (
+        {!t ? <p>Asking what is sent…</p> : (
           <>
             <p>Each such task goes to the first agent below that answers, one at a time, under the sign-in it already has. It is sent:</p>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
-            <Ranks rows={rows} set={set} />
-            <div class="rank-f">
-              <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
-              <span class="hint">{MOVES}</span>
-            </div>
+            {c.state !== 'in' && asks && <p>{chatgptOffer(asks)}</p>}
+            {c.says && <p class={c.state === 'out' ? 'warn' : undefined} role={c.state === 'out' ? 'alert' : 'status'}>{c.says}</p>}
+            <Ranks rows={rows} set={set} lead={<SignIn sign={signIn} />} />
+            {rows.length > 0 && (
+              <div class="rank-f">
+                <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
+                {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
+                <span class="hint">{MOVES}</span>
+              </div>
+            )}
             <p class="hint">A short task that names its project is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}

@@ -515,7 +515,9 @@ fn a_consent_to_one_agent_reads_as_an_agreement_that_lists_it_alone() {
             terms: 2,
         })
     );
-    let refused = tasktap_core::route::agreed(&by.unwrap()).err().unwrap();
+    let refused = tasktap_core::route::agreed(&by.unwrap(), None)
+        .err()
+        .unwrap();
     assert!(refused.contains("asks you again"), "{refused}");
     // Older still, with no version of the terms at all.
     let by = kept("consent-0", json!({"agent": "claude", "model": "haiku"}));

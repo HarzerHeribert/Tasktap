@@ -1,5 +1,7 @@
 # Placing on the person's own ChatGPT plan: a trial
 
+**Tasktap has it now (2026-11-21).** The app signs in with ChatGPT and places a task by one direct call as this trial does, as one more row of "Finding the project for a task": `core/src/chatgpt.rs`, and `docs/core-design.md` §8 ("ChatGPT, on the person's own plan"). This folder stays as the trial that decided it.
+
 The question: can Tasktap's placing call (the thought and up to 8 likely projects in; a destination, or "unsure", and a brief out) be one direct call on the person's own ChatGPT plan, through OpenAI's "Sign in with ChatGPT", instead of starting their coding tool headless? This folder answers it on the 14 made-up thoughts the app's placing was proved on. Nothing in the app changes.
 
 ## The two commands

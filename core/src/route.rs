@@ -13,10 +13,12 @@
 //! fixtures has `fixture.script` script it).
 //!
 //! The models are those behind the person's own agents, asked headless
-//! (`agents::Headless`) one after another in the order the person agreed
-//! to ([`agreed`]; Tasktap proposes one, [`proposed`]), within [`BUDGET`]:
-//! one question, [`question`], carries the [`INSTRUCTIONS`] and what the
-//! core's records offer, and an answer is taken only as [`accept`] allows.
+//! (`agents::Headless`), and ChatGPT on the person's own plan once they
+//! signed in with it (`chatgpt.rs`, one direct call, no agent started),
+//! one after another in the order the person agreed to ([`agreed`];
+//! Tasktap proposes one, [`proposed`]), within [`BUDGET`]: one question,
+//! [`question`], carries the [`INSTRUCTIONS`] and what the core's records
+//! offer, and an answer is taken only as [`accept`] allows.
 //! Nothing here runs a tool or waits: `effects.rs` runs the tools off the
 //! core's thread, one at a time, and `state.rs` holds the rules of when a
 //! thought is asked about and when it launches.
@@ -1251,6 +1253,12 @@ fn place(r: &Request, key: &str) -> Option<Candidate> {
 /// What a model is asked about a narrowed request: the instructions, then
 /// the request as JSON.
 pub fn question(r: &Request) -> String {
+    format!("{INSTRUCTIONS}\n{}", asked(r))
+}
+
+/// What follows the instructions in [`question`]: the request as JSON,
+/// between tags. ChatGPT takes the instructions in a field of their own.
+pub fn asked(r: &Request) -> String {
     let project = |id: ProjectId| key(r, Destination::New(id));
     let session = |id: SessionId| key(r, Destination::Session(id));
     let projects: Vec<_> = (r.projects.iter())
@@ -1281,7 +1289,7 @@ pub fn question(r: &Request) -> String {
         "sessions": sessions,
         "recent": recent,
     });
-    format!("{INSTRUCTIONS}\n<request>\n{request}\n</request>\n")
+    format!("<request>\n{request}\n</request>\n")
 }
 
 /// A word of the protocol as the protocol writes it.
@@ -1473,8 +1481,10 @@ pub fn askable(text: &str) -> Result<(), String> {
 
 /// Whether an agreement names what this core would ask: these terms, and
 /// each agent once, one this core has, whose tool it would ask for the
-/// model agreed to.
-pub fn valid(by: &RouteBy) -> Result<(), String> {
+/// model agreed to. ChatGPT, while signed in (`chatgpt`: the model the
+/// sign-in chose), for that model; while not, it is asked nothing, and its
+/// row stands as it is.
+pub fn valid(by: &RouteBy, chatgpt: Option<&str>) -> Result<(), String> {
     if by.terms != TERMS {
         return Err(AGAIN.into());
     }
@@ -1482,9 +1492,36 @@ pub fn valid(by: &RouteBy) -> Result<(), String> {
         if by.agents[..i].iter().any(|p| p.agent == placer.agent) {
             return Err(format!("{} is listed twice", placer.agent));
         }
-        covered(placer)?;
+        // ChatGPT signed out keeps its row as it is.
+        if placer.agent != crate::chatgpt::ID || chatgpt.is_some() {
+            covered(placer, chatgpt)?;
+        }
     }
     Ok(())
+}
+
+/// Who is asked about a thought: an agent's tool, headless, or ChatGPT on
+/// the person's plan, for the model its sign-in chose.
+pub enum Asker {
+    Agent(&'static dyn Agent, Headless),
+    ChatGpt(String),
+}
+
+impl Asker {
+    /// Its id, as an agreement names it.
+    pub fn id(&self) -> &'static str {
+        match self {
+            Asker::Agent(agent, _) => agent.id(),
+            Asker::ChatGpt(_) => crate::chatgpt::ID,
+        }
+    }
+
+    pub fn model(&self) -> &str {
+        match self {
+            Asker::Agent(_, how) => how.model,
+            Asker::ChatGpt(model) => model,
+        }
+    }
 }
 
 /// Why an agreement to the terms before these covers nothing.
@@ -1492,15 +1529,26 @@ const AGAIN: &str = "the agreement was to what was sent before: \
      placing now asks your agents one after another, and asks you again";
 
 /// The agent an agreement names and how its tool is asked, when the
-/// agreement covers what this core would ask: that tool, with that model.
-fn covered(placer: &Placer) -> Result<(&'static dyn Agent, Headless), String> {
+/// agreement covers what this core would ask: that tool, with that model;
+/// or ChatGPT, signed in for that model.
+fn covered(placer: &Placer, chatgpt: Option<&str>) -> Result<Asker, String> {
+    if placer.agent == crate::chatgpt::ID {
+        return match chatgpt {
+            Some(model) if model == placer.model => Ok(Asker::ChatGpt(model.into())),
+            Some(model) => Err(format!(
+                "the agreement is for ChatGPT with {}, and Tasktap now asks {model}",
+                placer.model
+            )),
+            None => Err("ChatGPT is not signed in".into()),
+        };
+    }
     let agent = agents::live(&placer.agent);
     let agent = agent.ok_or(format!("Tasktap has no agent {}", placer.agent))?;
     let how = agent
         .headless()
         .ok_or(format!("{} cannot be asked to place tasks", agent.name()))?;
     match how.model == placer.model {
-        true => Ok((agent, how)),
+        true => Ok(Asker::Agent(agent, how)),
         false => Err(format!(
             "the agreement is for {} with {}, and Tasktap now asks {}",
             agent.name(),
@@ -1512,15 +1560,16 @@ fn covered(placer: &Placer) -> Result<(&'static dyn Agent, Headless), String> {
 
 /// The agents an agreement lets Tasktap ask about a thought, in the
 /// person's order, each with how its tool is asked: those switched on that
-/// the agreement covers. Why there are none, where there are none.
-pub fn agreed(by: &RouteBy) -> Result<Vec<(&'static dyn Agent, Headless)>, String> {
+/// the agreement covers, ChatGPT among them while it is signed in for the
+/// model agreed to (`chatgpt`). Why there are none, where there are none.
+pub fn agreed(by: &RouteBy, chatgpt: Option<&str>) -> Result<Vec<Asker>, String> {
     if by.terms != TERMS {
         return Err(AGAIN.into());
     }
     let mut why = Vec::new();
     let on = by.agents.iter().filter(|p| p.on);
     let tools: Vec<_> = on
-        .filter_map(|p| covered(p).map_err(|e| why.push(e)).ok())
+        .filter_map(|p| covered(p, chatgpt).map_err(|e| why.push(e)).ok())
         .collect();
     match (tools.is_empty(), why.is_empty()) {
         (false, _) => Ok(tools),
@@ -1543,6 +1592,9 @@ const COSTS: &[(&str, Pays, u32)] = &[
     ("codex", Pays::Plan, 4700),
     // Its flash model is included with the Google account it signs in with.
     ("agy", Pays::Plan, 5600),
+    // gpt-6.2-sol on the person's ChatGPT plan, one direct call with no
+    // agent started (`chatgpt.rs`): 4.0 s, measured on 2026-11-21.
+    ("chatgpt", Pays::Plan, 4000),
     #[cfg(feature = "fixtures")]
     ("fixture", Pays::Plan, 900),
     #[cfg(feature = "fixtures")]
@@ -1575,17 +1627,23 @@ pub fn pays(agent: &str, identity: Option<&str>) -> Pays {
     }
 }
 
-/// Tasktap's order: what costs the person nothing more first, then the
-/// fastest, one whose time is unknown last; else in the order given.
+/// Tasktap's order: ChatGPT first, which starts no agent; then what costs
+/// the person nothing more, then the fastest, one whose time is unknown
+/// last; else in the order given.
 pub fn proposed(mut tools: Vec<PlaceTool>) -> Vec<PlaceTool> {
-    tools.sort_by_key(|t| (t.pays != Pays::Plan, t.ms.unwrap_or(u32::MAX)));
+    tools.sort_by_key(|t| {
+        let first = t.agent != crate::chatgpt::ID;
+        (first, t.pays != Pays::Plan, t.ms.unwrap_or(u32::MAX))
+    });
     tools
 }
 
 /// `route.terms`: what placing by a model sends and to whom, the agents
 /// that can be asked in Tasktap's order. A tool that was found not to
-/// offer its model any more is not among them.
+/// offer its model any more is not among them. ChatGPT always is, with the
+/// model its sign-in chose, or the one it would choose before one did.
 pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> {
+    let chatgpt = effects::read(cx.core, crate::chatgpt::model)?;
     let offered = |a: &&&dyn Agent| !cx.core.seams.gone(a.id());
     let all = agents::all();
     let tools = all.iter().filter(offered).filter_map(|a| {
@@ -1597,11 +1655,17 @@ pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> 
             ms: typical(a.id()),
         })
     });
+    let chatgpt = PlaceTool {
+        agent: crate::chatgpt::ID.into(),
+        model: chatgpt.unwrap_or_else(|| crate::chatgpt::MODEL.into()),
+        pays: Pays::Plan,
+        ms: typical(crate::chatgpt::ID),
+    };
     Ok(RouteTerms {
         instructions: INSTRUCTIONS.into(),
         sends: SENDS.iter().map(|s| (*s).into()).collect(),
         terms: TERMS,
-        tools: proposed(tools.collect()),
+        tools: proposed(tools.chain([chatgpt]).collect()),
     })
 }
 
@@ -1642,16 +1706,18 @@ fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
 /// nothing (the capture then asks, or a model places it). It stores
 /// nothing and starts nothing.
 pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
-    let (request, by) = effects::read(cx.core, |tx| {
+    let (request, by, chatgpt) = effects::read(cx.core, |tx| {
         let by = match tx.pref(tasktap_proto::PrefKey::RouteBy)?.map(|p| p.value) {
             Some(tasktap_proto::PrefValue::RouteBy(by)) => by,
             _ => None,
         };
-        Ok((request(tx, &args.text, args.current)?, by))
+        let chatgpt = crate::chatgpt::model(tx)?;
+        Ok((request(tx, &args.text, args.current)?, by, chatgpt))
     })?;
     // A question the names ask only because a name may not be meant goes
     // to the models the person agreed to: the chip says it decides.
-    let model = by.is_some_and(|by| agreed(&by).is_ok()) && !sure(&request);
+    let agreed = |by: RouteBy| agreed(&by, chatgpt.as_deref()).is_ok();
+    let model = by.is_some_and(agreed) && !sure(&request);
     Ok(match model {
         true => tasktap_proto::Route::Unknown,
         false => wire(by_names(&request).unwrap_or(Route::Unknown)),

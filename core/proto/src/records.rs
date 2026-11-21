@@ -739,6 +739,36 @@ pub enum PrefValue {
     /// when About is shown and at the first capture of a day. False: never
     /// unless the person asks for one check (`host.update {look, now}`).
     UpdateChecks(bool),
+    /// The sign-in with ChatGPT as a page sees it (design §8): only the core
+    /// writes it, with `chatgpt.sign_in` and `chatgpt.sign_out` and as a
+    /// placing finds the sign-in ended. The sign-in itself is in the
+    /// system's credential store and in no record. None: never signed in,
+    /// or signed out by the person.
+    Chatgpt(Option<ChatGpt>),
+}
+
+/// Where the sign-in with ChatGPT stands, and the model placing asks for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ChatGpt {
+    pub state: SignIn,
+    /// While signed in: the model placing asks for, as the account's list
+    /// names it, and the name the list shows for it.
+    pub model: Option<String>,
+    pub name: Option<String>,
+    /// Why the last sign-in did not finish, in OpenAI's or the system's own
+    /// words (`failed`).
+    pub error: Option<String>,
+}
+
+words! {
+    /// `waiting`: for the person, in their browser. `no_plan`: signed in,
+    /// but the use of the person's ChatGPT plan was not allowed, so nothing
+    /// was kept. `no_model`: signed in, but the account is not offered the
+    /// model placing asks for, so the sign-in was ended. `signed_out`:
+    /// OpenAI refused to renew the sign-in.
+    pub enum SignIn { Waiting, SignedIn, Failed, NoPlan, NoModel, SignedOut }
 }
 
 /// An agent the person added (design §7): any program that takes what it is
@@ -1105,7 +1135,7 @@ words! {
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
         AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey,
-        AgentCommands
+        AgentCommands, Chatgpt
     }
 }
 
@@ -1166,6 +1196,7 @@ impl PrefKey {
             PrefKey::YesKey => PrefValue::YesKey(None),
             PrefKey::NoKey => PrefValue::NoKey(None),
             PrefKey::AgentCommands => PrefValue::AgentCommands(Vec::new()),
+            PrefKey::Chatgpt => PrefValue::Chatgpt(None),
         }
     }
 }
@@ -1202,6 +1233,7 @@ impl PrefValue {
             PrefValue::YesKey(_) => PrefKey::YesKey,
             PrefValue::NoKey(_) => PrefKey::NoKey,
             PrefValue::AgentCommands(_) => PrefKey::AgentCommands,
+            PrefValue::Chatgpt(_) => PrefKey::Chatgpt,
         }
     }
 }

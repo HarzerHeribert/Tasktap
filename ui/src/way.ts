@@ -4,7 +4,7 @@
 // by a model is on, what a ring says of its agent,
 // the time a recording shows, where heard words go in a field, and what a field holds while its thought is sent. The
 // pages draw these and decide nothing themselves.
-import type { PlaceTool, RouteBy, Thought } from '../../core/proto/protocol.ts';
+import type { ChatGpt, PlaceTool, RouteBy, Thought } from '../../core/proto/protocol.ts';
 
 /** The two letters of an agent the app has no mark for, from its id, which is what a person types to start it: the
  *  initials of its first two words, or the first two letters of its one. */
@@ -175,6 +175,43 @@ export function agreement(rows: Rank[], by: RouteBy | null | undefined, all: Pla
     return t ? [{ agent: p.agent, model: t.model, on: p.on }] : [];
   });
   return { agents: [...rows, ...kept], terms };
+}
+
+/** ChatGPT's row of the placing group, from the core's `chatgpt` preference (core chatgpt.rs): not signed in (`out`:
+ *  the button "Sign in with ChatGPT", and why the last sign-in did not finish or ended, where it did), waiting for the
+ *  browser (`Cancel`), or signed in (`in`: a row like the others, by the name of the model it asks). */
+export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'waiting' | 'in'; name: string | null; says: string | null } {
+  const out = (says: string | null) => ({ state: 'out' as const, name: null, says });
+  switch (c?.state) {
+    case 'waiting':
+      return { state: 'waiting', name: null, says: 'Waiting for the sign-in in your browser…' };
+    case 'signed_in':
+      return { state: 'in', name: c.name ?? c.model, says: null };
+    case 'failed':
+      return out(`The sign-in with ChatGPT did not finish: ${(c.error ?? 'no reason was given').replace(/\.+$/, '')}.`);
+    case 'no_plan':
+      return out('ChatGPT signed you in, but did not allow Tasktap to use your plan. Sign in again and allow the use of your plan.');
+    case 'no_model':
+      return out('Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.');
+    case 'signed_out':
+      return out('ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.');
+    default:
+      return out(null);
+  }
+}
+
+/** What the placing sheet says above the button that signs in with ChatGPT: where a task goes, and the model that
+ *  finds its project. */
+export const chatgptOffer = (model: string) =>
+  `Sign in with ChatGPT and a task that names no project goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
+
+/** What Setup's placing step says: by whom tasks are placed (`asks`, then `more`), that the terms changed, that nobody
+ *  who could place is signed in (`anyone`: ChatGPT or an agent), that the person skipped it, or what it is for. */
+export function placingSays(state: 'off' | 'on' | 'again', asks: string | null, more: number, answered: boolean, anyone: boolean): string {
+  if (state === 'on' && asks) return `By ${asks}${more > 0 ? `, then ${more} more` : ''}`;
+  if (state === 'again') return 'The terms changed. Agree again to keep it on.';
+  if (!anyone) return 'Sign in with ChatGPT, or sign an agent in under Settings › Agents';
+  return answered ? 'Skipped' : 'For tasks that name no project';
 }
 
 /** Why an agent stands where it does in Tasktap's order, or why it is passed over now: its plan at its usage limit

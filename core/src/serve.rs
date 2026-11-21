@@ -87,6 +87,8 @@ pub struct Core {
     pub files: Rc<std::cell::Cell<usize>>,
     /// The dictations under way (design §8).
     pub speech: crate::speech::Speech,
+    /// The sign-in with ChatGPT that waits for the browser (design §8).
+    pub chatgpt: crate::chatgpt::ChatGpt,
     /// Whether a look at the person's projects runs (docs/projects-design.md).
     pub map: crate::map::Map,
     /// How long each folder check waits first, for tests (design §13).
@@ -109,6 +111,7 @@ impl Core {
             || self.seams.holding()
             || self.speech.busy()
             || self.map.busy()
+            || self.chatgpt.busy()
     }
 
     /// Every committed change passes here, in the step that committed it,
@@ -205,12 +208,14 @@ async fn serve(opts: Options) -> io::Result<()> {
             diffs: Default::default(),
             files: Default::default(),
             speech: crate::speech::Speech::new(second),
+            chatgpt: crate::chatgpt::ChatGpt::new(second),
             map: crate::map::Map::new(second),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
         })
     });
     crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
+    crate::chatgpt::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
     // Before the first connection is taken, so no launch of this run is in it.
     crate::effects::sweep(&mut core.borrow_mut());
     // What the person keeps for a number of days and is older goes now,

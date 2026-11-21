@@ -132,6 +132,26 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
     if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
+    // The sign-in with ChatGPT (core chatgpt.rs): the address of OpenAI's page, and the wait for the browser, one at a
+    // time; the check pushes how it ends. Signing out takes the record and ChatGPT's row of the agreement away, and an
+    // agreement left with no row goes with it.
+    if (name === 'chatgpt.sign_in' || name === 'chatgpt.sign_out') {
+      const set = (key, value) => {
+        rev++;
+        records.prefs = (records.prefs || []).filter((p) => p.id !== key).concat(value === undefined ? [] : [{ id: key, value, rev }]);
+        push({ t: 'change', rev, sets: [{ c: 'prefs', ...(value === undefined ? { del: [key] } : { put: [{ id: key, value, rev }] }) }] });
+      };
+      const now = (key) => (records.prefs || []).find((p) => p.id === key)?.value;
+      if (name === 'chatgpt.sign_out') {
+        const by = now('route_by'), left = by?.agents.filter((a) => a.agent !== 'chatgpt');
+        if (by) set('route_by', left.length ? { ...by, agents: left } : undefined);
+        set('chatgpt', null);
+        return reply(id, null);
+      }
+      if (now('chatgpt')?.state === 'waiting') return toCore({ t: 'reply', id, err: { code: 'conflict', message: 'a sign-in with ChatGPT is waiting for the browser already' } });
+      set('chatgpt', { state: 'waiting', model: null, name: null, error: null });
+      return reply(id, 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake');
+    }
     if (name === 'speech.terms') return reply(id, terms.speech);
     const pref = (key, value) => {
       rev++;
@@ -553,9 +573,10 @@ const TERMS = {
       'of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working',
       'of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)',
     ],
-    // In Tasktap's order, as core/src/route.rs proposes it (`COSTS`).
+    // In Tasktap's order, as core/src/route.rs proposes it (`COSTS`): ChatGPT first, listed whether or not it is signed in.
     terms: 3,
     tools: [
+      { agent: 'chatgpt', model: 'gpt-6.2-sol', pays: 'plan', ms: 4000 },
       { agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }, { agent: 'codex', model: 'gpt-6-luna', pays: 'plan', ms: 4700 },
       { agent: 'agy', model: 'gemini-3.8-flash-low', pays: 'plan', ms: 5600 },
     ],

@@ -1,11 +1,41 @@
 // What the pages show of a thought on its way and of speech, from the core's records (way.ts).
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Routing, Thought } from '../../core/proto/protocol.ts';
+import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
-  agentState, agreement, back, briefOf, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy, placed, placedBy, places,
-  placing, proposed, ranked, ring, step,
+  agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
+  placed, placedBy, places, placing, placingSays, proposed, ranked, ring, step,
 } from './way.ts';
+
+test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
+  const seen = (o: Partial<ChatGpt>): ChatGpt => ({ state: 'signed_in', model: null, name: null, error: null, ...o });
+  // Never signed in, or signed out by the person: the button, and nothing to say.
+  assert.deepEqual(chatgptRow(null), { state: 'out', name: null, says: null });
+  // Waiting for the browser: Cancel, and what it waits for.
+  assert.deepEqual(chatgptRow(seen({ state: 'waiting' })), { state: 'waiting', name: null, says: 'Waiting for the sign-in in your browser…' });
+  // Signed in: by the model's name, or its slug where the list gave none.
+  assert.deepEqual(chatgptRow(seen({ model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol' })), { state: 'in', name: 'GPT-6.2 Sol', says: null });
+  assert.equal(chatgptRow(seen({ model: 'gpt-6.2-sol' })).name, 'gpt-6.2-sol');
+  // Not signed in after a sign-in that did not finish, or ended: the button again, and why, in the given words.
+  const out = (o: Partial<ChatGpt>) => { const r = chatgptRow(seen(o)); assert.equal(r.state, 'out'); return r.says; };
+  assert.equal(out({ state: 'failed', error: 'access_denied' }), 'The sign-in with ChatGPT did not finish: access_denied.');
+  assert.equal(out({ state: 'failed', error: 'no answer came from the browser within 5 minutes.' }), 'The sign-in with ChatGPT did not finish: no answer came from the browser within 5 minutes.');
+  assert.equal(out({ state: 'no_plan' }), 'ChatGPT signed you in, but did not allow Tasktap to use your plan. Sign in again and allow the use of your plan.');
+  assert.equal(out({ state: 'signed_out' }), 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.');
+  assert.equal(out({ state: 'no_model' }), 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.');
+  // What the sheet says above the button: where the task goes, and the model that finds its project.
+  assert.equal(chatgptOffer('gpt-6.2-sol'), 'Sign in with ChatGPT and a task that names no project goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.');
+});
+
+test('Setup\'s placing step is always there, and with nobody signed in it says how to sign someone in', () => {
+  assert.equal(placingSays('off', null, 0, false, false), 'Sign in with ChatGPT, or sign an agent in under Settings › Agents');
+  assert.equal(placingSays('off', null, 0, true, false), 'Sign in with ChatGPT, or sign an agent in under Settings › Agents');
+  assert.equal(placingSays('off', null, 0, false, true), 'For tasks that name no project');
+  assert.equal(placingSays('off', null, 0, true, true), 'Skipped');
+  assert.equal(placingSays('on', 'ChatGPT', 0, true, true), 'By ChatGPT');
+  assert.equal(placingSays('on', 'ChatGPT', 2, true, true), 'By ChatGPT, then 2 more');
+  assert.equal(placingSays('again', null, 0, true, true), 'The terms changed. Agree again to keep it on.');
+});
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
   const row = (o: object = {}) => ({ supported: true, installed: true, checks: true, signed_in: null as boolean | null, stale: false, checked: 0, ...o });

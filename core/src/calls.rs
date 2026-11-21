@@ -94,6 +94,12 @@ fn handler(name: Name) -> Option<Handler> {
         Name::RouteHint => |cx, args| now::<call::RouteHint>(cx, args, crate::route::hint),
         Name::RouteTerms => |cx, args| now::<call::RouteTerms>(cx, args, crate::route::terms),
         Name::AgentsDetect => |cx, args| later::<call::AgentsDetect>(cx, args, detect),
+        Name::ChatgptSignIn => {
+            |cx, args| now::<call::ChatgptSignIn>(cx, args, crate::chatgpt::sign_in)
+        }
+        Name::ChatgptSignOut => {
+            |cx, args| later::<call::ChatgptSignOut>(cx, args, crate::chatgpt::sign_out)
+        }
         // The core makes this call; it never answers it.
         Name::ShimHold | Name::HostNotify => return None,
         Name::QuestionAsk => questions::ask,

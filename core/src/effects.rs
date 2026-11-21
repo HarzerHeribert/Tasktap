@@ -409,7 +409,7 @@ fn report(core: &mut Core, event: Event, first: impl FnOnce(&mut Tx) -> store::R
 /// What a seam did, or that it did nothing, cannot be stored. Going on would
 /// answer as if it had been; exiting leaves the attempt without an outcome,
 /// which the next start's recovery closes as interrupted (design §3).
-fn stop(why: impl std::fmt::Display) -> ! {
+pub(crate) fn stop(why: impl std::fmt::Display) -> ! {
     // Nobody may read stderr any more: a failed write must not stop the exit.
     let what = format!("tasktap: stopping, what was done cannot be stored: {why}\n");
     let _ = std::io::Write::write_all(&mut std::io::stderr(), what.as_bytes());
@@ -436,9 +436,10 @@ fn route(
     use crate::route::{agreed, askable, narrow, request, short};
     let found = read(core, |tx| {
         let thought = tx.thought(id)?;
-        (thought.map(|t| request(tx, &t.text, current))).transpose()
+        let asked = (thought.map(|t| request(tx, &t.text, current))).transpose()?;
+        Ok(asked.zip(Some(crate::chatgpt::model(tx)?)))
     });
-    let Ok(Some(mut asked)) = found else {
+    let Ok(Some((mut asked, chatgpt))) = found else {
         return;
     };
     asked.picked = picked;
@@ -459,7 +460,9 @@ fn route(
     };
     // An agreement with every agent switched off is none, and says nothing.
     let tools = match by.filter(|by| !sure && by.agents.iter().any(|p| p.on)) {
-        Some(by) => agreed(&by).and_then(|tools| askable(&asked.text).map(|()| tools)),
+        Some(by) => {
+            (agreed(&by, chatgpt.as_deref())).and_then(|tools| askable(&asked.text).map(|()| tools))
+        }
         None => return routed(core, id, local, state::locally(None), current),
     };
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
@@ -491,7 +494,7 @@ struct Chain {
     asked: crate::route::Request,
     local: Route,
     /// The next first.
-    left: std::collections::VecDeque<(&'static dyn agents::Agent, agents::Headless)>,
+    left: std::collections::VecDeque<crate::route::Asker>,
     began: Instant,
     why: Vec<String>,
     /// A tool was run.
@@ -508,31 +511,42 @@ const LEAST: Duration = Duration::from_secs(1);
 /// person's plan or key has reached its limit until later, one known to be
 /// missing or signed out, and one there is no longer time for. When none is
 /// left, the match on names places the thought, or asks about it, with why.
+/// ChatGPT is asked as an agent is, with one direct call and no tool.
 fn ask_next(core: &mut Core, mut chain: Chain) {
-    use crate::route::{BUDGET, accept, question, typical};
+    use crate::route::{Asker, BUDGET, accept, question, typical};
     let now = core.seams.now();
     let next = loop {
-        let Some((agent, how)) = chain.left.pop_front() else {
+        let Some(asker) = chain.left.pop_front() else {
             break None;
         };
-        let name = agent.id();
+        let name = asker.id();
         let left = BUDGET.saturating_sub(chain.began.elapsed());
         let usual = Duration::from_millis(typical(name).map_or(0, u64::from)).max(LEAST);
-        let health = core.detected(name);
-        let rests = health.and_then(|h| h.limited).filter(|&until| until > now);
-        let why = match agents::usable(agent, health) {
-            _ if core.seams.gone(name) => crate::route::gone(agent.name()),
-            _ if rests.is_some() => format!("{name}: its usage limit is reached for now"),
-            Err(why) => format!("{name}: {why}"),
-            Ok(()) if left < usual => format!("{name}: no time was left to ask it"),
-            Ok(()) => {
-                let limit = how.limit.min(left);
-                break Some((agent, agents::Headless { limit, ..how }));
+        let why = match asker {
+            _ if left < usual && name == crate::chatgpt::ID => {
+                format!("{name}: no time was left to ask it")
+            }
+            Asker::ChatGpt(model) => {
+                break Some((Asker::ChatGpt(model), crate::chatgpt::LIMIT.min(left)));
+            }
+            Asker::Agent(agent, how) => {
+                let health = core.detected(name);
+                let rests = health.and_then(|h| h.limited).filter(|&until| until > now);
+                match agents::usable(agent, health) {
+                    _ if core.seams.gone(name) => crate::route::gone(agent.name()),
+                    _ if rests.is_some() => format!("{name}: its usage limit is reached for now"),
+                    Err(why) => format!("{name}: {why}"),
+                    Ok(()) if left < usual => format!("{name}: no time was left to ask it"),
+                    Ok(()) => {
+                        let limit = how.limit.min(left);
+                        break Some((Asker::Agent(agent, how), limit));
+                    }
+                }
             }
         };
         chain.why.push(why);
     };
-    let Some((agent, how)) = next else {
+    let Some((asker, limit)) = next else {
         let ms = u32::try_from(chain.began.elapsed().as_millis()).unwrap_or(u32::MAX);
         let why = (!chain.why.is_empty()).then(|| chain.why.join("; "));
         let how = Routing {
@@ -547,16 +561,32 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
     let number = core.seams.asked;
     core.seams.routes.insert(chain.id, (number, hear.clone()));
     chain.tried = true;
-    let text = question(&chain.asked);
-    let ask = move || {
-        checks::ask(
-            agent,
-            &how,
-            text,
-            crate::route::SCHEMA,
-            &folder,
-            (hear, heard),
-        )
+    let ask: Box<dyn FnOnce() -> Result<String, Failed> + Send> = match &asker {
+        &Asker::Agent(agent, how) => {
+            let (how, text) = (agents::Headless { limit, ..how }, question(&chain.asked));
+            let schema = crate::route::SCHEMA;
+            Box::new(move || checks::ask(agent, &how, text, schema, &folder, (hear, heard)))
+        }
+        Asker::ChatGpt(model) => {
+            // The sign-in first, renewed where it has to be: that runs to its
+            // end whatever this placing's time.
+            let (gave, renewed) = mpsc::channel();
+            crate::chatgpt::renew(core, gave);
+            let asking = core.chatgpt.asking();
+            let (model, text) = (model.clone(), crate::route::asked(&chain.asked));
+            Box::new(move || {
+                // Undo stops the call as it stops a tool.
+                let (stop, wait) = mpsc::channel();
+                let forward = stop.clone();
+                std::thread::spawn(move || {
+                    if let Ok(Asked::Stop) = heard.recv() {
+                        let _ = forward.send(crate::command::Signal::Stop);
+                    }
+                });
+                drop(hear);
+                asking.ask(&model, &text, limit, renewed, (stop, wait))
+            })
+        }
     };
     crate::calls::aside(core, ask, move |core, answer| {
         let id = chain.id;
@@ -572,30 +602,34 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         let accepted = answer
             .unwrap_or_else(lost)
             .and_then(|answer| Ok(accept(&chain.asked, &answer)?));
-        let why = match accepted {
-            Ok((route, found)) => {
+        let name = asker.id();
+        let why = match (accepted, &asker) {
+            (Ok((route, found)), _) => {
                 let how = Routing {
-                    by: agent.id().into(),
-                    model: Some(how.model.into()),
+                    by: name.into(),
+                    model: Some(asker.model().into()),
                     ms,
                     ..found
                 };
                 return routed(core, id, route, how, chain.current);
             }
-            Err(Failed::Gone) => {
+            (Err(Failed::Gone), &Asker::Agent(agent, _)) => {
                 core.seams.gone.push(agent.id());
                 crate::route::gone(agent.name())
             }
-            Err(Failed::Limit(back, words)) => {
+            (Err(Failed::Limit(back, words)), &Asker::Agent(agent, _)) => {
                 let now = core.seams.now();
                 let offset = crate::sys::utc_offset(now).unwrap_or(0);
                 let until = agents::quota::until(back, now, offset);
                 if let Err(e) = core.limit_agent(agent, until) {
                     stop(e);
                 }
-                format!("{}: {words}", agent.id())
+                format!("{name}: {words}")
             }
-            Err(Failed::Why(why)) => format!("{}: {why}", agent.id()),
+            (Err(Failed::Gone | Failed::Limit(..)), Asker::ChatGpt(_)) => {
+                format!("{name}: it gave no answer")
+            }
+            (Err(Failed::Why(why)), _) => format!("{name}: {why}"),
         };
         chain.why.push(why);
         ask_next(core, chain);

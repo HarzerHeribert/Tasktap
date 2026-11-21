@@ -20,6 +20,7 @@
 .line.rank .x.warn{color:var(--asks)}
 .line.rank .switch{margin-left:8px}
 .line.rank.off :is(.t,.ring-o,.x){opacity:.55}
+.line.rank.sign{cursor:default}
 .line.rank.held{cursor:grabbing;background:var(--sel);box-shadow:0 1px 0 var(--line2),0 -1px 0 var(--line2)}
 .rank-f{display:flex;align-items:center;gap:12px;margin:10px 18px 0}
 .rank-f .hint{margin:0;font:var(--f-small);color:var(--fg3)}

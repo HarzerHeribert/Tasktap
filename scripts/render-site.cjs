@@ -39,7 +39,9 @@ function stamp() {
 function embed() {
   if (!fs.existsSync(path.join(dist, 'notch.html'))) throw new Error('ui/dist is not built: (cd ui && npm run build)');
   fs.mkdirSync(out, { recursive: true });
-  for (const f of fs.readdirSync(out)) if (/^(notch|motion)-.*\.(js|css)$|^(notch\.html|stage\.js)$/.test(f)) fs.rmSync(path.join(out, f));
+  // What the page was made of before goes, whatever the bundler named its chunks then (motion-…, changes-…): every
+  // script and stylesheet here but the chrome and the tokens, which are made below.
+  for (const f of fs.readdirSync(out)) if (/\.(js|css)$|^notch\.html$/.test(f) && !['chrome.js', 'tokens.css'].includes(f)) fs.rmSync(path.join(out, f));
   // The page's own files, as built: its script, the chunk it shares, its two stylesheets.
   const html = fs.readFileSync(path.join(dist, 'notch.html'), 'utf8');
   const files = [...html.matchAll(/(?:src|href)="\.\/assets\/([^"]+)"/g)].map((m) => m[1]);
@@ -80,7 +82,10 @@ async function chrome() {
 const TRAFFIC = 'body::after{content:"";position:fixed;z-index:99;left:14px;top:13px;width:12px;height:12px;border-radius:50%;background:#ff5f57;box-shadow:20px 0 #febc2e,40px 0 #28c840;pointer-events:none}';
 /* The list alone: the Composer above it would leave its shadow in the picture's top edge. */
 const ALONE = '.capture{visibility:hidden}';
-const off = (records) => ((records.prefs = (records.prefs || []).filter((p) => p.id !== 'motion_ambient').concat({ id: 'motion_ambient', value: 'off', rev: 70 })), records);
+// The effects at Off also hold the empty field's line still (ui/src/lines.ts `rolls` wants Full), so the Composer is
+// always taken at its first line, "What's next?". The notch's stills cannot roll either: the stage keeps the keyboard
+// out of the field and they are taken under Reduce Motion.
+const off = (records) =>((records.prefs = (records.prefs || []).filter((p) => p.id !== 'motion_ambient').concat({ id: 'motion_ambient', value: 'off', rev: 70 })), records);
 function pictures() {
   const { scene, flow } = require('./instrument-fixtures.cjs');
   const show = (key) => async (page, r) => page.evaluate((id) => window.__ws.show(id), r.ids.projects[key]);

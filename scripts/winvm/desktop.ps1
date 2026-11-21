@@ -505,7 +505,7 @@ $rows['2'] = 'Runs host\scripts\smoke.ps1 against the built app and the fixture 
     Check 2 'the smoke script: only PASS lines and all passed' ($code -eq 0 -and $said -contains 'all passed' -and -not ($said -match '^(FAIL|NOTE)')) "exit $code; $(@($said -match '^PASS').Count) PASS, $(@($said -match '^FAIL').Count) FAIL; $($quit -join '; '); row2-smoke.txt"
 }
 
-$rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must hang centred from the top edge of the main display''s work area at the size the arithmetic gives for what Windows reports, above every window, with no taskbar button, never the window in front, and hidden while the app''s own window is in front (rule 1 of "Where Tasktap shows itself"): at a first start it is made hidden, and shows with another program in front. Pictures of its own window, collapsed and open. With the script''s Notepad in front and the app''s window under the tab: a point beside the tab belongs to the window below and a click there reaches it; the pointer on the tab opens the sheet without taking the keyboard and leaving folds it (the pointer moves over the tab and the app''s window only and is put back); the capture key opens it with the caret in its field, what is typed lands there, Escape folds it and Notepad has the keyboard again, and so does a click elsewhere. The icon is in the notification area, its menu opens and says Open, Settings and Quit. The app''s own window over the whole display hides the tab; back in its frame and with Notepad in front the tab shows again. At rest nothing moves: processor time and context switches of the app and its web views over half a minute, with the tab and with it switched off.', {
+$rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must hang centred from the top edge of the main display''s work area at the size the arithmetic gives for what Windows reports, above every window, with no taskbar button, never the window in front, and hidden while the app''s own window is in front (rule 1 of "Where Tasktap shows itself"): at a first start it is made hidden, and shows with another program in front. Pictures of its own window, collapsed and open. With the script''s Notepad in front and the app''s window under the tab: a point beside the tab belongs to the window below and a click there reaches it; the pointer on the tab opens the sheet without taking the keyboard and leaving folds it (the pointer moves over the tab and the app''s window only and is put back); the capture key opens it with the caret in its field, what is typed lands there, Escape folds it and Notepad has the keyboard again, and so does a click elsewhere. The icon is in the notification area, its menu opens and says Open, Settings and Quit. The app''s own window over the whole display hides the tab; back in its frame and with Notepad in front the tab shows again. At rest, the caret out of Home''s field, nothing moves and nothing runs: over half a minute with the tab and again with it switched off, the host and the core take no processor time and each web view process at most three ticks of the clock, each said.', {
     New-Item -ItemType Directory -Force "$tmp\data3", "$tmp\project3" | Out-Null
     $window = Start-Own @{ TASKTAP_DATA = "$tmp\data3"; TASKTAP_PICK = "$tmp\project3" } 420
     if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 3 'the app shows no window'; End-Own 'row3-app.txt'; return }
@@ -658,36 +658,54 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $shown = Tab-Soon { param($t) $t.shown }
     Check 3 'and shows again when it no longer does and another program is in front' ($shown.shown -and -not $shown.hidden) "the tab shown: $($shown.shown); Windows says to hide: $($shown.hidden); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle)"
     [Tasktap.Desk]::Close($notepad.Handle)
-    # At rest. The app's own processes and the web views under it: processor time and how often the system let
-    # their threads run, over half a minute with the tab collapsed and again with the tab switched off.
+    # At rest, as the app's rule has it: nothing changing, and then its own processes use no processor time. The caret is
+    # taken out of Home's field first, in both halves: a blinking caret is something changing, which the system draws
+    # (on the VM, with Home's field holding the keyboard, its renderer and the GPU process woke at every blink; the
+    # halves compared differed in that alone, and the row failed now and then). Over half a minute with the tab
+    # collapsed and again with it switched off: the host and the core take nothing, and each web view process at most
+    # three ticks of the system's clock (15.6 ms each): WebView2's own processes took up to that much at rest on the VM,
+    # x64 under emulation (2026-11-21), with nothing of the app's running.
     if (-not (Notch).collapsed) { Send 'key notch Escape'; $null = Tab-Soon { param($t) -not $t.watching } }
-    Say 'INFO' 3 "before the measure the tab is collapsed: $((Notch).collapsed); the pointer is read: $((Tab).watching)"
-    $measure = {
-        $ids = @($proc.Id) + @((Children $proc 'msedgewebview2') | ForEach-Object { $_.Id; (Children $_ 'msedgewebview2').Id })
-        $running = @($ids | Where-Object { $_ } | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
-        # Every thread's count of the times the system let it run, asked for once and read for these processes.
-        $switches = $null; $watch = [Diagnostics.Stopwatch]::StartNew()
-        try { $switches = (@(Get-CimInstance Win32_PerfRawData_PerfProc_Thread -Property IDProcess, ContextSwitchesPersec -ErrorAction Stop | Where-Object { $_.IDProcess -in $running.Id }) | Measure-Object ContextSwitchesPersec -Sum).Sum } catch { }
-        @{ cpu = ($running | ForEach-Object { $_.Refresh(); $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum; switches = $switches; memory = ($running | Measure-Object PrivateMemorySize64 -Sum).Sum; processes = $running.Count; at = [DateTime]::UtcNow; took = $watch.Elapsed.TotalSeconds }
+    $caretless = { $null = Js "(document.activeElement?.blur(), 1)"; Js "document.activeElement?.id || document.activeElement?.tagName || 'none'" }
+    Say 'INFO' 3 "before the measure the tab is collapsed: $((Notch).collapsed); the pointer is read: $((Tab).watching); what has the caret: $(& $caretless)"
+    $kind = {
+        param($p)
+        if ($p.Id -eq $proc.Id) { return 'host' }
+        if ($p.Name -eq 'tasktap') { return 'core' }
+        $line = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -Property CommandLine -ErrorAction SilentlyContinue).CommandLine
+        if ("$line" -match '--type=([a-z-]+)') { "view-$($Matches[1])" } else { 'view-browser' }
     }
+    $mine = {
+        $views = @(Children $proc 'msedgewebview2')
+        $views += @($views | ForEach-Object { Children $_ 'msedgewebview2' })
+        @(@($proc) + $views + @(Under "$tmp\data3" | Where-Object Name -eq 'tasktap') | Where-Object { $_ } | Sort-Object Id -Unique)
+    }
+    $times = { $t = @{}; foreach ($p in (& $mine)) { $p.Refresh(); $t[$p.Id] = @{ ms = $p.TotalProcessorTime.TotalMilliseconds; kind = & $kind $p } }; $t }
+    $use = { param($a, $b) @($b.Keys | Where-Object { $a.ContainsKey($_) } | ForEach-Object { [pscustomobject]@{ kind = $b[$_].kind; ms = [int]($b[$_].ms - $a[$_].ms) } }) }
+    $quiet = { param($used) $used.Count -gt 0 -and -not @($used | Where-Object { if ($_.kind -in 'host', 'core') { $_.ms -ne 0 } else { $_.ms -gt 50 } }) }
     $rest = {
         param($seconds)
-        Start-Sleep -Seconds 5
-        $a = & $measure; $before = Tab
+        # First a quiet 10 s, a minute at most: the web views finish what the steps before set going (the window back
+        # from full screen, Notepad closed, the caret taken out), which on the VM took them up to about half a minute.
+        $waited = 0
+        do { $p = & $times; Start-Sleep -Seconds 10; $waited += 10 } until ((& $quiet (& $use $p (& $times))) -or $waited -ge 60)
+        # (The tab asked of the host outside the half minute: its answer is the host's work, done for this check.)
+        $before = Tab; $a = & $times
         Start-Sleep -Seconds $seconds
-        $b = & $measure; $after = Tab
-        $over = ($b.at - $a.at).TotalSeconds
-        @{ cpu = [int]($b.cpu - $a.cpu); over = [int]$over; switches = if ($null -ne $a.switches -and $null -ne $b.switches) { [Math]::Round(($b.switches - $a.switches) / $over, 1) }; memory = [int]($b.memory / 1MB); processes = $b.processes; moved = ($before.pixels -join ' ') -ne ($after.pixels -join ' ') -or $after.watching }
+        $b = & $times; $after = Tab
+        $used = & $use $a $b
+        @{ still = (& $quiet $used); waited = $waited; said = (($used | Sort-Object kind | ForEach-Object { "$($_.kind) $($_.ms)" }) -join ', '); moved = ($before.pixels -join ' ') -ne ($after.pixels -join ' ') -or $after.watching }
     }
     $with = & $rest 30
     Send 'tab off'
     $null = Until '"event":"tab","set"' 5
     Start-Sleep -Seconds 3
+    $null = & $caretless
     $without = & $rest 30
     Send 'tab main'
     $null = Until '"event":"tab","set"' 5
     $again = Tab-Soon { param($t) $t.shown }
-    Check 3 'at rest nothing moves: the tab''s window stays, the pointer is not read, and the app with the tab uses no more processor time than without it' (-not $with.moved -and $with.cpu -le $without.cpu + 150) "collapsed, over $($with.over) s: $($with.cpu) ms of processor time in $($with.processes) processes$(if ($null -ne $with.switches) { ", $($with.switches) context switches a second" }), $($with.memory) MB of their own; with the tab switched off, over $($without.over) s: $($without.cpu) ms in $($without.processes) processes$(if ($null -ne $without.switches) { ", $($without.switches) a second" }), $($without.memory) MB"
+    Check 3 'at rest nothing moves and nothing runs: the tab''s window stays and the pointer is not read; the host and the core take no processor time, each web view process at most three ticks of the clock, with the tab and with it switched off' (-not $with.moved -and $with.still -and $without.still) "over 30 s, in ms, with the tab collapsed (quiet after $($with.waited) s): $($with.said); with it switched off (quiet after $($without.waited) s): $($without.said)$(if ($with.moved) { '; the tab moved or the pointer was read' })"
     $front = [Tasktap.Desk]::GetForegroundWindow() -eq $window
     Check 3 'switched off the tab is gone, and switched on it is back where it was, shown unless the app''s window is in front' ([bool]$again.shown -ne $front -and ($again.pixels -join ' ') -eq ($want -join ' ')) "back: $($again.pixels -join ' '); shown: $($again.shown); the app's window in front: $front"
     End-Own 'row3-app.txt'

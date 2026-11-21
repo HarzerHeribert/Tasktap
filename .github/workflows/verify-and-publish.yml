@@ -273,6 +273,31 @@ jobs:
         with:
           path: build/pages
 
+  # The rule that guards main asks for two checks by the names the first Tasktap's workflow gave its jobs. These two
+  # stand for today's jobs under those names. Each passes only when every job it stands for passed: a job that is
+  # skipped because one it needs failed would count as passed with the rule, so each says so itself.
+  rule-interface:
+    name: "UI, behavior and documentation"
+    needs: [interface, site, core]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Interface, Public site and Core passed
+        env:
+          RESULTS: ${{ needs.interface.result }} ${{ needs.site.result }} ${{ needs.core.result }}
+        run: '[ "$RESULTS" = "success success success" ] || { echo "::error::not all passed: $RESULTS"; exit 1; }'
+
+  rule-host:
+    name: "macOS build and notch geometry"
+    needs: [host, smoke]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Host and Smoke passed
+        env:
+          RESULTS: ${{ needs.host.result }} ${{ needs.smoke.result }}
+        run: '[ "$RESULTS" = "success success" ] || { echo "::error::not all passed: $RESULTS"; exit 1; }'
+
   # Only when every check passed, the install lines' included (interface, core); from main, on a push to it or by hand
   # (Run workflow on main). The order at a release: publish the release, then merge into main.
   deploy:

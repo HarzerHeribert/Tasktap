@@ -1,5 +1,5 @@
 // Opening and folding the notch. The page decides; the host moves the panel and the keyboard.
-import { cap, holding } from '../capture.tsx';
+import { cap, holding, invite, rollsHere } from '../capture.tsx';
 import { end } from '../speech/record.ts';
 import { call, fail, page, redraw, ui, type View } from './model.ts';
 
@@ -8,7 +8,10 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
  *  it and leave the folded notch's rows in place. */
 let retract = 0;
 
+/** The notch's Composer was shown since the page started. */
+let shown = false;
 export function reveal(mode: 'hover' | 'pinned', view: View, focus = '') {
+  const opening = ui.mode === 'closed';
   clearTimeout(ui.timer);
   clearTimeout(retract);
   ui.mode = ui.mode === 'pinned' ? 'pinned' : mode;
@@ -18,6 +21,9 @@ export function reveal(mode: 'hover' | 'pinned', view: View, focus = '') {
   page.error = '';
   void call('host.notch', { open: true, height: ui.height }).catch(fail);
   redraw();
+  // The Composer opening again shows the next line (the first time, the first): once drawn and given the keyboard,
+  // rolled in where it rolls.
+  if (opening && (view === 'home' || ui.capturing)) (shown ? queueMicrotask(() => invite.next(rollsHere())) : (shown = true));
 }
 
 export function fold() {

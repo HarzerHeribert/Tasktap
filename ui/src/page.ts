@@ -117,6 +117,9 @@ export function watchHeld(notch = false) {
   addEventListener('focus', soon);
   addEventListener('blur', soon);
 }
+/** Whether the person is at this page now: the workspace's window while it is in front, as the host says it for both
+ *  pages (presence.rs), the notch's while it is open with the keyboard; in either, with this page's own keyboard. */
+export const inFront = () => document.hasFocus() && (strict || where.front);
 
 /** The agent a new run uses: the `agent` preference, else the first the core lists. */
 export function agent(): AgentHealth | undefined {

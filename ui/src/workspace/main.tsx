@@ -12,7 +12,7 @@ import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { cap, followSpeech } from '../capture.tsx';
+import { cap, followSpeech, invite } from '../capture.tsx';
 import { AGENT_KEY, open as openAgents } from '../rings.tsx';
 import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
@@ -490,5 +490,7 @@ Object.assign(window, {
   __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L, follow, refresh },
   __motion: { debug, stats, redraw },
   __speech: { talk, live, cap, audio },
+  // The Composer's line and its one timer (lines.ts).
+  __lines: invite,
   __where: where,
 });

@@ -13,13 +13,33 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { hit, keyName, spell } from './keys.ts';
-import { talkKey } from './page.ts';
+import { inFront, talkKey } from './page.ts';
+import { Roll, rollIn, rolls, stopRoll } from './lines.ts';
+import { effectsOf } from './motion/motion.tsx';
 import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { QUIET, agent, agentName, byPerson, call, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placedBy, placing, step } from './way.ts';
+
+/** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
+ *  line with the key held to talk where talking is set up, the line about a second task while one runs. A line rolls in
+ *  over the field with the keyboard; any other field showing the line simply has the new words. */
+export const invite = new Roll(
+  () => ({ key: voiced() ? keyName(talkKey()) : null, running: [...records.thoughts.values()].some((t) => t.status === 'working') }),
+  (line, roll) => {
+    stopRoll();
+    for (const f of document.querySelectorAll<HTMLTextAreaElement>('textarea[data-lines]')) roll && f === document.activeElement ? rollIn(f, f.placeholder, line) : (f.placeholder = line);
+  },
+  stopRoll,
+);
+/** An input method's composition is under way in the field: its first letters are not the field's value yet. */
+let composing = false;
+const dictating = () => talk.asking || [...records.dictations.values()].some((x) => x.phase === 'recording' || x.phase === 'transcribing');
+/** Whether the line rolls in field `el` (the one with the keyboard, by default) now. */
+export const rollsHere = (el = document.activeElement) =>
+  el instanceof HTMLTextAreaElement && el.id === 'capture-input' && rolls({ empty: !cap.draft, held: document.activeElement === el, front: inFront(), dictating: dictating(), composing, effects: effectsOf(pref('motion_ambient')) });
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
  *  it, which Undo gives back with its words. How it came by its place is the thought's own to say (`placed`). */
@@ -221,6 +241,8 @@ async function send(e: Event, hooks: Hooks) {
     page.error = '';
   });
   Object.assign(cap, { hint: null, dest: undefined, agent: undefined, agents: false, undone: null, refused: '', back: pick });
+  // The field is empty again: the next line, rolled in where it rolls, else simply there (Still, Off, Reduce Motion).
+  invite.next(rollsHere());
   flights = Promise.allSettled([flights, gone]);
   redraw();
   // Refused: the words are back with their place and their agent, and the core's sentence is under them.
@@ -755,6 +777,17 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     watch.observe(row);
     return () => watch.disconnect();
   }, [name, why, back, does, busy, hearing, cap.choosing, cap.agents, runs, waits]);
+  // The line rolls while this field may (lines.ts `rolls`): told on every render, as the field gains or loses the
+  // keyboard, as the window does, and as Reduce Motion changes; the field gone, its roll goes with it.
+  const sync = () => invite.run(rollsHere(area.current), area.current);
+  useLayoutEffect(sync);
+  useLayoutEffect(() => {
+    const motion = matchMedia('(prefers-reduced-motion: reduce)'), field = area.current;
+    addEventListener('focus', sync);
+    addEventListener('blur', sync);
+    motion.addEventListener('change', sync);
+    return () => (removeEventListener('focus', sync), removeEventListener('blur', sync), motion.removeEventListener('change', sync), invite.stop(field));
+  }, []);
   useLayoutEffect(() => {
     const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
     watch.observe(area.current!);
@@ -780,11 +813,15 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
       }}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
         {!raised && (hearing && d?.phase === 'recording' ? <Level size={28} l={d.level / 100} /> : <Brand size={28} live={cap.sending > 0} />)}
-        <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={said ? hears(d) : service && !raised ? `Type, or hold ${keyName(talkKey())} and talk` : 'Put a thought in'}
+        <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={said ? hears(d) : invite.line} data-lines={said ? undefined : ''}
           value={cap.draft}
+          onFocus={sync} onBlur={sync}
+          onCompositionStart={() => ((composing = true), sync())} onCompositionEnd={() => ((composing = false), sync())}
           onInput={(e) => {
             const first = !cap.draft.trim();
             cap.draft = e.currentTarget.value;
+            // The first letter: the line is gone at once, never left half rolled.
+            if (cap.draft) invite.run(false, e.currentTarget);
             if (!cap.draft.trim()) cap.refused = '';
             fit();
             if (cap.undone && !cap.draft.trim()) drop();

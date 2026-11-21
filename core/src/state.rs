@@ -626,7 +626,9 @@ impl Machine<'_, '_> {
                 let now = self.now;
                 self.route(some(thought)?, to, None, now, Placed::Picked)
             }
-            // route ambiguous: stays captured, a router question opens.
+            // route ambiguous: stays captured, a router question opens, also
+            // with no place to offer (the person's own answers remain: a
+            // folder, the Scratchpad, another project, keep for later).
             (
                 E::Routed {
                     route:
@@ -641,10 +643,10 @@ impl Machine<'_, '_> {
                 _,
                 Some(P::Captured),
                 ..,
-            ) if routing(&thought) && !candidates.is_empty() => {
+            ) if routing(&thought) => {
                 self.ask_router(some(thought)?, prompt, candidates, brief, how)
             }
-            // route unknown, or ambiguous with nothing to choose: an idea.
+            // route unknown (a scripted router's): an idea.
             (E::Routed { how, .. }, _, Some(P::Captured), ..) if routing(&thought) => {
                 let placed = unplaced(&how);
                 self.keep_as_idea(some(thought)?, Some(how), placed)
@@ -1265,6 +1267,15 @@ impl Machine<'_, '_> {
         placed: Placed,
     ) -> Result<()> {
         let (project, card, session) = self.target(to)?;
+        // A project put away (the Scratchpad, closed) opens again as a
+        // thought is placed there, as a project Tasktap knows opens.
+        if let Some(id) = project
+            && let Some(mut p) = self.tx.project(id)?
+            && !p.open
+        {
+            p.open = true;
+            self.tx.update_project(&p)?;
+        }
         t.placed = Some(placed);
         let until = self.held(after(since, self.hold()?)?)?;
         // Picked while the router was still asked where it goes.

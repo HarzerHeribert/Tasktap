@@ -9,7 +9,8 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 use tasktap_core::route::{
-    Followed, Named, Request, accept, by_names, local, request, same, short,
+    CHOICES, Followed, Lexicon, Named, Request, accept, by_names, likely, local, request, same,
+    short,
 };
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_core::store::Store;
@@ -144,7 +145,7 @@ fn the_local_router_follows_its_table() {
             },
             Err(candidates) if candidates.is_empty() => Route::Unknown,
             Err(candidates) => Route::Ambiguous {
-                prompt: "Where should this go?".into(),
+                prompt: "Which project is this task for?".into(),
                 candidates,
                 brief: None,
             },
@@ -165,14 +166,18 @@ fn the_local_router_follows_its_table() {
         ]
     );
     // Named nothing, with projects known: the person is asked, never
-    // guessed for, with at most three; with none known, it is an idea.
+    // guessed for, with what its words name or describe (here nothing); with
+    // none known, where the agent should work.
     let Route::Ambiguous { candidates, .. } = local(&request("buy milk", None)) else {
         panic!("asked")
     };
-    assert!(!candidates.is_empty() && candidates.len() <= tasktap_core::route::CHOICES);
+    assert_eq!(candidates, []);
     let mut none = request("buy milk", None);
     (none.projects, none.sessions) = (Vec::new(), Vec::new());
-    assert_eq!(local(&none), Route::Unknown);
+    let Route::Ambiguous { prompt, .. } = local(&none) else {
+        panic!("asked")
+    };
+    assert_eq!(prompt, "Where should the agent work?");
 }
 
 #[test]
@@ -397,10 +402,8 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
             choices: vec!["folio".into(), "app".into()]
         }
     );
-    assert_eq!(
-        q.notes,
-        Some(vec!["named in it".into(), "named in it".into()])
-    );
+    // A name is its own reason: nothing is said after it.
+    assert_eq!(q.notes, Some(vec![String::new(), String::new()]));
     // What each choice is, so no page tells a folder from a session by its name.
     let places = vec![
         tasktap_proto::Place::Project(folio),
@@ -573,7 +576,7 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
             },
             Err(names) if names.is_empty() => Route::Unknown,
             Err(names) => Route::Ambiguous {
-                prompt: "Where should this go?".into(),
+                prompt: "Which project is this task for?".into(),
                 candidates: (names.iter())
                     .map(|n| Candidate {
                         why: String::new(),
@@ -611,13 +614,126 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
 }
 
 #[test]
+fn a_question_offers_only_projects_the_words_name_or_clearly_describe() {
+    let (earshot, tapped, mods) = (ProjectId::mint(), ProjectId::mint(), ProjectId::mint());
+    let project = |id, name: &str, about: &str, used| Named {
+        about: about.into(),
+        used,
+        ..Named::open(id, name, &[])
+    };
+    let request = |text: &str| Request {
+        text: text.into(),
+        projects: vec![
+            project(
+                earshot,
+                "earshot",
+                "Records audio, shows its loudness on a meter, streams to a small server",
+                None,
+            ),
+            project(
+                tapped,
+                "tapped",
+                "Hands off tasks to coding agents",
+                Some(time(wall_ms())),
+            ),
+            project(
+                mods,
+                "claude-mods",
+                "A theme and a layout for Claude Code",
+                None,
+            ),
+        ],
+        // The words of the language as this check knows them, the same on every system.
+        words: Lexicon(vec![
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt"),
+        ]),
+        ..Request::default()
+    };
+    let offered = |text: &str| -> Vec<(String, String)> {
+        let r = request(text);
+        (likely(&r, CHOICES).into_iter())
+            .map(|(p, why)| (p.name.clone(), why))
+            .collect()
+    };
+    let one = |name: &str, why: &str| vec![(name.to_owned(), why.to_owned())];
+    // The owner's task: "server" is an everyday word of work, the one word
+    // it shares with a project's line; tapped was only worked on last.
+    // Nothing is offered, and the person is asked all the same.
+    let his = "i need a new satisfactory server for a little project";
+    assert_eq!(offered(his), []);
+    assert_eq!(
+        local(&request(his)),
+        Route::Ambiguous {
+            prompt: "Which project is this task for?".into(),
+            candidates: Vec::new(),
+            brief: None,
+        }
+    );
+    // Recency alone offers nothing.
+    assert_eq!(offered("buy milk"), []);
+    // Named, or a letter off: the name is the reason.
+    assert_eq!(offered("the earshot meter clips"), one("earshot", ""));
+    assert_eq!(offered("fix the earshut levels"), one("earshot", ""));
+    // Two meaningful words of its line, or one that is no ordinary word.
+    assert_eq!(
+        offered("the theme and layout look wrong"),
+        one("claude-mods", "matches “theme”, “layout”")
+    );
+    assert_eq!(
+        offered("the loudness drops"),
+        one("earshot", "matches “loudness”")
+    );
+    // One ordinary word of its line alone is no description.
+    assert_eq!(offered("the layout jumps"), []);
+    // With no project known, it asks where the agent should work.
+    let none = Request {
+        text: "make the build faster".into(),
+        ..Request::default()
+    };
+    assert_eq!(
+        local(&none),
+        Route::Ambiguous {
+            prompt: "Where should the agent work?".into(),
+            candidates: Vec::new(),
+            brief: None,
+        }
+    );
+}
+
+#[test]
+fn a_first_task_with_no_project_is_asked_about_never_kept_for_later() {
+    let data = Folder::new("first");
+    let core = Core::with_agents(&data.0);
+    let mut w = core.watch();
+    let id = ThoughtId::mint();
+    w.ok::<call::ThoughtCapture>(&Capture {
+        agent: Some("fixture".into()),
+        ..typed(id, "make the build faster")
+    });
+    let th = w.model.thought(id);
+    assert_eq!((th.project_id, th.status), (None, Status::NeedsYou));
+    assert_ne!(th.mode, Mode::Note, "kept for later unasked");
+    let q = (w.model.questions.values())
+        .find(|q| q.thought_id == Some(id))
+        .expect("asked");
+    assert_eq!(q.prompt, "Where should the agent work?");
+    assert_eq!(q.places, Some(Vec::new()));
+}
+
+#[test]
 fn scratch_is_no_place_a_router_offers() {
     let data = Folder::new("scratch");
     let (mut store, _) = Store::open(&data.0.join("core.db"), time(wall_ms())).unwrap();
     let tx = store.begin().unwrap();
     let r = request(&tx, "start from scratch on the landing page", None).unwrap();
     assert_eq!(r.projects, [], "Scratch is offered to the routers");
-    assert_eq!(local(&r), Route::Unknown);
+    // With no other project, the person is asked where the agent works.
+    let asked = Route::Ambiguous {
+        prompt: "Where should the agent work?".into(),
+        candidates: Vec::new(),
+        brief: None,
+    };
+    assert_eq!(local(&r), asked);
     // Said clearly as a place, the Scratchpad is where the task goes; the
     // everyday word never.
     let scratch = r.scratch.expect("the Scratchpad is open");
@@ -641,11 +757,7 @@ fn scratch_is_no_place_a_router_offers() {
         "remember to scratch the old plan",
         "a scratchpad for notes would help",
     ] {
-        assert_eq!(
-            local(&request(&tx, text, None).unwrap()),
-            Route::Unknown,
-            "{text}"
-        );
+        assert_eq!(local(&request(&tx, text, None).unwrap()), asked, "{text}");
     }
 }
 
@@ -909,7 +1021,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         accept(&request, &choices(json!(["p3", "s2", "p3", "s1"]))),
         Ok((
             Route::Ambiguous {
-                prompt: "Where should this go?".into(),
+                prompt: "Which project is this task for?".into(),
                 candidates: vec![
                     choice("app", Destination::New(app)),
                     choice("The codex session in folio", Destination::Session(quiet)),

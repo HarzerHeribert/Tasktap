@@ -574,6 +574,12 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             .and_then(|answer| Ok(accept(&chain.asked, &answer)?));
         let why = match accepted {
             Ok((route, found)) => {
+                // A model that cannot tell leaves the question to the person,
+                // as the match on names asks it: nothing is kept unasked.
+                let route = match route {
+                    Route::Unknown => chain.local.clone(),
+                    route => route,
+                };
                 let how = Routing {
                     by: agent.id().into(),
                     model: Some(how.model.into()),

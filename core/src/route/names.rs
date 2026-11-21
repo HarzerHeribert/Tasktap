@@ -813,7 +813,9 @@ const COMMON: &[&str] = &[
 /// ending, so "invoices" meets "invoice" and "exporting" meets "export".
 pub fn stem(word: &str) -> String {
     let w = word.to_lowercase();
-    for end in ["ing", "ers", "ies", "es", "ed", "er", "s"] {
+    // A silent "e" goes as an ending would: "invoice", "invoices" and
+    // "invoicing" all are "invoic".
+    for end in ["ing", "ers", "ies", "es", "ed", "er", "s", "e"] {
         if let Some(head) = w.strip_suffix(end)
             && head.chars().count() >= 4
         {

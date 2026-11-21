@@ -248,6 +248,8 @@ fn an_empty_start_has_only_the_scratch_project_and_a_core_id() {
         (scratch.kind, scratch.folder.as_str()),
         (ProjectKind::Scratch, folder.to_str().unwrap())
     );
+    // Named as a person reads it everywhere: the Scratchpad.
+    assert_eq!(scratch.name, "Scratchpad");
     for c in [
         Collection::Thoughts,
         Collection::Sessions,

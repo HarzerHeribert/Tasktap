@@ -42,8 +42,10 @@
 //! used as a name after "in" or "to", before "project" or "repo", in
 //! backticks or quotes, at the end of a path, or beside another project's
 //! name ("folio and app"). How recently a project was worked on orders the
-//! choices and never decides alone. Scratch is never offered: a thought goes there
-//! only when the person picks it. The brief is the person's text unchanged.
+//! choices and never decides alone. The Scratchpad is never offered: a thought
+//! goes there only when the person picks it, or says it as a place ("on the
+//! scratchpad", "in scratch"; never "from scratch"). The brief is the
+//! person's text unchanged.
 //!
 //! What the core enforces on a model's answer, whatever the instructions
 //! made of it ([`accept`]); an answer that breaks a rule is not used at
@@ -138,6 +140,9 @@ pub struct Request {
     /// Projects a run can start in: open, with their folder there, and
     /// never Scratch, which only the person picks.
     pub projects: Vec<Named>,
+    /// The Scratchpad, when it is open: a run starts there only when the
+    /// capture says it as a place ([`scratchpad`]), and it is never a choice.
+    pub scratch: Option<ProjectId>,
     /// Sessions a follow-up can go to, each in one of `projects`.
     pub sessions: Vec<Followed>,
     /// The latest exchanges with those sessions, newest first; only a
@@ -241,7 +246,11 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
         .filter(|s| s.state != SessionState::Ended || s.resume.is_some())
         .filter_map(|s| {
             let project = (projects.iter().chain(&scratch)).find(|p| p.id == s.project_id)?;
-            let label = format!("The {} session in {}", s.agent, project.name);
+            let place = match project.kind {
+                ProjectKind::Scratch => store::SCRATCHPAD,
+                ProjectKind::Folder => &project.name,
+            };
+            let label = format!("The {} session in {place}", s.agent);
             Some(Followed {
                 id: s.id,
                 name: s.name,
@@ -298,6 +307,7 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
         current,
         picked: None,
         recent: Vec::new(),
+        scratch: scratch.first().map(|p| p.id),
         projects: named,
         sessions: followed,
         last,
@@ -698,8 +708,13 @@ pub fn by_names(r: &Request) -> Option<Route> {
         brief: r.text.clone(),
         said,
     };
+    // The Scratchpad said as a place, with no project or session named: a
+    // new run there, unless the person is in a session there already.
+    let scratch = (r.scratch.filter(|_| scratchpad(&r.text)))
+        .filter(|&p| current.is_none_or(|c| c.project != p));
     match (sessions.as_slice(), current, named.as_slice()) {
         ([s], ..) if only_in(s.project) => Some(clear(Destination::Session(s.id), None)),
+        ([], _, []) if scratch.is_some() => scratch.map(|p| clear(Destination::New(p), None)),
         ([], Some(c), _) if only_in(c.project) => Some(clear(Destination::Session(c.id), None)),
         ([], _, [h]) if decides(h) => match around(r, h) {
             // A name written inside another's name nearly said decides
@@ -762,6 +777,25 @@ pub fn by_names(r: &Request) -> Option<Route> {
             })
         }
     }
+}
+
+/// Words before the Scratchpad said as a place: "on the scratchpad".
+const ON_PAD: &[&str] = &["in", "into", "inside", "on", "to"];
+
+/// Whether the capture says the Scratchpad as a place: "scratchpad" or
+/// "scratch pad" after one of [`ON_PAD`], "the" between or not; the bare
+/// "scratch" so only after a word other than "to", which makes it the verb.
+/// Never "from scratch", "scratch that", or "a scratchpad".
+fn scratchpad(text: &str) -> bool {
+    let w = names::words(text).words;
+    let word = |i: usize| w.get(i).map(String::as_str);
+    (0..w.len()).any(|i| {
+        let bare = word(i) == Some("scratch") && word(i + 1) != Some("pad");
+        let pad = word(i) == Some("scratchpad") || (word(i) == Some("scratch") && !bare);
+        let the = usize::from(i > 0 && word(i - 1) == Some("the"));
+        let before = i.checked_sub(1 + the).and_then(word);
+        before.is_some_and(|b| ON_PAD.contains(&b) && (pad || (bare && b != "to")))
+    })
 }
 
 /// Another project whose name the words nearly say around a name said

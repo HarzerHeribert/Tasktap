@@ -26,7 +26,7 @@
       project(P.cuegrid, 'cuegrid', '/Users/example/projects/cuegrid'),
       project(P.fieldnotes, 'fieldnotes', '/Users/example/projects/fieldnotes'),
       project(P.ledger, 'ledger-api', '/Users/example/work/ledger-api'),
-      { ...project(P.scratch, 'Scratch', '/Users/example/Scratch'), kind: 'scratch', git: false, isolate: 'never', open: false },
+      { ...project(P.scratch, 'Scratchpad', '/Users/example/Scratch'), kind: 'scratch', git: false, isolate: 'never', open: false },
     ],
     agents: [agent('claude', '2.1.326'), agent('codex', '0.169.0')],
     prefs: [

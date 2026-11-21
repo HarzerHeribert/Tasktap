@@ -289,6 +289,7 @@ impl World {
     fn request(&self, t: &Thought) -> Request {
         Request {
             last: None,
+            scratch: None,
             text: t.text.clone(),
             current: t.current.as_deref().map(|key| match self.place(key) {
                 Destination::Session(id) => id,

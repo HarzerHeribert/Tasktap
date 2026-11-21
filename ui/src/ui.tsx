@@ -20,6 +20,8 @@ const icons = {
   bg: () => <><rect x="5.75" y="2.25" width="8" height="8" rx="1.75" opacity=".45" /><rect x="2.25" y="5.75" width="8" height="8" rx="1.75" /></>,
   search: () => <><circle cx="7" cy="7" r="4.25" /><path d="M10.25 10.25l3 3" /></>,
   folder: () => <path d="M2.25 4.25h4l1.5 1.75h6v6.75H2.25z" />,
+  /** The Scratchpad: a pad of paper with its two rings. */
+  pad: () => <><rect x="3.25" y="3" width="9.5" height="10.5" rx="1.75" /><path d="M6 1.75v2.5M10 1.75v2.5M5.75 7.25h4.5M5.75 10h3" /></>,
   ret: () => <path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25" />,
   down: () => <path d="M8 2.75v10M4 9l4 4 4-4" />,
   later: () => <circle cx="8" cy="8" r="2.75" />,

@@ -169,7 +169,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
     project('cuegrid', 'cuegrid', '/Users/example/projects/cuegrid'),
     project('fieldnotes', 'fieldnotes', '/Users/example/projects/fieldnotes'),
     project('ledger', 'ledger-api', '/Users/example/work/ledger-api'),
-    { id: P.scratch, rev: 1, name: 'Scratch', folder: '/Users/example/Scratch', kind: 'scratch', color: '#9aa5b1', aliases: [], git: false, isolate: 'never', open: false, available: true },
+    { id: P.scratch, rev: 1, name: 'Scratchpad', folder: '/Users/example/Scratch', kind: 'scratch', color: '#9aa5b1', aliases: [], git: false, isolate: 'never', open: false, available: true },
   ];
   const thoughts = [], sessions = [], terminals = [], questions = [], results = [], scr = {};
   const T = {};

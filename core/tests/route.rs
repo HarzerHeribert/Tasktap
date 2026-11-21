@@ -26,6 +26,7 @@ fn the_local_router_follows_its_table() {
     let project = |id, name: &str, aliases: &[&str]| Named::open(id, name, aliases);
     let request = |text: &str, current| Request {
         last: None,
+        scratch: None,
         words: Default::default(),
         text: text.into(),
         current,
@@ -617,6 +618,35 @@ fn scratch_is_no_place_a_router_offers() {
     let r = request(&tx, "start from scratch on the landing page", None).unwrap();
     assert_eq!(r.projects, [], "Scratch is offered to the routers");
     assert_eq!(local(&r), Route::Unknown);
+    // Said clearly as a place, the Scratchpad is where the task goes; the
+    // everyday word never.
+    let scratch = r.scratch.expect("the Scratchpad is open");
+    for text in [
+        "sketch a parser on the scratchpad",
+        "try the regex in scratch",
+        "put this to the scratch pad",
+        "draft it into the Scratchpad",
+    ] {
+        let r = request(&tx, text, None).unwrap();
+        let clear = Route::Clear {
+            to: Destination::New(scratch),
+            brief: text.into(),
+            said: None,
+        };
+        assert_eq!(local(&r), clear, "{text}");
+    }
+    for text in [
+        "rewrite the importer from scratch",
+        "scratch that, rename the button",
+        "remember to scratch the old plan",
+        "a scratchpad for notes would help",
+    ] {
+        assert_eq!(
+            local(&request(&tx, text, None).unwrap()),
+            Route::Unknown,
+            "{text}"
+        );
+    }
 }
 
 #[test]
@@ -779,6 +809,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
                 and don't touch the session cookie, okay";
     let request = Request {
         last: None,
+        scratch: None,
         text: text.into(),
         current: None,
         words: Default::default(),

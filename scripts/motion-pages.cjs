@@ -650,7 +650,7 @@ function fixtures({ question = true } = {}) {
     thoughts, sessions, questions, results,
     projects: [
       { id: P1, rev: 1, name: 'tasktap', folder: '/Users/example/projects/tasktap', kind: 'folder', color: '#7aa2f7', aliases: [], git: true, isolate: 'busy', open: true, available: true },
-      { id: P2, rev: 1, name: 'Scratch', folder: '/Users/example/Scratch', kind: 'scratch', color: '#9aa5b1', aliases: [], git: false, isolate: 'never', open: false, available: true },
+      { id: P2, rev: 1, name: 'Scratchpad', folder: '/Users/example/Scratch', kind: 'scratch', color: '#9aa5b1', aliases: [], git: false, isolate: 'never', open: false, available: true },
     ],
     terminals: [], layouts: [], prefs: [], devices: [],
     agents: [agent('claude', '2.1.0'), agent('codex', '0.80.0')],

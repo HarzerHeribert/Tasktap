@@ -232,7 +232,7 @@ export function ownAgentLacks(name: string, command: string): string {
   const words = command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
   if (!words.length) return `${n} needs a command`;
   if (words[0]!.includes('{prompt}')) return `The command of ${n} needs a program before {prompt}`;
-  if (!words.slice(1).some((w) => w.includes('{prompt}'))) return `The command of ${n} needs {prompt} where the thought goes`;
+  if (!words.slice(1).some((w) => w.includes('{prompt}'))) return `The command of ${n} needs {prompt} where the task goes`;
   return '';
 }
 

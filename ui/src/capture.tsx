@@ -866,10 +866,10 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
           // The foot: where it goes, who runs it, the microphone, and the key that says what Return does, in that order.
           <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false} data-starting={w.why === 'starting' || undefined}
-              title={`${back ? 'Your choice was for the thought before. ' : ''}${!all ? 'No project is known yet: a thought is saved for later until a folder is open. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
-                : model ? `${agentName(first(pref('route_by'), placers()))} reads the thought and places it. Click to choose the place yourself`
+              title={`${back ? 'Your choice was for the task before. ' : ''}${!all ? 'No project is known yet: a task is saved for later until a folder is open. Click to open a folder' : later ? 'Saved for later: nothing starts. Click to change'
+                : model ? `${agentName(first(pref('route_by'), placers()))} reads the task and chooses where the task goes. Click to choose the place yourself`
                   : w.why === 'words' || w.why === 'ask' ? 'Tasktap places it in the project its words name, and asks you where when they name none. Click (or ⌘K) to choose the place yourself'
-                    : w.why === 'only' ? 'The one folder open, so a thought that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
+                    : w.why === 'only' ? 'The one folder open, so a task that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
               onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
               {!later ? <I n={session ? 'term' : 'arrow'} /> : all ? <Mark s="later" label="" /> : <I n="folder" />}

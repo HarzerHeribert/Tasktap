@@ -41,7 +41,7 @@ export function AgentControl({ session }: { session?: string }) {
   if (!a) return null;
   const s = says().get(a.id) ?? { n: 0, s: '' as const };
   const off = s.s === 'off';
-  const words = `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}, ${fixed ? 'runs this follow-up, as it runs its session' : off ? 'not signed in. Click to choose another, or to sign in' : a.id === agent()?.id ? 'runs the next thought. Click to choose another for this one' : 'runs this thought only. Click to choose another'}`;
+  const words = `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}, ${fixed ? 'runs this follow-up, as it runs its session' : off ? 'not signed in. Click to choose a different agent, or to sign in' : a.id === agent()?.id ? 'runs the next task. Click to choose a different agent for this task' : 'runs this task only. Click to choose a different agent'}`;
   return (
     <button type="button" class="cap-agent" data-agent={a.id} data-s={s.s || undefined} aria-haspopup={fixed ? undefined : 'listbox'} aria-expanded={fixed ? undefined : false} aria-disabled={fixed || undefined}
       title={fixed ? words : `${words}  ${spell(AGENT_KEY)}`} aria-label={words} aria-keyshortcuts={fixed ? undefined : AGENT_KEY.replace('⌘', 'Meta+')}
@@ -96,7 +96,7 @@ export function AgentList({ signIn }: { signIn?: () => void }) {
   const all = listed(agents, name), shown = listed(agents, name, cap.findAgent), on = chosen().a?.id, said = says(), words = cap.findAgent.trim();
   const out = all.filter((a) => said.get(a.id)?.s === 'off');
   return (
-    <div key="agents" class="cap-row cap-list agent-list" role="listbox" aria-label="Who runs this thought" data-keys onKeyDown={arrows}
+    <div key="agents" class="cap-row cap-list agent-list" role="listbox" aria-label="Who runs this task" data-keys onKeyDown={arrows}
       // A row pressed keeps the keyboard where it is: a WebKit button takes none, and the list would close under it.
       onMouseDown={(e) => !(e.target as HTMLElement).closest('input') && e.preventDefault()}
       onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.agents && ((cap.agents = false), redraw())}>

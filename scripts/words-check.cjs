@@ -15,7 +15,7 @@ const { scene, flow } = require('./instrument-fixtures.cjs');
 const { projects } = require('./projects-fixtures.cjs');
 
 /** The labels the rows had before, which did not read by themselves or did not name what the person decides. */
-const OLD = ['From any app', 'A sent thought starts', 'Placing', 'Return in a thought', 'Finished thoughts are kept', 'Tab at the top of the screen', 'Turned into text', 'Key',
+const OLD = ['Key to put a thought in', 'Delete finished thoughts after', 'Wait before an agent starts a thought', 'From any app', 'A sent thought starts', 'Placing', 'Return in a thought', 'Finished thoughts are kept', 'Tab at the top of the screen', 'Turned into text', 'Key',
   'Hold to talk', 'Sign-in', 'Name', 'Command', 'Font', 'Size', 'Line height', 'Bold text in bright colours', 'Keep text readable', 'Tasktap', 'Updates', 'Voice',
   'Thoughts and history', "A service's key", 'Looked', 'Where your agents have worked', 'Folders Tasktap looks in', 'Workspace'];
 /** Words a person does not use (the checklist's rule): placing may stay, its row says what it is. */

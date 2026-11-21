@@ -401,7 +401,7 @@ send 'call delete {"c":"prefs","id":"motion_style"}' 'call delete {"c":"prefs","
 # Who runs a thought is one control in the Composer's foot: the ring and name of the agent that runs it and a chevron,
 # which opens a list in the chip's style; no row of rings, no system menu (NOTES §13).
 agentc="document.querySelector('.home .cap-agent')"
-until_has workspace "eval String($agentc?.dataset.agent === 'fixture' && !!$agentc.querySelector('.ring-o circle') && /Fixture agent.*runs the next thought/.test($agentc.title) && !document.querySelector('.hx .list, .rail .off, .home .rings, .home .cap-row select'))" 5 "true" \
+until_has workspace "eval String($agentc?.dataset.agent === 'fixture' && !!$agentc.querySelector('.ring-o circle') && /Fixture agent.*runs the next task/.test($agentc.title) && !document.querySelector('.hx .list, .rail .off, .home .rings, .home .cap-row select'))" 5 "true" \
   && pass "who runs a thought is one control: the agent's ring and name with a chevron, named in its tooltip and for VoiceOver; no row of rings, no list of agents on Home, no names in the rail" || fail "the agent control" "$(js workspace "$agentc?.outerHTML.slice(0, 200)")"
 js workspace "($agentc.click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .agent-list'))" 3 "true" || fail "the agent control opens its list"
@@ -989,7 +989,7 @@ until_has workspace "eval (r => r.querySelector('.v').textContent + ' | ' + r.qu
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 # When finished thoughts are deleted.
 choose_in "Delete finished tasks after" "30 days"
-until_has workspace "$(pref keep_days)" 3 "30" && ask workspace "text .set-pane" | grep -q "Thoughts you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays." \
+until_has workspace "$(pref keep_days)" 3 "30" && ask workspace "text .set-pane" | grep -q "Tasks you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays." \
   && choose_in "Delete finished tasks after" "Never" && until_has workspace "$(pref keep_days)" 3 "0" \
   && pass "when finished thoughts are deleted is one choice, which says that their answers and terminal history go too and that nothing waiting goes" || fail "keep_days"
 # The hold-to-talk key: the same recorder, a plain preference the core holds to the rule; every hint follows it.
@@ -1146,7 +1146,7 @@ chip="[...document.querySelectorAll('.home #dest-chip > b, .home #dest-chip > sp
 [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ "$(js workspace "$chip")" = "Tasktap decides · by its words" ] \
   || fail "before it is allowed, Tasktap decides by a thought's words" "$(js workspace "$chip")"
 home_says "Tidy the changelog a little"
-until_has workspace "text .home .cap-ask" 5 "Where should this go?" && [ "$(js workspace "String(document.activeElement?.id === 'capture-input' && !!document.querySelector('.home .capture .cap-ask') && !document.querySelector('.home .needs [data-question]') && !/Thoughts can find|Its question is open/.test(document.querySelector('.home .ways').textContent))")" = true ] \
+until_has workspace "text .home .cap-ask" 5 "Where should this go?" && [ "$(js workspace "String(document.activeElement?.id === 'capture-input' && !!document.querySelector('.home .capture .cap-ask') && !document.querySelector('.home .needs [data-question]') && !/(Thoughts|Tasks) can find|Its question is open/.test(document.querySelector('.home .ways').textContent))")" = true ] \
   && pass "the first thought that names no folder is asked about at the Composer, the field keeping the keyboard and its keys answering, not also in Needs you, and nothing else stands under the Composer" || fail "the question at the Composer" "$(ask workspace "text .home .capture" | tr '\n' '|' | cut -c1-200)"
 js workspace "((s => s.classList.contains('open') || s.querySelector('.fold-h').click())(document.querySelector('.home .setup')), 1)" >/dev/null
 js workspace "(document.querySelector('.home .setup [data-step=placing] .act').click(), 1)" >/dev/null
@@ -1232,7 +1232,7 @@ until_has workspace "eval $field.value" 3 "the footer in project" && clear_field
 js workspace "(__ws.command('settings'), 1)" >/dev/null
 # (A moment for the sheet to listen: behind a locked screen the page is hidden, and a hidden page takes its time.)
 until_has workspace "eval __ws.ui.sheet?.at" 3 "appearance" && sleep 1 && press workspace ".sheet" 3 true >/dev/null
-until_has workspace "text .settings" 3 "Fixture agent places the rest, and reads every long thought for its summary." && ask workspace "text .settings .ranks" | grep -q "fixture-small · included in your subscription" \
+until_has workspace "text .settings" 3 "Fixture agent places the rest, and reads every long task for its summary." && ask workspace "text .settings .ranks" | grep -q "fixture-small · included in your subscription" \
   && pass "Settings opens where it was last shown, and under Projects (⌘3) lists who finds the project for a thought, in the person's order, and says that long thoughts are read too" || fail "Settings, Projects"
 shot settings-flows workspace
 js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What is sent')).click(), 1)" >/dev/null

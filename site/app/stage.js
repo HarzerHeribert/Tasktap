@@ -295,7 +295,8 @@
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
       // `subMs`: the records come this long after the page asked (a core slow to answer at the first start).
-      const answer = () => (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev }));
+      // `subRefuse`: the core will not give them (the page's records never come).
+      const answer = () => (records.subRefuse ? refuse('failed', records.subRefuse) : (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev })));
       return void (records.subMs ? setTimeout(answer, records.subMs) : answer());
     }
     // What runs in a terminal, as the core says when it is closed (`terminal.runs`): what `runs` holds for it, else
@@ -411,6 +412,8 @@
     return key;
   };
   const hostValue = (name, a) => {
+    // The page's word that it has drawn, which shows the window: when, and what its status line said then.
+    if (name === 'host.ready') return ((window.__fake.ready ??= { at: performance.now(), rail: document.querySelector('.rail-l')?.textContent ?? null }), null);
     if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
     if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
     if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());
@@ -473,7 +476,11 @@
     async invoke(cmd, args) {
       if (cmd === 'bridge_open') {
         channel = args.frames.id;
-        setTimeout(() => toCore({ t: 'welcome', v: welcome.v, core: 'fake-core', build: 'harness', as: 'device', calls: welcome.calls }), 0);
+        // `holdWelcome`: the core has not answered yet (a first start held up, a slow machine) until the check calls
+        // window.__fake.welcome(); `welcomeMs`: it answers that many milliseconds after the page connected.
+        const hello = () => toCore({ t: 'welcome', v: welcome.v, core: 'fake-core', build: 'harness', as: 'device', calls: welcome.calls });
+        if (records.holdWelcome) window.__fake.welcome = hello;
+        else setTimeout(hello, records.welcomeMs || 0);
         return null;
       }
       if (cmd === 'bridge_send') { frames(args instanceof Uint8Array ? args : new Uint8Array(args)); return null; }

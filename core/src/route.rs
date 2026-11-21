@@ -31,7 +31,7 @@
 //! | names one project, as written or with its parts said apart, and no session | `clear`: a new run in that project, opened there if it is a known project and not a workspace |
 //! | names several projects or sessions, or one name two projects have, or one inside another's name nearly said ("the zentrix syncs" with `zentrix` and `zentrix-sync`); or says a name only as it sounds, one letter off, or an everyday word that is a project's name ("test", "app") not used as a name | `ambiguous`: those are the choices first, at most three |
 //! | names no session and no project for certain, and one project clearly leads by what only it has ([`LEAD`]: its whole name nearly said, "vexa widget" for `vexa-widgets`, and a word only its line has, "widgetpack") | `clear`: a new run there, held to be undone as any; its line says why; with a model agreed to, the model is asked first, given it first |
-//! | names nothing, and projects are known | `ambiguous`, "Which project is this task for?": at most three, the one its words point at most by what only it has first, then those whose line about them its words clearly describe ([`likely`]); none when they point at none, never one only because it was worked on lately, and the person is asked all the same |
+//! | names nothing, and projects are known | `ambiguous`, "Which project is this task for?": at most three, the ones it names (with how, where not as written) and those whose line about them it clearly describes ([`offered`]); none when nothing points anywhere, never one only because it was worked on lately, and the person is asked all the same. A model is shown its eight as before ([`ranked`]) |
 //! | names nothing, and no project is known | `ambiguous` with no choice, "Where should the agent work?": never kept for later unasked |
 //!
 //! A name is said as `names.rs` finds it. Where one project's name is said
@@ -44,8 +44,8 @@
 //! name ("folio and app"). How recently a project was worked on orders the
 //! choices and never decides alone. The Scratchpad is never offered: a thought
 //! goes there only when the person picks it, or says it as a place ("on the
-//! scratchpad", "in scratch"; never "from scratch"). The brief is the
-//! person's text unchanged.
+//! scratchpad", "im Scratchpad"; never the word "scratch" alone). The brief
+//! is the person's text unchanged.
 //!
 //! What the core enforces on a model's answer, whatever the instructions
 //! made of it ([`accept`]); an answer that breaks a rule is not used at
@@ -639,6 +639,18 @@ fn quoted(r: &Request, h: &Hit) -> Option<String> {
     (h.said.how != How::Written).then(|| r.text[h.said.span.clone()].to_owned())
 }
 
+/// Why a project named is a choice, in a few words.
+fn why_named(r: &Request, h: &Hit) -> String {
+    let words = &r.text[h.said.span.clone()];
+    match h.said.how {
+        _ if h.plain && h.said.at.len() == 1 => format!("you wrote “{words}”"),
+        _ if h.plain => format!("said as “{words}”"),
+        How::Written => "named in it".into(),
+        How::Joined | How::Sounds => format!("said as “{words}”"),
+        How::Near => format!("you wrote “{words}”"),
+    }
+}
+
 /// Whether the capture names the project, by any of its names.
 fn names(text: &str, p: &Named) -> bool {
     !said_at(&name_words(text), p).is_empty()
@@ -713,12 +725,12 @@ pub fn by_names(r: &Request) -> Option<Route> {
                     Candidate {
                         label: q.name.clone(),
                         to: q.to,
-                        why: String::new(),
+                        why: close_to(r, q),
                     },
                     Candidate {
                         label: h.p.name.clone(),
                         to: h.p.to,
-                        why: String::new(),
+                        why: why_said(r, h),
                     },
                 ],
                 brief: None,
@@ -737,20 +749,21 @@ pub fn by_names(r: &Request) -> Option<Route> {
             if let Some(lead) = lead(r).filter(|_| near) {
                 return Some(lead);
             }
-            // A name is its own reason: nothing is said after it.
+            // A name written as it is is its own reason; otherwise the
+            // question says how it was said ([`why_said`]).
             let projects = named.iter().map(|h| Candidate {
                 label: h.p.name.clone(),
                 to: h.p.to,
-                why: String::new(),
+                why: why_said(r, h),
             });
             let sessions = sessions.iter().map(|s| Candidate {
                 label: s.name.clone().unwrap_or_else(|| s.label.clone()),
                 to: Destination::Session(s.id),
-                why: "named in it".into(),
+                why: String::new(),
             });
             let mut candidates: Vec<_> = match near {
                 false => projects.chain(sessions).collect(),
-                true => (likely(r, CHOICES).into_iter())
+                true => (offered(r, CHOICES).into_iter())
                     .map(|(p, why)| Candidate {
                         label: p.name.clone(),
                         to: p.to,
@@ -768,22 +781,48 @@ pub fn by_names(r: &Request) -> Option<Route> {
     }
 }
 
-/// Words before the Scratchpad said as a place: "on the scratchpad".
-const ON_PAD: &[&str] = &["in", "into", "inside", "on", "to"];
+/// Words before the Scratchpad said as a place, in English and German, as
+/// they end: "on the scratchpad", "in my scratch pad", "im Scratchpad",
+/// "auf dem Scratchpad".
+const ON_PAD: &[&[&str]] = &[
+    &["in"],
+    &["into"],
+    &["inside"],
+    &["on"],
+    &["to"],
+    &["in", "the"],
+    &["into", "the"],
+    &["inside", "the"],
+    &["on", "the"],
+    &["to", "the"],
+    &["in", "my"],
+    &["into", "my"],
+    &["inside", "my"],
+    &["on", "my"],
+    &["to", "my"],
+    &["im"],
+    &["ins"],
+    &["aufs"],
+    &["in", "das"],
+    &["in", "dem"],
+    &["auf", "dem"],
+];
 
 /// Whether the capture says the Scratchpad as a place: "scratchpad" or
-/// "scratch pad" after one of [`ON_PAD`], "the" between or not; the bare
-/// "scratch" so only after a word other than "to", which makes it the verb.
-/// Never "from scratch", "scratch that", or "a scratchpad".
+/// "scratch pad" right after one of [`ON_PAD`]. Never the word "scratch"
+/// alone: "from scratch", "the scratch directory", "a game in Scratch",
+/// "scratch paper" name no place; nor "a scratchpad".
 fn scratchpad(text: &str) -> bool {
     let w = names::words(text).words;
     let word = |i: usize| w.get(i).map(String::as_str);
     (0..w.len()).any(|i| {
-        let bare = word(i) == Some("scratch") && word(i + 1) != Some("pad");
-        let pad = word(i) == Some("scratchpad") || (word(i) == Some("scratch") && !bare);
-        let the = usize::from(i > 0 && word(i - 1) == Some("the"));
-        let before = i.checked_sub(1 + the).and_then(word);
-        before.is_some_and(|b| ON_PAD.contains(&b) && (pad || (bare && b != "to")))
+        let pad = word(i) == Some("scratchpad")
+            || (word(i) == Some("scratch") && word(i + 1) == Some("pad"));
+        let before = |n: usize| i.checked_sub(n).map(|at| &w[at..i]);
+        let said = |on: &&[&str]| {
+            before(on.len()).is_some_and(|b| b.iter().map(String::as_str).eq(on.iter().copied()))
+        };
+        pad && ON_PAD.iter().any(said)
     })
 }
 
@@ -933,11 +972,11 @@ fn lead(r: &Request) -> Option<Route> {
 }
 
 /// Where a capture that names nothing may go: always asked about, with the
-/// projects its words name or clearly describe ([`likely`], three at most),
+/// projects it names or clearly describes ([`offered`], three at most),
 /// which may be none; where the agent should work when no project is known
 /// at all. Never a project only because it was worked on lately.
-fn unsure(r: &Request) -> Route {
-    let candidates: Vec<Candidate> = (likely(r, CHOICES).into_iter())
+pub fn unsure(r: &Request) -> Route {
+    let candidates: Vec<Candidate> = (offered(r, CHOICES).into_iter())
         .map(|(p, why)| Candidate {
             label: p.name.clone(),
             to: p.to,
@@ -991,34 +1030,32 @@ pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
     out
 }
 
-/// The projects a capture points at by its own words, at most `most`:
-/// the one it points at most by what only that one has ([`top`]); those
-/// it names, also those whose name its words are without using them as one
-/// (asked about with it first); those it gives something of their name
-/// only they have, the most first; then those whose line about them it
-/// clearly describes ([`clearly`]); a name a letter off after the lines
-/// that share two words or more. A name is its own reason: nothing is said
-/// of it; a line's is the words it matches ("matches “invoice”, “export”").
-/// Nothing else: none when its words point at none, and never a project
-/// only because it was worked on lately.
+/// The projects a capture points at by its own words, at most `most`,
+/// each with why: the one it points at most by what only that one has
+/// ([`top`]); those it names, also those whose name its words are without
+/// using them as one (asked about with it first); those it gives something
+/// of their name only they have, the most first; then those whose line
+/// about them shares its rarer words; a name a letter off after the lines
+/// that share two words or more. Nothing else: none when its words point
+/// at none.
 pub fn likely(r: &Request, most: usize) -> Vec<(&Named, String)> {
     let mut out: Vec<(&Named, String)> = Vec::new();
     let add = |p, why: String, out: &mut Vec<_>| push(out, most, p, why);
     let weighed = weigh(r);
     if let Some(k) = top(&weighed) {
-        add(&r.projects[k], String::new(), &mut out);
+        add(&r.projects[k], why_led(r, &weighed[k]), &mut out);
     }
     let named = hits(r);
     let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| h.said.how == How::Near);
     for h in said {
-        add(h.p, String::new(), &mut out);
+        add(h.p, why_named(r, h), &mut out);
     }
     let mut of_name: Vec<usize> = (0..weighed.len())
         .filter(|k| weighed[*k].iter().any(|e| e.piece != names::Piece::About))
         .collect();
     of_name.sort_by_key(|k| std::cmp::Reverse((score(&weighed[*k]), r.projects[*k].used)));
     for k in of_name {
-        add(&r.projects[k], String::new(), &mut out);
+        add(&r.projects[k], why_led(r, &weighed[k]), &mut out);
     }
     let lines: Vec<String> = (r.projects.iter())
         .map(|p| {
@@ -1038,49 +1075,302 @@ pub fn likely(r: &Request, most: usize) -> Vec<(&Named, String)> {
     });
     // A name a letter off comes after a line that shares two words or more.
     let mut near = near.into_iter();
-    let agents = agent_words();
     for (i, _) in described {
-        let shared = clearly(r, &fits[i].1, &agents);
-        if shared.is_empty() {
-            continue;
-        }
+        let shared = &fits[i].1;
         if shared.len() < 2 {
             for h in near.by_ref() {
-                add(h.p, String::new(), &mut out);
+                add(h.p, why_named(r, h), &mut out);
             }
         }
-        let words: Vec<String> = (shared.iter().take(3)).map(|x| format!("“{x}”")).collect();
         add(
             &r.projects[i],
-            format!("matches {}", words.join(", ")),
+            shared
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
             &mut out,
         );
     }
     for h in near {
-        add(h.p, String::new(), &mut out);
+        add(h.p, why_named(r, h), &mut out);
     }
     out
 }
 
-/// The words a capture shares with a project's line ([`names::fit`]) when
-/// they clearly describe it, else none: two words or more that say
-/// something of a project (not one that only says a name is one,
-/// "project", nor an agent's name), or one word alone that is neither an
-/// everyday word of a person's work ("server") nor an ordinary word of the
-/// language ("widgetpack"; with no dictionary to read, every word is
-/// ordinary, and one word alone never describes).
-fn clearly<'s>(r: &Request, shared: &'s [String], agents: &[String]) -> Vec<&'s String> {
-    let one = |x: &String| x.strip_suffix('s').unwrap_or(x).to_owned();
-    let meant: Vec<&String> = (shared.iter())
-        .filter(|x| !AFTER_NAME.contains(&one(x).as_str()) && !agents.contains(x))
-        .collect();
-    let alone = |x: &String| {
-        ![x.as_str(), &one(x)].iter().any(|w| EVERYDAY.contains(w)) && !r.words.ordinary(&[x])
-    };
-    match meant.as_slice() {
-        [x] if !alone(x) => Vec::new(),
-        _ => meant,
+/// What the router's question offers the person (the owner's rule of
+/// 2026-11-21), at most `most`, each with its reason: the projects the
+/// capture names, as written (nothing is said after it), otherwise as
+/// [`why_said`] says; then those whose line about them it clearly
+/// describes ([`clearly`]), with the words it matches; then those a
+/// letter off, and those whose name it says only as words. Nothing else: never a project only because it was worked on
+/// lately, nor for evidence of these kinds alone; none when nothing of
+/// these points anywhere. Unlike [`likely`] (what a field finds, and the
+/// order a model is shown), it reads no dictionary of its own.
+pub fn offered(r: &Request, most: usize) -> Vec<(&Named, String)> {
+    let mut out: Vec<(&Named, String)> = Vec::new();
+    let named = hits(r);
+    // A name a letter off, or words that are a name but not used as one,
+    // come after the lines it clearly describes.
+    let (weak, said): (Vec<&Hit>, Vec<&Hit>) =
+        (named.iter()).partition(|h| h.plain || h.said.how == How::Near);
+    for h in said {
+        push(&mut out, most, h.p, why_said(r, h));
     }
+    let lines: Vec<String> = (r.projects.iter())
+        .map(|p| {
+            let names = std::iter::once(&p.name).chain(&p.aliases);
+            let names: Vec<String> = names.flat_map(|n| parts(n)).collect();
+            format!("{} {}", names.join(" "), p.about)
+        })
+        .collect();
+    let agents = agent_words();
+    let fits = names::fit(&r.text, &lines);
+    let mut described: Vec<(usize, f64, Vec<&String>)> = (fits.iter().enumerate())
+        .filter_map(|(i, (score, shared))| {
+            let meant: Vec<&String> = (shared.iter()).filter(|x| meaningful(x, &agents)).collect();
+            clearly(&meant).then_some((i, *score, meant))
+        })
+        .collect();
+    described.sort_by(|a, b| {
+        let (pa, pb) = (&r.projects[a.0], &r.projects[b.0]);
+        b.1.total_cmp(&a.1).then_with(|| pb.used.cmp(&pa.used))
+    });
+    for (i, _, meant) in described {
+        let words: Vec<String> = (meant.iter().take(3)).map(|x| format!("“{x}”")).collect();
+        push(
+            &mut out,
+            most,
+            &r.projects[i],
+            format!("matches {}", words.join(", ")),
+        );
+    }
+    for h in weak {
+        push(&mut out, most, h.p, why_said(r, h));
+    }
+    // A name nearly said, as a plural or with its parts apart ("the harbor
+    // masters" for `harbormaster`), as a letter off is; never an everyday
+    // word's.
+    for p in r.projects.iter().filter(|p| !everyday(&p.name)) {
+        let close = close_to(r, p);
+        if !close.is_empty() {
+            push(&mut out, most, p, close);
+        }
+    }
+    out
+}
+
+/// Why the question offers a project the capture names: nothing where its
+/// name is written as it is; "written as “cue grid”" where its parts are
+/// written apart; "sounds like “pie right”"; "close to “earshut”" a letter
+/// off; "you wrote “test”" for an everyday word, or ordinary words, not used
+/// as a name.
+fn why_said(r: &Request, h: &Hit) -> String {
+    let words = &r.text[h.said.span.clone()];
+    match h.said.how {
+        How::Near => format!("close to “{words}”"),
+        How::Sounds => format!("sounds like “{words}”"),
+        _ if h.plain => format!("you wrote “{words}”"),
+        How::Joined => format!("written as “{words}”"),
+        How::Written => String::new(),
+    }
+}
+
+/// Why the question offers a project whose name the capture nearly says
+/// ([`names::nearly`]): the words it nearly says; nothing where it says
+/// none of its names nearly.
+fn close_to(r: &Request, q: &Named) -> String {
+    let w = name_words(&r.text);
+    let names = std::iter::once(&q.name).chain(&q.aliases);
+    let at = names.flat_map(|n| names::nearly(&w, n)).next();
+    at.filter(|at| !at.is_empty())
+        .map(|at| {
+            format!(
+                "close to “{}”",
+                &r.text[w.spans[at.start].start..w.spans[at.end - 1].end]
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// Words that say nothing of which project is meant, beside the common ones
+/// [`names::telling`] leaves out already: function words of English and of
+/// German, and words that only say a name is one.
+const FUNCTION: &[&str] = &[
+    // English
+    "across",
+    "another",
+    "each",
+    "every",
+    "few",
+    "here",
+    "little",
+    "many",
+    "most",
+    "much",
+    "never",
+    "off",
+    "other",
+    "over",
+    "small",
+    "big",
+    "large",
+    "through",
+    "today",
+    "tomorrow",
+    "under",
+    "within",
+    "without",
+    "yesterday",
+    "repository",
+    "workspace",
+    "codebase",
+    "repo",
+    "project",
+    // German
+    "aber",
+    "alle",
+    "alles",
+    "auch",
+    "auf",
+    "aufs",
+    "aus",
+    "beim",
+    "bin",
+    "bist",
+    "bitte",
+    "dann",
+    "das",
+    "dass",
+    "dein",
+    "deine",
+    "dem",
+    "den",
+    "der",
+    "des",
+    "die",
+    "dir",
+    "doch",
+    "durch",
+    "ein",
+    "eine",
+    "einem",
+    "einen",
+    "einer",
+    "eines",
+    "etwas",
+    "euch",
+    "für",
+    "gegen",
+    "geht",
+    "gibt",
+    "habe",
+    "haben",
+    "hat",
+    "heute",
+    "hier",
+    "ich",
+    "ihr",
+    "ihre",
+    "ins",
+    "ist",
+    "jetzt",
+    "kann",
+    "kannst",
+    "kein",
+    "keine",
+    "können",
+    "mal",
+    "man",
+    "mehr",
+    "mein",
+    "meine",
+    "mich",
+    "mir",
+    "mit",
+    "morgen",
+    "muss",
+    "musst",
+    "müssen",
+    "nach",
+    "nein",
+    "neu",
+    "neue",
+    "neuen",
+    "nicht",
+    "noch",
+    "nur",
+    "oder",
+    "ohne",
+    "projekt",
+    "schon",
+    "sehr",
+    "sein",
+    "seine",
+    "sich",
+    "sie",
+    "sind",
+    "soll",
+    "sollte",
+    "über",
+    "und",
+    "uns",
+    "unser",
+    "unter",
+    "vom",
+    "von",
+    "vor",
+    "war",
+    "was",
+    "weil",
+    "wenn",
+    "werden",
+    "wie",
+    "will",
+    "wir",
+    "wird",
+    "zum",
+    "zur",
+];
+
+/// Everyday words of a person's work beyond the names [`EVERYDAY`] holds:
+/// one of them and another word is a description; alone, none.
+const OF_WORK: &[&str] = &[
+    "download", "file", "folder", "page", "pdf", "podcast", "tool",
+];
+
+/// A word and the forms it is listed in: as it is, and without its plural's
+/// ending ("podcasts", "files", "boxes").
+fn forms(x: &str) -> [&str; 3] {
+    [
+        x,
+        x.strip_suffix('s').unwrap_or(x),
+        x.strip_suffix("es").unwrap_or(x),
+    ]
+}
+
+/// Whether a word a capture shares with a project's line says something of
+/// which project is meant: no function word ([`FUNCTION`]), no word that
+/// says a name is one, no agent's name.
+fn meaningful(x: &str, agents: &[String]) -> bool {
+    !forms(x)
+        .iter()
+        .any(|f| FUNCTION.contains(f) || AFTER_NAME.contains(f))
+        && !agents.iter().any(|a| a == x)
+}
+
+/// Whether the meaningful words a capture shares with a project's line
+/// clearly describe it: two of them at least, and not only everyday words
+/// of work ("server", "site", "pdf"): "static site" describes a static site
+/// generator; "server" alone, or "pdf downloads", describes nothing.
+fn clearly(meant: &[&String]) -> bool {
+    let work = |x: &&String| {
+        forms(x)
+            .iter()
+            .any(|f| EVERYDAY.contains(f) || OF_WORK.contains(f))
+    };
+    meant.len() >= 2 && !meant.iter().all(work)
 }
 
 /// Adds a project to a list of at most `most`, once.

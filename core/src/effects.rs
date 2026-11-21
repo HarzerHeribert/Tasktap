@@ -462,6 +462,9 @@ fn route(
         Some(by) => agreed(&by).and_then(|tools| askable(&asked.text).map(|()| tools)),
         None => return routed(core, id, local, state::locally(None), current),
     };
+    // What the person is asked when a model cannot tell: the question the
+    // match on names asks over every project, never its lead.
+    let unsure = crate::route::unsure(&asked);
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
     let (tools, asked) = match (tools, narrowed) {
         (Ok(tools), Ok(asked)) => (tools, asked),
@@ -474,6 +477,7 @@ fn route(
         current,
         asked,
         local,
+        unsure,
         left: tools.into(),
         began: Instant::now(),
         why: Vec::new(),
@@ -490,6 +494,9 @@ struct Chain {
     current: Option<SessionId>,
     asked: crate::route::Request,
     local: Route,
+    /// The question the person is asked when a model answers that it cannot
+    /// tell ([`crate::route::unsure`]): nothing starts then.
+    unsure: Route,
     /// The next first.
     left: std::collections::VecDeque<(&'static dyn agents::Agent, agents::Headless)>,
     began: Instant,
@@ -575,9 +582,10 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         let why = match accepted {
             Ok((route, found)) => {
                 // A model that cannot tell leaves the question to the person,
-                // as the match on names asks it: nothing is kept unasked.
+                // with what the match on names offers: nothing starts, and
+                // nothing is kept unasked.
                 let route = match route {
-                    Route::Unknown => chain.local.clone(),
+                    Route::Unknown => chain.unsure.clone(),
                     route => route,
                 };
                 let how = Routing {

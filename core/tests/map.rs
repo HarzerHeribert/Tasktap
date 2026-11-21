@@ -1084,8 +1084,7 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
     match place("write a shrinker for date ranges in pie right") {
         Route::Ambiguous { candidates, .. } => {
             assert_eq!(candidates[0].to, to("pyrite"));
-            // A name is its own reason: nothing is said after it.
-            assert_eq!(candidates[0].why, "");
+            assert_eq!(candidates[0].why, "sounds like “pie right”");
         }
         other => panic!("{other:?}"),
     }
@@ -1098,8 +1097,9 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
         Route::Ambiguous { candidates, .. } => assert_eq!(candidates.len(), 2),
         other => panic!("{other:?}"),
     }
-    // Only described: asked, the fitting one first, at most three.
-    match place("the invoice export is slow") {
+    // Only described, by two words of its line: asked, the fitting one
+    // first, at most three.
+    match place("the reminders export is slow") {
         Route::Ambiguous { candidates, .. } => {
             assert!(candidates.len() <= route::CHOICES);
             assert_eq!(candidates[0].to, to("ledgerline"));

@@ -160,14 +160,16 @@ function Seen($text, $seconds = 0) {
 $fixture = $null
 
 try {
-    # The window does not wait for the slow core: it is shown once the page has drawn, before the core is there (2.1 s
-    # into the launch on the VM; the host's fallback, 3 s after the window is made, comes at 3.5 s there).
+    # The window does not wait for the slow core. Judged by cause, as smoke.sh does, not by the clock: it is shown before
+    # the core is there, and because the page said it had drawn (the window's line says which showed it), not by the
+    # host's fallback 3 s after the window is made. 5 s is only a net.
     $ready = { [bool]($seen | Where-Object { $_.Contains('"event":"ready"') }) }
     if ($slow) {
         $window = Until '"event":"window"' 8
-        $ms = if ("$window" -match '"ms":(\d+)') { [int]$Matches[1] }
         $first = & $ready
-        if ($ms -and $ms -le 2800 -and -not $first) { Pass "with a core ten seconds slow to start, the window is shown before it is there, once the page has drawn ($ms ms after the launch)" } else { Fail 'the window does not wait for the core' "window at $(if ($ms) { "$ms ms after the launch" } else { 'no time' }); the core there first: $first" }
+        $ms = if ("$window" -match '"ms":(\d+)') { [int]$Matches[1] }
+        $by = if ("$window" -match '"by":"(\w+)"') { $Matches[1] } else { 'nothing' }
+        if ($by -eq 'ready' -and -not $first -and $ms -and $ms -le 5000) { Pass "with a core ten seconds slow to start, the window is shown before it is there, once its page said it had drawn ($ms ms after the launch)" } else { Fail 'the window does not wait for the core' "shown by the $by at $(if ($ms) { "$ms ms" } else { 'no time' }) after the launch; the core $(if ($first) { 'was' } else { 'was not' }) there first" }
     }
     # The first start of the web view on a machine takes its time.
     if ((& $ready) -or (Until '"event":"ready"' 45)) { Pass 'the core starts and the host reaches it over its pipe' } else { Fail 'the core starts and the host reaches it' }

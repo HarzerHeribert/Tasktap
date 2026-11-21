@@ -57,7 +57,7 @@ async function main(out, dist) {
     expect(why[2] === 'gemini-3.8-flash-low · included in your subscription · about 6 s', `and the last: "${why[2]}"`);
     const said = await page.evaluate(() => document.querySelector('.sheet .terms').textContent);
     expect(said.includes('goes to the first agent below that answers, one at a time') && said.includes('those this Mac ranks likeliest'), 'the sentence says who is asked and what is sent');
-    expect(said.includes('Antigravity keeps each thought it is asked as a conversation in its history'), 'and that Antigravity keeps each');
+    expect(said.includes('Antigravity keeps each task it is asked about as a conversation in its history'), 'and that Antigravity keeps each');
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f .key')?.textContent)) === 'Allow', 'Return allows');
     await fits(page, 'the sheet');
     await shoot(page, out, 'placing-proposed');

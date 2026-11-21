@@ -2027,15 +2027,18 @@ fn an_agent_working_inside_a_project_is_nothing_new_to_a_look() {
     let (home, data) = home_of(&t);
     let git = home.join("git");
     init(&git.join("proj"));
-    mkdir(&git.join("proj/src/ui"));
+    // With the system's own separators: the card is the folder as the core
+    // names it, canonical (`real`), which on Windows has no "/".
+    let ui = git.join("proj").join("src").join("ui");
+    mkdir(&ui);
     init(&git.join("oss/rust/kiln"));
-    let ui = git.join("proj/src/ui");
     session(&home, "ui", &ui);
     let (agent, mut named) = (agent_look(&home), folder_look(&git));
     let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
     read_into(&mut store, &home, &data, &[agent, named.clone()]);
     let tx = store.begin().unwrap();
-    let card = tx.card_by_folder(ui.to_str().unwrap()).unwrap().unwrap();
+    let card = tx.card_by_folder(real(&ui).to_str().unwrap()).unwrap();
+    let card = card.expect("a card of the session's folder");
     assert!(card.inside.is_some(), "a card inside proj");
     named.stamp = tx.look(named.id).unwrap().unwrap().stamp;
     let rule = Rule::new(&home, &data);

@@ -249,7 +249,7 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         }
         "host.show" => workspace::show(app, args["at"].as_str()).map(|_| Value::Null).map_err(|e| e.to_string()),
         "host.ready" => {
-            workspace::ready(app);
+            workspace::ready(app, "ready");
             Ok(Value::Null)
         }
         // The system's own folder panel, or the folder a check names instead.

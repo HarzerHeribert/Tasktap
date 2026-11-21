@@ -660,6 +660,7 @@ type RouteResult = { quote: string; confidence: "clear" | "ambiguous" | "unknown
 | --- | --- | --- |
 | no agreement (`route_by` unset or No), one to other terms, or none of its agents switched on that this core would ask for the model agreed to | the local router | the person's words |
 | at most 160 characters on one line, and the local router is sure where it goes | the local router: nothing is sent anywhere | the person's words |
+| no destination, and no project known | the local router, which asks where the agent should work: a model would be shown no project and no session to choose from, so none is asked, ChatGPT included, and nothing is sent anywhere | the person's words |
 | anything else without a destination | the person's agents in their order, one at a time (the chain, below), within 8 s in all; the thought is `captured` and its `route` pending meanwhile, naming the first | the first answer that is taken |
 | a destination the person picked, the thought at most 160 characters on one line | nobody | the person's words |
 | a destination the person picked, a longer thought | the person; the chain is asked for the brief alone, the thought `routed` and its `route` pending meanwhile | the first answer that is taken |

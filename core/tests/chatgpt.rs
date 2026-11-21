@@ -651,6 +651,15 @@ impl Placing {
 
     /// The same, the core started with `extra`.
     fn with(prefix: &str, extra: &[&str]) -> Placing {
+        Placing::built(prefix, extra, true)
+    }
+
+    /// The same with no project known (`app` names none).
+    fn bare(prefix: &str) -> Placing {
+        Placing::built(prefix, &[], false)
+    }
+
+    fn built(prefix: &str, extra: &[&str], projects: bool) -> Placing {
         let data = Folder::new(prefix);
         let openai = StandIn::start();
         let core = Placing::core(&data, &openai, extra);
@@ -665,7 +674,10 @@ impl Placing {
             };
             w.ok::<call::ProjectAdd>(&add)
         };
-        let (app, _folio) = (add("app"), add("folio"));
+        let app = match projects {
+            true => (add("app"), add("folio")).0,
+            false => ProjectId::mint(),
+        };
         std::fs::create_dir_all(data.0.join("route")).unwrap();
         w.ok::<call::FixtureClock>(&FixtureClock {
             now: time(wall_ms()),
@@ -954,6 +966,26 @@ fn signing_in_with_chatgpt_agrees_to_its_row_alone_and_places_by_one_direct_call
     );
     p.openai.no_problems();
     p.kept_nowhere();
+}
+
+#[test]
+fn with_no_project_known_chatgpt_is_asked_nothing_and_the_person_is_asked() {
+    let mut p = Placing::bare("chatgpt-no-project");
+    p.sign_in();
+    assert!(
+        p.route_by()
+            .is_some_and(|by| by.agents.iter().any(|a| a.on))
+    );
+    let t = p.capture(SPOKEN);
+    let th = p.settled(t);
+    assert_eq!((th.project_id, th.status), (None, Status::NeedsYou));
+    assert_eq!(th.route.unwrap().by, "local");
+    let q = (p.w.model.questions.values())
+        .find(|q| q.thought_id == Some(t))
+        .expect("asked");
+    assert_eq!(q.prompt, "Where should the agent work?");
+    assert_eq!(p.openai.seen("POST /v1/responses"), 0);
+    p.openai.no_problems();
 }
 
 #[test]

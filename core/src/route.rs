@@ -34,7 +34,7 @@
 //! | names several projects or sessions, or one name two projects have, or one inside another's name nearly said ("the zentrix syncs" with `zentrix` and `zentrix-sync`); or says a name only as it sounds, one letter off, or an everyday word that is a project's name ("test", "app") not used as a name | `ambiguous`: those are the choices first, at most three |
 //! | names no session and no project for certain, and one project clearly leads by what only it has ([`LEAD`]: its whole name nearly said, "vexa widget" for `vexa-widgets`, and a word only its line has, "widgetpack") | `clear`: a new run there, held to be undone as any; its line says why; with a model agreed to, the model is asked first, given it first |
 //! | names nothing, and projects are known | `ambiguous`, "Which project is this task for?": at most three, the ones it names (with how, where not as written) and those whose line about them it clearly describes ([`offered`]); none when nothing points anywhere, never one only because it was worked on lately, and the person is asked all the same. A model is shown its eight as before ([`ranked`]) |
-//! | names nothing, and no project is known | `ambiguous` with no choice, "Where should the agent work?": never kept for later unasked |
+//! | names nothing, and no project is known | `ambiguous` with no choice, "Where should the agent work?": never kept for later unasked, and no model is asked, since it would be shown nothing to choose from (`effects.rs`) |
 //!
 //! A name is said as `names.rs` finds it. Where one project's name is said
 //! inside a longer name of another ("tidepool" in "tidepool mobile"), the

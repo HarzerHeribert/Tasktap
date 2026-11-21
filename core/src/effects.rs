@@ -458,8 +458,12 @@ fn route(
         Some(_) => short(&asked.text),
         None => !matches!(local, Route::Unknown) && core.seams.sure(&asked),
     };
+    // With no project known, a model is shown nothing to choose from (no
+    // project, and so no session): whatever it answers, the person is asked
+    // where the agent should work. None is asked then, ChatGPT included.
+    let nothing = picked.is_none() && asked.projects.is_empty();
     // An agreement with every agent switched off is none, and says nothing.
-    let tools = match by.filter(|by| !sure && by.agents.iter().any(|p| p.on)) {
+    let tools = match by.filter(|by| !sure && !nothing && by.agents.iter().any(|p| p.on)) {
         Some(by) => {
             (agreed(&by, chatgpt.as_deref())).and_then(|tools| askable(&asked.text).map(|()| tools))
         }

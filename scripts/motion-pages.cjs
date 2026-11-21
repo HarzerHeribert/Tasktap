@@ -281,7 +281,8 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
       // `subMs`: the records come this long after the page asked (a core slow to answer at the first start).
-      const answer = () => (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev }));
+      // `subRefuse`: the core will not give them (the page's records never come).
+      const answer = () => (records.subRefuse ? refuse('failed', records.subRefuse) : (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev })));
       return void (records.subMs ? setTimeout(answer, records.subMs) : answer());
     }
     // What runs in a terminal, as the core says when it is closed (`terminal.runs`): what `runs` holds for it, else

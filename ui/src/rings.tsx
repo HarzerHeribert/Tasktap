@@ -3,7 +3,7 @@
 // styled correctly" (design/ui-directions/NOTES.md §13).
 import type { AgentHealth } from '../../core/proto/protocol.ts';
 import { cap } from './capture.tsx';
-import { agent, agentName, call, openQuestions, page, records, redraw, runs } from './page.ts';
+import { agent, agentName, call, core, openQuestions, page, records, redraw, runs } from './page.ts';
 import { spell } from './keys.ts';
 import { I, Key, Ring } from './ui.tsx';
 import { listed, ring } from './way.ts';
@@ -38,6 +38,9 @@ export const AGENT_KEY = '⌘J';
  *  name gives way where the foot is short of room. */
 export function AgentControl({ session }: { session?: string }) {
   const { a, fixed } = chosen(session);
+  // Before the core has answered no agent is known: the place the usual one's control takes, empty (parts.css), so that
+  // nothing in the row moves when it comes.
+  if (!a && !core.in) return <span class="cap-agent" data-starting aria-hidden="true"><Ring agent="claude" s="" turns={false} /><span class="nm">Claude Code</span><I n="chev" /><Key k={AGENT_KEY} /></span>;
   if (!a) return null;
   const s = says().get(a.id) ?? { n: 0, s: '' as const };
   const off = s.s === 'off';

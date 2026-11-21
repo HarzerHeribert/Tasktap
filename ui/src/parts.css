@@ -192,6 +192,8 @@ kbd .i{width:12px;height:12px}
 .capture:not(.raised) :is(.cap-to,.cap-list button,.cap-agent,.mic){border-radius:var(--r-in)}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
+/* Before the core has answered the chip keeps its place and says nothing (capture.tsx where: 'starting'). */
+.cap-to[data-starting]{visibility:hidden}
 /* The chip never narrower than its arrow and three characters of its place (the review's N5). */
 .cap-to{min-width:calc(6px + 14px + 6px + 4ch + 6px + 12px + 5px)}
 .cap-to b{min-width:4ch}

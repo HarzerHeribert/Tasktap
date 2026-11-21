@@ -20,7 +20,7 @@ import { HERE } from '../system.ts';
 import { I, Mark } from '../ui.tsx';
 import { first, placing } from '../way.ts';
 import { Row } from './form.tsx';
-import { agentName, call, dismiss, fail, keyTimes, open, page, placers, pref, records, redraw, ui } from './model.ts';
+import { agentName, call, core, dismiss, fail, keyTimes, open, page, placers, pref, records, redraw, ui } from './model.ts';
 import { Details, ProjectsSheet, projectsStep, seen } from './projects.tsx';
 import { type Act, Frame } from './sheets.tsx';
 import { serviceName } from './consent.tsx';
@@ -95,6 +95,8 @@ export function Setup({ quiet }: { quiet: boolean }) {
     const timer = setTimeout(redraw, setup.hid + GONE_FOR - Date.now() + 20);
     return () => clearTimeout(timer);
   }, [gone]);
+  // Before the core has answered nothing of it is known: no count, no step.
+  if (!core.in) return null;
   if (gone) return <p class="setup-gone" role="status">Setup is in Settings › About.</p>;
   if (pref('setup_hidden') || (all && !setup.unfinished)) return null;
   // While a step's sheet is up, Setup under it is its header line only, so nothing is said twice at once.

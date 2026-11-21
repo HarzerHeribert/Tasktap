@@ -206,8 +206,9 @@ export class Stream {
 }
 
 /** What a page asks of the host before the core has answered: the host answers these itself, and the window needs
- *  them at once (shown once the page has drawn, and its own buttons and menu). Every other call waits for the welcome. */
-const UNWAITED: ReadonlySet<Name> = new Set<Name>(['host.ready', 'host.window']);
+ *  them at once (shown once the page has drawn, and its own buttons and menu; and whether it is in front, for what
+ *  moves only then, such as the Composer's line). Every other call waits for the welcome. */
+const UNWAITED: ReadonlySet<Name> = new Set<Name>(['host.ready', 'host.window', 'host.where']);
 
 export class Client {
   /** The core's answer to the host's hello on this connection. */

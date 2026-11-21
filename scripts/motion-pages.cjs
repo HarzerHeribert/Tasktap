@@ -397,6 +397,8 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     return key;
   };
   const hostValue = (name, a) => {
+    // The page's word that it has drawn, which shows the window: when, and what its status line said then.
+    if (name === 'host.ready') return ((window.__fake.ready ??= { at: performance.now(), rail: document.querySelector('.rail-l')?.textContent ?? null }), null);
     if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
     if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
     if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());
@@ -459,7 +461,11 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     async invoke(cmd, args) {
       if (cmd === 'bridge_open') {
         channel = args.frames.id;
-        setTimeout(() => toCore({ t: 'welcome', v: welcome.v, core: 'fake-core', build: 'harness', as: 'device', calls: welcome.calls }), 0);
+        // `holdWelcome`: the core has not answered yet (a first start held up, a slow machine) until the check calls
+        // window.__fake.welcome(); `welcomeMs`: it answers that many milliseconds after the page connected.
+        const hello = () => toCore({ t: 'welcome', v: welcome.v, core: 'fake-core', build: 'harness', as: 'device', calls: welcome.calls });
+        if (records.holdWelcome) window.__fake.welcome = hello;
+        else setTimeout(hello, records.welcomeMs || 0);
         return null;
       }
       if (cmd === 'bridge_send') { frames(args instanceof Uint8Array ? args : new Uint8Array(args)); return null; }

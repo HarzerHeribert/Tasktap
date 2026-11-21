@@ -660,23 +660,22 @@ fn a_router_question_declined_or_bypassed_closes() {
     assert_eq!(shape(&w.thought(t)), (Phase::Routed, Status::Routed, None));
     assert_eq!(w.question(q).state, QuestionState::Withdrawn);
 
-    // Ambiguous with nobody to choose is an idea, as unknown is.
+    // Ambiguous with no place to offer still asks: the person's own answers
+    // remain (a folder, the Scratchpad, another project, keep for later).
     let t = w.capture("hmm");
     let route = Route::Ambiguous {
         prompt: "Where?".into(),
         candidates: Vec::new(),
         brief: None,
     };
-    assert_eq!(
-        w.ok(Event::Routed {
-            thought: t,
-            route,
-            how: locally(None),
-            current: None,
-        }),
-        NONE
-    );
-    assert_eq!(w.thought(t).mode, Mode::Note);
+    let q = notified(w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+        current: None,
+    }));
+    assert_eq!(w.question(q).state, QuestionState::Open);
+    assert_ne!(w.thought(t).mode, Mode::Note);
 }
 
 #[test]

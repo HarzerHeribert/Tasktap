@@ -726,7 +726,7 @@ type RouteResult = { quote: string; confidence: "clear" | "ambiguous" | "unknown
 | names no session, was made in a current session, and names no project but that session's | `clear`: a follow-up to the current session |
 | names one project and no session | `clear`: a new run in that project |
 | names several projects or sessions | `ambiguous`: those are the choices, projects first |
-| names nothing | `unknown`: it stays an idea |
+| names nothing | `ambiguous`, asked about with what its words name or clearly describe, which may be nothing (`core/src/route.rs` `unsure`); never kept for later unasked |
 - **Session names.** The session a new run starts is named by the `title` of the routing answer: no call of its own, no timer. That replaces the naming on turn events of 1.2 (at most once per 180 s per session) for new runs. Unnamed, and left for later: a session of a thought no model was asked about (no consent, a short thought the local router is sure of, a short thought with a picked destination, a model that failed), a session started by hand in a shell, and a session's later turns, since a follow-up leaves the name as it is, so a name does not follow the work when it drifts. There is no call yet by which the person names a session; when there is, a title never replaces their name, since a title is only given to a session at its start.
 - **Narration** is `host.speak`, called by the core once per result.
 

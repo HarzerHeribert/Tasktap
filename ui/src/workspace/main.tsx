@@ -247,7 +247,7 @@ function AsksLine() {
   const s = q.session_id ? records.sessions.get(q.session_id) : undefined;
   const t = q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   const router = q.source === 'router';
-  const who = router ? 'Where should this go?' : `${agentName(s?.agent ?? t?.agent)} asks`;
+  const who = router ? q.prompt : `${agentName(s?.agent ?? t?.agent)} asks`;
   const more = openQuestions().length - 1;
   // The key the person recorded for it, named as their keyboard prints it; none where this copy takes no keys from
   // other apps (a review build), where it would do nothing.

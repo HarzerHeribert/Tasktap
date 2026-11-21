@@ -4,7 +4,7 @@
 // fails when
 // - Home's status line does not say "Starting…" in place of the counts while the core has not answered, or still says
 //   it once the core has;
-// - anything on the page claims what the page does not know yet: the chip's words ("No projects yet", "saved for
+// - anything on the page claims what the page does not know yet: the chip's words ("No project yet", "saved for
 //   later"), the key saying "Save for later", Setup and its count, "Nothing running"; in the New Task sheet and in the
 //   notch's Composer as on Home; or once the core has answered they are not as before; or the Composer is not where it
 //   was (a first start, whose Home is as empty after as before);
@@ -26,7 +26,7 @@ const { scene } = require('./instrument-fixtures.cjs');
 const { projects } = require('./projects-fixtures.cjs');
 
 const GEO = { do: 'geometry', width: 104, height: 16, cutout: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 1, corner: 10, offset: 0, available: 700, collapsed: false };
-const CLAIMS = /No projects yet|saved for later|Save for later|\d of \d done|Nothing running/i;
+const CLAIMS = /No project yet|saved for later|Save for later|\d of \d done|Nothing running/i;
 const failures = [];
 let ENGINE = 'chromium';
 const expect = (ok, what) => ok || failures.push(`[${ENGINE}] ${what}`);

@@ -465,6 +465,9 @@ fn route(
         }
         None => return routed(core, id, local, state::locally(None), current),
     };
+    // What the person is asked when a model cannot tell: the question the
+    // match on names asks over every project, never its lead.
+    let unsure = crate::route::unsure(&asked);
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
     let (tools, asked) = match (tools, narrowed) {
         (Ok(tools), Ok(asked)) => (tools, asked),
@@ -477,6 +480,7 @@ fn route(
         current,
         asked,
         local,
+        unsure,
         left: tools.into(),
         began: Instant::now(),
         why: Vec::new(),
@@ -493,6 +497,9 @@ struct Chain {
     current: Option<SessionId>,
     asked: crate::route::Request,
     local: Route,
+    /// The question the person is asked when a model answers that it cannot
+    /// tell ([`crate::route::unsure`]): nothing starts then.
+    unsure: Route,
     /// The next first.
     left: std::collections::VecDeque<crate::route::Asker>,
     began: Instant,
@@ -605,6 +612,13 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         let name = asker.id();
         let why = match (accepted, &asker) {
             (Ok((route, found)), _) => {
+                // A model that cannot tell leaves the question to the person,
+                // with what the match on names offers: nothing starts, and
+                // nothing is kept unasked.
+                let route = match route {
+                    Route::Unknown => chain.unsure.clone(),
+                    route => route,
+                };
                 let how = Routing {
                     by: name.into(),
                     model: Some(asker.model().into()),
@@ -1220,8 +1234,9 @@ fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNot
         Ok(Some((q, session, thought)))
     })
     .ok()??;
+    // Tasktap's own question says what it asks ("Which project is this task for?"), and the task's words.
     let (title, body) = if q.source == QuestionSource::Router {
-        ("Where should this go?".to_owned(), cut(&thought?.text))
+        (cut(&q.prompt), cut(&thought?.text))
     } else {
         let agent = session.as_ref().and_then(|s| crate::agents::find(&s.agent));
         let name = agent.map_or("An agent", |a| a.name());

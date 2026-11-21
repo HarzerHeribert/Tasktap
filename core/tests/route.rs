@@ -9,7 +9,8 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 use tasktap_core::route::{
-    Followed, Named, Request, accept, by_names, local, request, same, short,
+    CHOICES, Followed, Lexicon, Named, Request, accept, by_names, local, offered, ranked, request,
+    same, short, unsure,
 };
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_core::store::Store;
@@ -26,6 +27,7 @@ fn the_local_router_follows_its_table() {
     let project = |id, name: &str, aliases: &[&str]| Named::open(id, name, aliases);
     let request = |text: &str, current| Request {
         last: None,
+        scratch: None,
         words: Default::default(),
         text: text.into(),
         current,
@@ -143,7 +145,7 @@ fn the_local_router_follows_its_table() {
             },
             Err(candidates) if candidates.is_empty() => Route::Unknown,
             Err(candidates) => Route::Ambiguous {
-                prompt: "Where should this go?".into(),
+                prompt: "Which project is this task for?".into(),
                 candidates,
                 brief: None,
             },
@@ -164,14 +166,18 @@ fn the_local_router_follows_its_table() {
         ]
     );
     // Named nothing, with projects known: the person is asked, never
-    // guessed for, with at most three; with none known, it is an idea.
+    // guessed for, with what its words name or describe (here nothing); with
+    // none known, where the agent should work.
     let Route::Ambiguous { candidates, .. } = local(&request("buy milk", None)) else {
         panic!("asked")
     };
-    assert!(!candidates.is_empty() && candidates.len() <= tasktap_core::route::CHOICES);
+    assert_eq!(candidates, []);
     let mut none = request("buy milk", None);
     (none.projects, none.sessions) = (Vec::new(), Vec::new());
-    assert_eq!(local(&none), Route::Unknown);
+    let Route::Ambiguous { prompt, .. } = local(&none) else {
+        panic!("asked")
+    };
+    assert_eq!(prompt, "Where should the agent work?");
 }
 
 #[test]
@@ -396,10 +402,8 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
             choices: vec!["folio".into(), "app".into()]
         }
     );
-    assert_eq!(
-        q.notes,
-        Some(vec!["named in it".into(), "named in it".into()])
-    );
+    // A name is its own reason: nothing is said after it.
+    assert_eq!(q.notes, Some(vec![String::new(), String::new()]));
     // What each choice is, so no page tells a folder from a session by its name.
     let places = vec![
         tasktap_proto::Place::Project(folio),
@@ -572,7 +576,7 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
             },
             Err(names) if names.is_empty() => Route::Unknown,
             Err(names) => Route::Ambiguous {
-                prompt: "Where should this go?".into(),
+                prompt: "Which project is this task for?".into(),
                 candidates: (names.iter())
                     .map(|n| Candidate {
                         why: String::new(),
@@ -610,13 +614,160 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
 }
 
 #[test]
+fn a_question_offers_only_projects_the_words_name_or_clearly_describe() {
+    let (earshot, tapped, mods) = (ProjectId::mint(), ProjectId::mint(), ProjectId::mint());
+    let project = |id, name: &str, about: &str, used| Named {
+        about: about.into(),
+        used,
+        ..Named::open(id, name, &[])
+    };
+    let request = |text: &str| Request {
+        text: text.into(),
+        projects: vec![
+            project(
+                earshot,
+                "earshot",
+                "Records audio, shows its loudness on a meter, streams to a small server",
+                None,
+            ),
+            project(
+                tapped,
+                "tapped",
+                "Hands off tasks to coding agents",
+                Some(time(wall_ms())),
+            ),
+            project(
+                mods,
+                "claude-mods",
+                "A theme and a layout for Claude Code",
+                None,
+            ),
+        ],
+        // The words of the language as this check knows them, the same on every system.
+        words: Lexicon(vec![
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt"),
+        ]),
+        ..Request::default()
+    };
+    let offered = |text: &str| -> Vec<(String, String)> {
+        let r = request(text);
+        (offered(&r, CHOICES).into_iter())
+            .map(|(p, why)| (p.name.clone(), why))
+            .collect()
+    };
+    let one = |name: &str, why: &str| vec![(name.to_owned(), why.to_owned())];
+    // The owner's task: "server" is an everyday word of work, the one word
+    // it shares with a project's line; tapped was only worked on last.
+    // Nothing is offered, and the person is asked all the same.
+    let his = "i need a new satisfactory server for a little project";
+    assert_eq!(offered(his), []);
+    assert_eq!(
+        local(&request(his)),
+        Route::Ambiguous {
+            prompt: "Which project is this task for?".into(),
+            candidates: Vec::new(),
+            brief: None,
+        }
+    );
+    // Recency alone offers nothing.
+    assert_eq!(offered("buy milk"), []);
+    // Named as written: the name is the reason; a letter off, said so.
+    assert_eq!(offered("the earshot meter clips"), one("earshot", ""));
+    assert_eq!(
+        offered("fix the earshut levels"),
+        one("earshot", "close to “earshut”")
+    );
+    // Two meaningful words of its line describe it; one alone, however
+    // rare, does not.
+    assert_eq!(
+        offered("the theme and layout look wrong"),
+        one("claude-mods", "matches “theme”, “layout”")
+    );
+    assert_eq!(offered("the loudness drops"), []);
+    assert_eq!(offered("the layout jumps"), []);
+    // With no project known, it asks where the agent should work.
+    let none = Request {
+        text: "make the build faster".into(),
+        ..Request::default()
+    };
+    assert_eq!(
+        local(&none),
+        Route::Ambiguous {
+            prompt: "Where should the agent work?".into(),
+            candidates: Vec::new(),
+            brief: None,
+        }
+    );
+}
+
+#[test]
+fn a_first_task_with_no_project_is_asked_about_never_kept_for_later() {
+    let data = Folder::new("first");
+    let core = Core::with_agents(&data.0);
+    let mut w = core.watch();
+    let id = ThoughtId::mint();
+    w.ok::<call::ThoughtCapture>(&Capture {
+        agent: Some("fixture".into()),
+        ..typed(id, "make the build faster")
+    });
+    let th = w.model.thought(id);
+    assert_eq!((th.project_id, th.status), (None, Status::NeedsYou));
+    assert_ne!(th.mode, Mode::Note, "kept for later unasked");
+    let q = (w.model.questions.values())
+        .find(|q| q.thought_id == Some(id))
+        .expect("asked");
+    assert_eq!(q.prompt, "Where should the agent work?");
+    assert_eq!(q.places, Some(Vec::new()));
+}
+
+#[test]
 fn scratch_is_no_place_a_router_offers() {
     let data = Folder::new("scratch");
     let (mut store, _) = Store::open(&data.0.join("core.db"), time(wall_ms())).unwrap();
     let tx = store.begin().unwrap();
     let r = request(&tx, "start from scratch on the landing page", None).unwrap();
     assert_eq!(r.projects, [], "Scratch is offered to the routers");
-    assert_eq!(local(&r), Route::Unknown);
+    // With no other project, the person is asked where the agent works.
+    let asked = Route::Ambiguous {
+        prompt: "Where should the agent work?".into(),
+        candidates: Vec::new(),
+        brief: None,
+    };
+    assert_eq!(local(&r), asked);
+    // Said clearly as a place, the Scratchpad is where the task goes; the
+    // everyday word never.
+    let scratch = r.scratch.expect("the Scratchpad is open");
+    for text in [
+        "sketch a parser on the scratchpad",
+        "put this to the scratch pad",
+        "draft it into the Scratchpad",
+        "keep the numbers in my scratch pad",
+        "leg das bitte im Scratchpad ab",
+        "probier das auf dem Scratchpad aus",
+        "schreib das ins Scratchpad",
+    ] {
+        let r = request(&tx, text, None).unwrap();
+        let clear = Route::Clear {
+            to: Destination::New(scratch),
+            brief: text.into(),
+            said: None,
+        };
+        assert_eq!(local(&r), clear, "{text}");
+    }
+    // "Scratch" alone is no place, however it is used.
+    for text in [
+        "rewrite the importer from scratch",
+        "scratch that, rename the button",
+        "remember to scratch the old plan",
+        "a scratchpad for notes would help",
+        "try the regex in scratch",
+        "clean up the temp files in the scratch directory",
+        "push the metadata in the scratch org",
+        "make a little game in Scratch for the kids",
+        "keep notes on scratch paper",
+    ] {
+        assert_eq!(local(&request(&tx, text, None).unwrap()), asked, "{text}");
+    }
 }
 
 #[test]
@@ -779,6 +930,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
                 and don't touch the session cookie, okay";
     let request = Request {
         last: None,
+        scratch: None,
         text: text.into(),
         current: None,
         words: Default::default(),
@@ -878,7 +1030,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         accept(&request, &choices(json!(["p3", "s2", "p3", "s1"]))),
         Ok((
             Route::Ambiguous {
-                prompt: "Where should this go?".into(),
+                prompt: "Which project is this task for?".into(),
                 candidates: vec![
                     choice("app", Destination::New(app)),
                     choice("The codex session in folio", Destination::Session(quiet)),
@@ -2020,4 +2172,250 @@ fn a_core_that_stops_while_a_model_is_asked_asks_nobody_again_and_launches_nothi
     a.w.ok::<call::ThoughtStart>(&start);
     a.w.sync();
     assert_eq!(a.w.model.sessions.len(), 1);
+}
+
+/// The eval's projects (core/scripts/place-eval.json), as `place-eval` makes
+/// them: the first `size`, with its `more` where `more` says so, and its
+/// `tools` where `tools` does, each worked on as many days ago as it says.
+fn eval_projects(size: usize, more: bool, tools: bool) -> Vec<Named> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/place-eval.json");
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let list = |key: &str| fixture[key].as_array().cloned().unwrap_or_default();
+    let now: u64 = 1_800_000_000_000;
+    let card = |p: &Value| Named {
+        to: Destination::Card(tasktap_proto::CardId::mint()),
+        name: p["name"].as_str().unwrap().into(),
+        aliases: Vec::new(),
+        about: p["about"].as_str().unwrap_or("").into(),
+        folder: format!("/Users/someone/projects/{}", p["name"].as_str().unwrap()),
+        used: tasktap_proto::Time::new(now - p["quiet"].as_u64().unwrap() * 86_400_000),
+    };
+    let all = list("projects").into_iter().take(size);
+    let more = list("more").into_iter().filter(|_| more);
+    let tools = list("tools").into_iter().filter(|_| tools);
+    all.chain(more).chain(tools).map(|p| card(&p)).collect()
+}
+
+/// The words of the language as these checks know them, the same on every
+/// system: the fixture's.
+fn fixture_words() -> Lexicon {
+    Lexicon(vec![
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt"),
+    ])
+}
+
+#[test]
+fn scratch_as_an_adjective_or_a_name_is_no_place() {
+    let scratch = ProjectId::mint();
+    let request = |text: &str| Request {
+        text: text.into(),
+        projects: vec![Named::open(ProjectId::mint(), "earshot", &[])],
+        scratch: Some(scratch),
+        ..Request::default()
+    };
+    let pad = |r: Route| matches!(r, Route::Clear { to: Destination::New(x), .. } if x == scratch);
+    for text in [
+        "clean up the temp files in the scratch directory",
+        "the build leaves junk in the scratch space on the cluster",
+        "make a little game in Scratch for the kids",
+        "push the metadata in the scratch org",
+        "keep notes on scratch paper",
+        "in scratch",
+    ] {
+        assert!(!pad(local(&request(text))), "{text}");
+    }
+    for text in [
+        "leg das bitte im Scratchpad ab",
+        "probier das auf dem Scratchpad aus",
+    ] {
+        assert!(pad(local(&request(text))), "{text}");
+    }
+}
+
+#[test]
+fn german_function_words_describe_no_project() {
+    let p = |name: &str, about: &str| Named {
+        about: about.into(),
+        ..Named::open(ProjectId::mint(), name, &[])
+    };
+    let projects = vec![
+        p(
+            "rechnungsbot",
+            "Schreibt Rechnungen und verschickt sie nicht doppelt",
+        ),
+        p("beetplaner", "Plant den Garten und die Beete"),
+        p("earshot", "Records audio, shows its loudness on a meter"),
+    ];
+    for text in [
+        "Ich muss noch die Steuererklärung machen und das Auto waschen",
+        "Der Drucker im Büro geht nicht",
+        "Kannst du den Zahnarzt anrufen und den Termin verschieben",
+    ] {
+        let r = Request {
+            text: text.into(),
+            projects: projects.clone(),
+            ..Request::default()
+        };
+        assert_eq!(offered(&r, CHOICES), [], "{text}");
+    }
+}
+
+#[test]
+fn the_evals_tasks_that_mean_no_project_are_offered_none() {
+    let projects = eval_projects(306, true, true);
+    for text in [
+        "look at ~/Downloads/invoice.pdf and pay it",
+        "Spotify zeigt in der Statistik nur noch Podcasts",
+    ] {
+        let r = Request {
+            text: text.into(),
+            projects: projects.clone(),
+            ..Request::default()
+        };
+        assert_eq!(offered(&r, CHOICES), [], "{text}");
+        let Route::Ambiguous { candidates, .. } = unsure(&r) else {
+            panic!("{text}: asked")
+        };
+        assert_eq!(candidates, [], "{text}");
+    }
+    // And the static site generator is still described by its two words.
+    let r = Request {
+        text: "make the static site rebuild faster".into(),
+        projects,
+        ..Request::default()
+    };
+    let first = (offered(&r, CHOICES).into_iter())
+        .map(|(p, why)| (p.name.clone(), why))
+        .next();
+    assert_eq!(
+        first,
+        Some(("kiln".into(), "matches “static”, “site”".into()))
+    );
+}
+
+#[test]
+fn a_model_is_shown_the_same_eight_projects_as_before_the_question_was_strict() {
+    // Computed at d4505ca, with the same projects and the same lexicon: what
+    // the question offers changed, what a model is shown did not.
+    for (text, eight) in [
+        (
+            "the lighting desk needs a blackout button",
+            [
+                "lumenbox",
+                "cuegrid",
+                "ledgerline",
+                "fieldnotes",
+                "tasktap",
+                "dotfiles",
+                "kiln",
+                "pyrite",
+            ],
+        ),
+        (
+            "the book typesetting breaks footnotes across pages badly",
+            [
+                "parcelpath",
+                "vellum",
+                "cuegrid",
+                "ledgerline",
+                "fieldnotes",
+                "tasktap",
+                "dotfiles",
+                "kiln",
+            ],
+        ),
+    ] {
+        let r = Request {
+            text: text.into(),
+            projects: eval_projects(36, false, false),
+            words: fixture_words(),
+            ..Request::default()
+        };
+        let shown: Vec<&str> = ranked(&r, 8).iter().map(|(p, _)| p.name.as_str()).collect();
+        assert_eq!(shown, eight, "{text}");
+    }
+}
+
+#[test]
+fn the_lead_for_a_vexa_widget_holds_at_100_and_306_projects() {
+    let text = "write a new vexa widget for the widgetpack that adds snippets";
+    // Every word of it ordinary but the two made up for the project.
+    let file = std::env::temp_dir().join(format!("tasktap-lead-words-{}.txt", std::process::id()));
+    let ordinary = [
+        "write", "a", "new", "widget", "for", "the", "that", "adds", "snippets", "snippet",
+    ];
+    std::fs::write(&file, ordinary.join("\n")).unwrap();
+    for size in [100, 306] {
+        let projects = eval_projects(size, true, false);
+        let to = projects
+            .iter()
+            .find(|p| p.name == "vexa-widgets")
+            .unwrap()
+            .to;
+        let r = Request {
+            text: text.into(),
+            projects,
+            words: Lexicon(vec![file.clone()]),
+            ..Request::default()
+        };
+        let led = tasktap_core::state::Said::Leads {
+            why: "its name and “widgetpack”".into(),
+            words: Some("vexa widget".into()),
+        };
+        let wanted = Route::Clear {
+            to,
+            brief: text.into(),
+            said: Some(led),
+        };
+        assert_eq!(local(&r), wanted, "{size} projects");
+    }
+    let _ = std::fs::remove_file(file);
+}
+
+#[test]
+fn a_model_that_cannot_tell_leaves_the_question_and_starts_nothing() {
+    let mut a = Asking::new("unknown");
+    a.consent("fixture");
+    a.answers(&answer("unknown", "", ""));
+    let t = a.capture("make the app icon bigger", None);
+    a.w.until("asked", |m| m.thought(t).status == Status::NeedsYou);
+    assert!(a.asked().is_some(), "the model was not asked");
+    let th = a.w.model.thought(t).clone();
+    assert_eq!(
+        (th.project_id, th.card_id, th.session_id, th.placed),
+        (None, None, None, None)
+    );
+    assert_ne!(th.mode, Mode::Note, "kept for later unasked");
+    let q = (a.w.model.questions.values())
+        .find(|q| q.thought_id == Some(t))
+        .expect("asked");
+    // The question the match on names asks: the everyday word said as a
+    // word, with its reason; never a project because it was worked on.
+    assert_eq!(q.prompt, "Which project is this task for?");
+    assert_eq!(q.places, Some(vec![tasktap_proto::Place::Project(a.app)]));
+    assert_eq!(q.notes, Some(vec!["you wrote “app”".into()]));
+    // What a model that cannot tell leaves is the question, also where the
+    // match on names would start the task by a lead.
+    let card = |name: &str, about: &str| Named {
+        to: Destination::Card(tasktap_proto::CardId::mint()),
+        about: about.into(),
+        ..Named::open(ProjectId::mint(), name, &[])
+    };
+    let r = Request {
+        text: "research a new vexa widget to add to the vexa widgetpack".into(),
+        projects: vec![
+            card(
+                "vexa-widgets",
+                "The vexa widgetpack: the widgets we ship and their settings",
+            ),
+            card("vexa-notes", "Notes on vexa prompts and sessions"),
+        ],
+        words: fixture_words(),
+        ..Request::default()
+    };
+    assert!(
+        matches!(local(&r), Route::Clear { .. }),
+        "the match on names leads"
+    );
+    assert!(matches!(unsure(&r), Route::Ambiguous { .. }));
 }

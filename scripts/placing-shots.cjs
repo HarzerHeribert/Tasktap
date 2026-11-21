@@ -2,9 +2,9 @@
 // (docs/projects-design.md, the owner's decisions of 2026-11-19): the chip naming a project with its parts said apart,
 // one not open yet, and one only sounding like a project's name, which is asked about; the chip's list with nothing
 // asked, with a thought already written (the places its words describe first) and with its field finding a project
-// (both answered by the core's own code, core/examples/find.rs); the question "Where should this go?" with three
-// choices, Another project… and Keep for later, on Home and in the notch, and its field once Another project… is
-// pressed; a thought on its way to a project not open yet. Invented projects only.
+// (both answered by the core's own code, core/examples/find.rs); the question "Which project is this task for?" with the
+// person's words first, two choices, Another project…, the Scratchpad and Keep for later, on Home and in the notch, and
+// its field once Another project… is pressed; a thought on its way to a project not open yet. Invented projects only.
 // usage: node scripts/placing-shots.cjs <outdir> [dpr...] [--only a,b] [--dist <folder>]
 const fs = require('node:fs');
 const path = require('node:path');
@@ -34,17 +34,16 @@ function records(name, now = Date.now()) {
   r.hints = {
     'roll back the deploy in harbor master': { confidence: 'clear', to: to(c.harbormaster), brief: 'roll back the deploy in harbor master', said: 'harbor master' },
     'in cue grid make the rehearsal timer readable on mobile': { confidence: 'clear', to: { project: P.cuegrid }, brief: 'in cue grid make the rehearsal timer readable on mobile', said: 'cue grid' },
-    'write a shrinker for date ranges in pie right': { confidence: 'ambiguous', prompt: 'Where should this go?', candidates: [
-      { label: 'pyrite', to: to(c.pyrite), why: 'said as “pie right”' }, { label: 'kiln', to: to(c.kiln), why: 'worked on last' }] },
+    'write a shrinker for date ranges in pie right': { confidence: 'ambiguous', prompt: 'Which project is this task for?', candidates: [
+      { label: 'pyrite', to: to(c.pyrite), why: '' }] },
   };
   if (name.startsWith('question')) {
     const id = '019a8b6c-7d10-7000-8000-0000000ff001';
     r.thoughts.push({ id, rev: 60, text: 'the static site rebuilds every page when one changed', strokes: [], source: 'voice', mode: 'ask', phase: 'captured', status: 'needs_you', reason: null, live: true,
       project_id: null, card_id: null, session_id: null, brief: null, route: { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: null }, placed: null,
       agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 3000, updated: now - 3000 });
-    r.questions.unshift({ id: '019a8b6c-7d10-7000-8000-0000000ff002', rev: 61, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null,
-      reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices: ['kiln', 'cuegrid', 'harbormaster'],
-      places: [{ card: c.kiln.id }, { project: P.cuegrid }, { card: c.harbormaster.id }], notes: ['static, site', 'where your last task went', 'worked on last'] });
+    r.questions.unshift({ id: '019a8b6c-7d10-7000-8000-0000000ff002', rev: 61, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Which project is this task for?', detail: null,
+      reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices: ['kiln'], places: [{ card: c.kiln.id }], notes: ['matches “static”, “site”'] });
     r.glance = { ...r.glance, needs_you: r.glance.needs_you + 1, question: r.questions[0].id };
   }
   if (name === 'way-new') {

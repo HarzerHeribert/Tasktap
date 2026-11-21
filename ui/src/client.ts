@@ -31,7 +31,7 @@ export type HostCalls = {
   'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number; line?: number; hit?: number[] }; result: null };
   /** The workspace window, in front, showing a session's or terminal's tab when `at` names one. */
   'host.show': { args: { surface: 'workspace'; at?: SessionId }; result: null };
-  'host.pick': { args: { folder: true }; result: string | null };
+  'host.pick': { args: { folder: true; at?: string }; result: string | null };
   /** Reads the clipboard's text, or with `text` writes it. */
   'host.clipboard': { args: { text?: string }; result: string | null };
   /** The workspace page has drawn: its window may show. */
@@ -101,6 +101,9 @@ export class CallError extends Error {
 }
 
 /** Every collection a page can hold, each row by its id; `glance` is one row. */
+/** The built-in project (kind `scratch`) as a person reads it everywhere, whatever name is stored. */
+export const SCRATCHPAD = 'Scratchpad';
+
 export class Records {
   thoughts = new Map<string, Thought>();
   projects = new Map<string, Project>();
@@ -136,7 +139,7 @@ export class Records {
         continue;
       }
       const map = this[set.c] as Map<string, { id: string }>;
-      for (const row of (set.put ?? []) as { id: string }[]) map.set(row.id, row);
+      for (const row of (set.put ?? []) as { id: string; kind?: string }[]) map.set(row.id, set.c === 'projects' && row.kind === 'scratch' ? ({ ...row, name: SCRATCHPAD } as typeof row) : row);
       for (const id of set.del ?? []) map.delete(id);
     }
     this.rev = change.rev;

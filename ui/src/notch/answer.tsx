@@ -51,7 +51,8 @@ export function Answer({ questions }: { questions: Question[] }) {
   return (
     <div class="view" data-keys onKeyDown={keys}>
       <header class="band">
-        <span>{router ? <b>A task with no place yet</b> : <><b>{projectName(t?.project_id ?? s?.project_id)}</b>{who}</>}</span>
+        {/* Tasktap's own question has no label: the person's words lead the card, and the question says what it asks. */}
+        <span>{!router && <><b>{projectName(t?.project_id ?? s?.project_id)}</b>{who}</>}</span>
         {n > 1 ? <button type="button" class="of" title="The next question  →" onClick={() => go(1)}>{i + 1} of {n}</button> : <time>{when(t?.updated ?? Date.now())}</time>}
       </header>
       <div class="pad">

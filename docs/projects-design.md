@@ -131,11 +131,11 @@ A known project becomes a workspace, and its folder a root, at one of two moment
 | The person chose a project in the Composer | nobody | As today. A known project opens at launch. |
 | Made in a session, and names no other project | the match | A follow-up, as today. |
 | Names one project: as written, with spaces and hyphens taken out ("ledger A P I"), or as it sounds ("queue grid", "pie right"); the longest name wins | the match, on the machine | Placed. `placed: name`, and `route.quote` holds the words that named it, so the notch can say "you said “queue grid”". |
-| Names several equally, or one name that two projects have | the person | "Where should this go?" with those, each with its parent folder. |
+| Names several equally, or one name that two projects have | the person | "Which project is this task for?" (until 2026-11-21 "Where should this go?") with those, each with its parent folder. |
 | A name one letter off (a typo) | the person | A question with that project first. Never a start: "carrier" is one letter from `farrier`. |
 | Names none; placing by a model is agreed | the model | It is given the 8 cards the machine ranks first (workspaces and known projects alike) and the sessions as today. Its answer passes `route::accept` unchanged. A list it asks with is cut to 4, in the machine's order. |
 | Names none; no model; the cards' lines point clearly at one | the person | A question with that project first, so Return takes it. (Owner's decision 5: or place it.) |
-| Names none; nothing points anywhere | the person | A question: the project of the last thought first, then the most recently alive, "Another project…", "Keep for later". |
+| Names none; nothing points anywhere | the person | A question (since 2026-11-21, the owner's): "Which project is this task for?" with no project offered, never the last thought's or the most recently alive: "Open or create a folder…", "Scratchpad", "Another project…", "Keep for later". With no project known at all: "Where should the agent work?", the same without "Another project…". Nothing is kept for later unasked. |
 | Not work for an agent | – | For later, as today. |
 
 Scratch is never a candidate. The workspace in front and how recently a project was alive order a list; they never decide alone. One exception is visible before sending: a Composer opened inside a workspace says that workspace on its chip ("you are in it").
@@ -186,27 +186,25 @@ Pictures of every state, at one and two pixels to a point, are on the owner's pa
 
 **The first run** (as first designed; since 2026-11-19 it is Setup's first step, a sheet that is part of Home's first picture: design/ui-directions/NOTES.md §13). Under the Composer, where "A thought starts in a folder" stood: "Where are your projects?" (now "Choose where your projects are"), with the common folders that exist ticked (`~/projects`, `~/code`, `~/Developer`, `~/src`; on Windows `source\repos`), each found with one `stat` and not looked into; "Where your agents have worked", not ticked; "Another folder…"; the sentence of what is read; "Look there" on Return and "Not now". After it, the same place shows the projects found, the most recently alive first, and says that none is open yet. "Open a folder…" stays as "Open another folder…".
 
-**The chip** always says where the thought will go and why.
+**The chip** always says where the thought will go, in one name; why is its tooltip, one sentence (the owner's decision of 2026-11-21: three things in plain names, Auto, a folder, the Scratchpad; no second phrase, no dot; `ui/src/place.ts`).
 
-| State | Chip |
-| --- | --- |
-| Nothing typed, on Home or in the notch | "Tasktap decides · by its words" (or "· Claude Code reads it") |
-| Composer opened in a workspace | "cuegrid · you are in it" |
-| The thought names a project | "cuegrid · named in it" |
-| … as speech writes it | "cuegrid · said as “queue grid”" |
-| … one that is not open | "pyrite · said as “pie right” · not open yet" |
-| It names two | "ledgerline or ledger-api · you will be asked which" |
-| The person chose | "ledgerline · your choice · opens it" |
-| For later | "For later · your choice" |
-| No project is known | "No projects yet" |
+| State | Chip | Its tooltip |
+| --- | --- | --- |
+| Nothing typed, on Home or in the notch; a thought that names none, or two | "Auto" | "Auto: Tasktap sends the task to the project the task names, and asks you when the task names none." (with a model agreed to: "When the task names none, Claude Code reads the task and chooses the project.") |
+| The thought names a project, as written, as speech writes it, or one not open | "cuegrid Auto" ("Auto" dim) | "Auto: the task names cuegrid." (not open: "Sending the task opens pyrite.") |
+| … a session | "Follow-up: timer fix Auto" | "Auto: the task continues timer fix." |
+| Composer opened in a workspace; the person chose | "cuegrid" | "The task goes to cuegrid." |
+| One folder open, nothing else | "cuegrid" | "cuegrid is the only folder open, so a task that names no other project goes to cuegrid." |
+| The Scratchpad, chosen | "Scratchpad" | "Scratchpad: the agent works in Tasktap’s own empty folder, for a task that belongs to no project." |
+| For later | "For later" | "For later: the task waits on Home, and nothing starts." |
 
-Never Scratch, never an arbitrary first, never a folder the chip does not name. With exactly one project known, that project is the default and the chip says so.
+Each tooltip ends with "Click (or ⌘K) to …". Never the Scratchpad unless chosen or said ("on the scratchpad", "im Scratchpad"; never the word "scratch" alone), never an arbitrary first, never a folder the chip does not name. With exactly one folder open, that folder is the default and the chip says so.
 
-**The list** opens from the chip, with ⌘K from the field, and replaces the row: a field to find a project (it narrows by name, by sound and by the line about it), "Tasktap decides", then **Open** (workspaces, most recent first), then **Not open yet** (five, most recent first, and "45 more. Type to find one."), then "Open another folder…" and "For later". Two projects with one name show their parent folders. Nothing found says so and offers "Open another folder…". In the notch the rows are one line each and three known projects are shown.
+**The list** (as first designed; what is built is under "What was built") opens from the chip, with ⌘K from the field, and replaces the row: a field to find a project (it narrows by name, by sound and by the line about it), "Auto", then **Open** (workspaces, most recent first), then **Not open yet** (five, most recent first, and "45 more. Type to find one."), then "Open another folder…" and "For later". Two projects with one name show their parent folders. Nothing found says so and offers "Open another folder…". In the notch the rows are one line each and three known projects are shown.
 
 **The notch's line** for a thought on its way: "→ cuegrid · new here ⌄ … Undo"; once started: "Started in cuegrid · new here · Placed by name: you said “queue grid” … Move…".
 
-**The question** is the existing router question: at most four projects, each with why it is there ("invoices, export · not open yet"), "Another project…" (O) and "Keep for later" (L).
+**The question** (as built since 2026-11-21, the owner's: `ui/src/question.tsx`, `ui/src/place.ts` `asked`) leads with the person's words, in the card's largest type and three lines at most; under them, quietly, "Which project is this task for?" ("Where should the agent work?" with no project known); no label above, no "You said". Its rows, each on its number: the projects its words name (nothing after a name written as it is; "sounds like “pie right”", "close to “earshut”", "written as “cue grid”" otherwise) or clearly describe ("matches “static”, “site”"; `core/src/route.rs` `offered` and `clearly`: two meaningful words of its line or more, no function word of English or German, no agent's name, not "project", and not only everyday words of work such as "server", "site", "pdf"; no dictionary is read), three at most, then "Another project…", "Scratchpad" and "Keep for later". With none offered: "Open or create a folder…" (the folder panel, opened where most known projects are), "Scratchpad", "Another project…" where any project is known, "Keep for later". Whether a project is open in Tasktap is said only in its row's tooltip ("Sending the task opens kiln."). Never a project only because it was worked on lately.
 
 **Settings › Projects**, a new section after Thoughts: "Tasktap looks in" (each folder with what it found and when, "Look again", "Remove", "Add a folder…", and the sentence of what is read); "Where your agents have worked" (a switch); the projects, with a field to find one, each row opening to its card (Folder, Called, About and which file said so, Kind, Last worked on, From you) with "Add a name for it…", "Not a project" and "Forget what you said about it"; "Forget all projects…".
 
@@ -405,9 +403,9 @@ Each promise the build makes, and what proves it. "Test" names are in `core/test
 
 **Pages** (`ui/src/capture.tsx`, `ui/src/question.tsx`, `ui/src/workspace/projects.tsx`, `ui/src/workspace/home.tsx`).
 
-- The chip: "cuegrid · said as “cue grid”" ("in cue grid …"), "harbormaster · said as “harbor master” · not open yet" ("… in harbor master"), "pyrite or kiln · you will be asked which" (only sounding like a name, or words written apart not used as a name), "harbormaster · your choice · opens it", "Tasktap decides · asks you if unsure", "No projects yet · saved for later", "cuegrid · the only folder open" (one folder opened, nothing else).
-- The list: the field "Find a project" first (⌘K from the Composer's field), then the places a written thought's words point at (none when they point at none), Tasktap decides, the open folders most recently used first (six on Home, three in the notch and the sheet), Scratch, Open another folder…, For later. Typing in the field shows only what it finds, or "No project by that name."
-- The question: 1 to 3 with why, O Another project… (a field: what is typed finds by name; with nothing typed, the places the thought's words point at), L Keep for later; on Home, a pane, a sheet and the notch alike.
+- The chip (since 2026-11-21, one name, `ui/src/place.ts`): "cuegrid Auto" for "in cue grid …", "harbormaster Auto" for "… in harbor master" (its tooltip: "Sending the task opens harbormaster."), "Auto" for a thought that names none or only sounds like a name, "harbormaster" chosen, "No project yet", "cuegrid" with one folder opened and nothing else; why is the tooltip's.
+- The list: the field "Find a project" first (⌘K from the Composer's field), then the places a written thought's words point at (none when they point at none), Auto ("finds the project"), the open folders most recently used first (six on Home, three in the notch and the sheet), Scratchpad ("no project needed"), Open another folder…, For later. A row's dim words stand after a gap, never a dot. Typing in the field shows only what it finds, or "No project by that name."
+- The question: 1 to 3 with why, O Another project… (a field: what is typed finds by name; with nothing typed, the places the thought's words point at), L Keep for later; on Home, a pane, a sheet and the notch alike. (Since 2026-11-21 the words lead it, and its rows are as "The question" above says.)
 - First run: Setup's first step (`ui/src/workspace/setup.tsx`, NOTES §13), a sheet: the agents' history first, in the words of #11; then every project found, in the same sheet. The question "Where should this go?" about a thought just sent is asked at the Composer itself. Settings › Projects: every project, drawn again only where one changed, so thousands stay quick.
 
 **The review build** (`host/scripts/build-review.sh`): "Tasktap Review", its own bundle identifier, data folder (`~/Library/Application Support/Tasktap Review`), core, socket, device key and key service; no notch window and no global key until one is recorded in its own Settings; it never updates and never takes over another app's folder.

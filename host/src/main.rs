@@ -254,14 +254,15 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             workspace::ready(app, "ready");
             Ok(Value::Null)
         }
-        // The system's own folder panel, or the folder a check names instead.
+        // The system's own folder panel, or the folder a check names instead. `at`: the folder it opens in, where the
+        // person keeps their projects.
         "host.pick" => match std::env::var("TASKTAP_PICK") {
             Ok(folder) => Ok(json!(folder)),
             // The window's own folder panel: while it is open the window counts as in front still.
             #[cfg(not(windows))]
             Err(_) => {
                 presence::pause(page == workspace::LABEL);
-                let chosen = native::pick_folder();
+                let chosen = native::pick_folder(args["at"].as_str());
                 presence::pause(false);
                 Ok(json!(chosen))
             }
@@ -270,8 +271,10 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             Err(_) => {
                 edge::picking(true);
                 presence::pause(page == workspace::LABEL);
-                let chosen =
-                    native::pick_folder(app.get_webview_window(page).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize));
+                let chosen = native::pick_folder(
+                    app.get_webview_window(page).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize),
+                    args["at"].as_str(),
+                );
                 presence::pause(false);
                 edge::picking(false);
                 chosen.map(|folder| json!(folder))

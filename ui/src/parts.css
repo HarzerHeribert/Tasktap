@@ -198,13 +198,14 @@ kbd .i{width:12px;height:12px}
 .cap-to{min-width:calc(6px + 14px + 6px + 4ch + 6px + 12px + 5px)}
 .cap-to b{min-width:4ch}
 .cap-to b{overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
-.cap-to span::before{content:"·";margin-right:6px;color:var(--fg3)}
-/* Where the row is crowded, why it goes there gives way before where: the place's share of the shrink stays below what
-   the page lays out (any fraction of a pixel would put an ellipsis on it) until the why is gone. The place keeps a factor
-   of one: flex hands out only that fraction of the shrink while factors sum to less. */
+/* After a place Auto found, the word Auto: dim, set apart by a gap, no dot (capture.tsx, place.ts). */
+.cap-to span{margin-left:2px;color:var(--fg3)}
+/* Where the row is crowded, Auto gives way before the place: the place's share of the shrink stays below what the page
+   lays out (any fraction of a pixel would put an ellipsis on it) until Auto is gone. The place keeps a factor of one:
+   flex hands out only that fraction of the shrink while factors sum to less. */
 .cap-to span{min-width:0;overflow:hidden;text-overflow:ellipsis;flex-shrink:1000000}
 /* In the Composer's foot nothing wraps: the microphone keeps its key hint whole on its line, or drops it once the chip's
-   reason is gone (capture.tsx marks the foot `data-short`). */
+   "Auto" is gone (capture.tsx marks the foot `data-short`). */
 .cap-row>.mic{flex:none;flex-wrap:nowrap}
 .cap-to .i{flex:none}
 .cap-row[data-short]>:is(.mic,.cap-agent)>kbd{display:none}
@@ -229,7 +230,8 @@ kbd .i{width:12px;height:12px}
 .cap-list button{min-width:0;max-width:calc(100% + 6px)}
 .cap-list button span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .cap-list button em{min-width:0;overflow:hidden;text-overflow:ellipsis;font-style:normal;color:var(--fg3);flex-shrink:1000}
-.cap-list button em::before{content:"·";margin-right:6px}
+/* A row's dim words, each a phrase of its own, set apart by a gap, no dot. */
+.cap-list button em{margin-left:4px}
 .cap-none{margin:0;height:var(--row-h);display:flex;align-items:center;font:var(--f-small);color:var(--fg3)}
 /* A thought on its way to a project Tasktap knows and opens when it starts. */
 .way-new{font-style:normal;color:var(--fg3);white-space:nowrap}
@@ -261,6 +263,12 @@ kbd .i{width:12px;height:12px}
 .qp{font:var(--f-question);letter-spacing:var(--ls-question);text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .qa{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-left:-6px}
 .q-detail{margin-top:var(--sp1);font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
+/* Tasktap's own question (question.tsx Ask, the owner's of 2026-11-21): the person's words lead, in the size a question
+   has, three lines at most and the rest in the tooltip; under them, quietly, what it asks. */
+.q-words{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;font:var(--f-question);letter-spacing:var(--ls-question);color:var(--fg);white-space:pre-line;text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+.q-asks{display:flex;align-items:center;gap:var(--sp2);margin-top:3px;font:var(--f-text);color:var(--fg3)}
+.q-asks>.st{flex:none}
+.ask-place>.qa{margin-top:var(--sp2)}
 
 @media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}/* Where a thought should go: its places one under another, each whole; what a place is wraps under its name rather
    than being cut at the window's edge (the owner, 2026-11-19). */

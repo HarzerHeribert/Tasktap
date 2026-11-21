@@ -1084,7 +1084,7 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
     match place("write a shrinker for date ranges in pie right") {
         Route::Ambiguous { candidates, .. } => {
             assert_eq!(candidates[0].to, to("pyrite"));
-            assert_eq!(candidates[0].why, "said as “pie right”");
+            assert_eq!(candidates[0].why, "sounds like “pie right”");
         }
         other => panic!("{other:?}"),
     }
@@ -1097,8 +1097,9 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
         Route::Ambiguous { candidates, .. } => assert_eq!(candidates.len(), 2),
         other => panic!("{other:?}"),
     }
-    // Only described: asked, the fitting one first, at most three.
-    match place("the invoice export is slow") {
+    // Only described, by two words of its line: asked, the fitting one
+    // first, at most three.
+    match place("the reminders export is slow") {
         Route::Ambiguous { candidates, .. } => {
             assert!(candidates.len() <= route::CHOICES);
             assert_eq!(candidates[0].to, to("ledgerline"));
@@ -1106,12 +1107,15 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
         }
         other => panic!("{other:?}"),
     }
-    // With no project known, a thought is kept for later.
+    // With no project known, the person is asked where the agent works.
     let none = route::local(&Request {
         text: "make the build faster".into(),
         ..Request::default()
     });
-    assert_eq!(none, Route::Unknown);
+    assert!(
+        matches!(&none, Route::Ambiguous { prompt, candidates, .. } if prompt == "Where should the agent work?" && candidates.is_empty()),
+        "{none:?}"
+    );
 }
 
 #[test]

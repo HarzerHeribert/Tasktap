@@ -11,10 +11,10 @@
 //   line at a time up to its most lines, or does not follow its width;
 // - where a thought goes (docs/projects-design.md, "What is there today" and the owner's decisions): a project Tasktap
 //   knows and has not opened is a row of the list unasked, is not found by its own field, or a pick of one is not sent
-//   by its card; a name said as speech writes it is not said so on the chip; the folder of a workspace the capture sheet
-//   was opened in holds after that sheet is put away, or on Home's own Composer; the newest thought's folder, or
-//   Scratch, is a default anywhere; the chip does not say where the thought goes and why in its few words, or its list
-//   has no Scratch, or marks no row or another than the chip says; a pick holds for more than its thought, or the chip
+//   by its card; the folder of a workspace the capture sheet was opened in holds after that sheet is put away, or on
+//   Home's own Composer; the newest thought's folder, or the Scratchpad, is a default anywhere; the chip does not say
+//   where the thought goes in one name (Auto, a folder, the Scratchpad; "Auto" after a place Auto found) and why in its
+//   tooltip, or its list has no Scratchpad, or marks no row or another than the chip says; a pick holds for more than its thought, or the chip
 //   goes back from it without saying so; or what is sent is not what the chip said;
 // - after the owner's first trial and its independent review (design/ui-directions/NOTES.md §13, docs/trial-checklist.md
 //   R1–R15): the question about a thought just sent is not asked once, at the Composer it was sent from (Home's, the
@@ -28,7 +28,7 @@
 //   typed at it, or is not Not now when put away by a click beside it, ⌘O or Escape; Setup does not say "Setup · n of
 //   3 done" with its actions quiet on one edge, or Hide drops the keyboard or does not say where Setup went; the agent
 //   control has no key ⌘J, Tab does not reach the foot's controls, "co" does not put Codex first, or a signed-out usual
-//   agent keeps the list shut; the chip's reason is cut; or a real pointer's click on "Open another folder…" or a
+//   agent keeps the list shut; the chip's "Auto" is cut; or a real pointer's click on "Open another folder…" or a
 //   project in the chip's list does not land (also in WebKit, the Mac's engine, where Playwright's WebKit is installed:
 //   at a desk without it a NOTE says what was not tried; where CI is set a missing WebKit is a failure);
 // - the empty field's line (lines.ts): a fresh start does not show "What's next?" on Home, in the New Task sheet and in
@@ -156,14 +156,14 @@ async function main() {
     // Where it goes: the chip's words, the row its list marks, and what is sent.
     {
       const r = scene('normal'), P = r.ids.projects, now = Date.now();
-      // Scratch is open, and the newest thought reached it: by hand, or by a router that offered it.
+      // The Scratchpad is open, and the newest thought reached it: by hand, or by a router that offered it.
       r.projects = r.projects.map((p) => (p.id === P.scratch ? { ...p, open: true } : p));
       const last = r.thoughts.reduce((a, b) => (a.created > b.created ? a : b));
       r.thoughts = [...r.thoughts, { ...last, id: '019a8b6c-7d10-7000-8000-00000000f00d', project_id: P.scratch, session_id: null, phase: 'done', status: 'done', live: false, created: now, updated: now }];
       r.hints = {
         'fix the export in ledger-api': { confidence: 'clear', to: { project: P.ledger }, brief: 'fix the export in ledger-api' },
         'and the timer too': { confidence: 'clear', to: { session: r.ids.timer.session }, brief: 'and the timer too' },
-        'move the timer from cuegrid to fieldnotes': { confidence: 'ambiguous', prompt: 'Where should this go?', candidates: [{ label: 'cuegrid', to: { project: P.cuegrid } }, { label: 'fieldnotes', to: { project: P.fieldnotes } }] },
+        'move the timer from cuegrid to fieldnotes': { confidence: 'ambiguous', prompt: 'Which project is this task for?', candidates: [{ label: 'cuegrid', to: { project: P.cuegrid } }, { label: 'fieldnotes', to: { project: P.fieldnotes } }] },
       };
       // Clicked with the pointer, as a person clicks: Chromium's click focuses the chip, which the list then replaces.
       const exact = (name) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
@@ -175,7 +175,9 @@ async function main() {
       // The core has said which places the thought's words describe (projects.find), and the list shows its answer.
       const described = (page) => page.waitForFunction(() => { const c = window.__speech.cap; return !!c.found?.thought && c.found.text === c.draft.trim(); }, null, { timeout: 15000 }).catch(() => {});
       const focused = (page) => page.evaluate(() => (document.activeElement?.closest('.cap-list') ? 'the list' : document.activeElement?.id || document.activeElement?.tagName));
-      const chip = (page, at = '') => page.evaluate((s) => [...document.querySelectorAll(`${s}#dest-chip > b, ${s}#dest-chip > span`)].map((e) => e.textContent).join(' · '), at);
+      const chip = (page, at = '') => page.evaluate((s) => [...document.querySelectorAll(`${s}#dest-chip > b, ${s}#dest-chip > span`)].map((e) => e.textContent).join(' '), at);
+      // What the chip's tooltip says of why the thought goes there.
+      const tip = (page, at = '') => page.evaluate((s) => document.querySelector(`${s}#dest-chip`)?.title ?? '', at);
       // The list's rows by their names, the one marked with a star; the list is put away again.
       const rows = async (page, at = '') => {
         await click(page, `${at}#dest-chip`);
@@ -195,7 +197,7 @@ async function main() {
       const marks = async (page, row, where, at = '') => {
         const all = await rows(page, at), marked = all.split(', ').filter((x) => x.startsWith('*'));
         expect(marked.length === 1 && marked[0] === `*${row}`, `${where}: the list marks ${marked.join(' and ') || 'no row'}, not "${row}" (${all})`);
-        expect(all.split(', ').includes('Scratch') || all.split(', ').includes('*Scratch'), `${where}: the list has no Scratch to choose (${all})`);
+        expect(all.split(', ').includes('Scratchpad') || all.split(', ').includes('*Scratchpad'), `${where}: the list has no Scratchpad to choose (${all})`);
       };
       // Typed, and the core asked where it would go and answered (the page's own hint for the words in the field).
       const typed = async (page, text) => {
@@ -210,31 +212,34 @@ async function main() {
         return page.evaluate(() => window.__fake.sent);
       };
 
-      // Home: nothing chosen and no model agreed to; Scratch is not the default though the newest thought is there.
+      // Home: nothing chosen and no model agreed to; the Scratchpad is not the default though the newest thought is there.
       page = await open(browser, { label: 'workspace', records: structuredClone(r), url: server.url, dpr: 1 });
-      await says(page, 'Tasktap decides · by its words', 'Home, the newest thought in Scratch');
-      await marks(page, 'Tasktap decides', 'Home');
+      await says(page, 'Auto', 'Home, the newest thought in the Scratchpad');
+      const auto = await tip(page);
+      expect(auto.startsWith('Auto: Tasktap sends the task to the project the task names, and asks you when the task names none.'), `Home: the chip's tooltip says "${auto}"`);
+      await marks(page, 'Auto', 'Home');
       await page.focus(FIELD);
       await typed(page, 'fix the export in ledger-api');
-      await says(page, 'ledger-api · named in it', 'Home, a thought that names ledger-api');
+      await says(page, 'ledger-api Auto', 'Home, a thought that names ledger-api');
+      expect((await tip(page)).startsWith('Auto: the task names ledger-api.'), `Home, a thought that names ledger-api: the chip's tooltip says "${await tip(page)}"`);
       await marks(page, 'ledger-api', 'Home, a thought that names ledger-api');
       await page.fill(FIELD, '');
       await page.focus(FIELD);
       await typed(page, 'move the timer from cuegrid to fieldnotes');
-      await says(page, 'cuegrid or fieldnotes · you will be asked which', 'Home, a thought that names two');
-      await marks(page, 'Tasktap decides', 'Home, a thought that names two');
+      await says(page, 'Auto', 'Home, a thought that names two');
+      await marks(page, 'Auto', 'Home, a thought that names two');
       await page.fill(FIELD, '');
       await page.focus(FIELD);
       await typed(page, 'and the timer too');
       const follow = await chip(page);
-      expect(/^Follow-up: .+ · named in it$/.test(follow), `Home, a thought that names a session: the chip says "${follow}"`);
+      expect(/^Follow-up: .+ Auto$/.test(follow), `Home, a thought that names a session: the chip says "${follow}"`);
       await page.fill(FIELD, '');
       await page.focus(FIELD);
       await typed(page, 'buy milk');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(200);
       const asked = await sent(page);
-      expect(asked && !asked.project_id && asked.mode !== 'note', `Home: a thought with the chip at "Tasktap decides" was sent ${JSON.stringify(asked && { project_id: asked.project_id, mode: asked.mode })}, not for the router to place`);
+      expect(asked && !asked.project_id && asked.mode !== 'note', `Home: a thought with the chip at "Auto" was sent ${JSON.stringify(asked && { project_id: asked.project_id, mode: asked.mode })}, not for the router to place`);
       // A pick is for its thought alone, and the chip says it went back.
       // By the keyboard: Tab from the field to the chip, an arrow opens the list, the arrows move, Return chooses, and the
       // field has the keyboard again.
@@ -247,38 +252,38 @@ async function main() {
       await page.keyboard.press('Enter');
       const chosen = await until(() => focused(page), (v) => v === 'capture-input');
       expect(chosen === 'capture-input', `Home: a place chosen by the keyboard leaves the keyboard on ${chosen}, not the field`);
-      await says(page, 'fieldnotes · your choice', 'Home, fieldnotes chosen');
+      await says(page, 'fieldnotes', 'Home, fieldnotes chosen');
       await marks(page, 'fieldnotes', 'Home, fieldnotes chosen');
       await page.focus(FIELD);
       await typed(page, 'a thought for fieldnotes');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(300);
       expect((await sent(page))?.project_id === P.fieldnotes, 'Home: the thought sent with fieldnotes chosen did not go to fieldnotes');
-      await says(page, 'Back to Tasktap decides · by its words', 'Home, after the thought with fieldnotes chosen was sent');
+      await says(page, 'Back to Auto', 'Home, after the thought with fieldnotes chosen was sent');
       await typed(page, 'the next one');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(300);
       const next = (await sent(page))?.project_id;
       expect(!next, `Home: the thought after a chosen one was sent to ${next === P.fieldnotes ? 'the folder chosen for that one' : 'a folder nobody chose'}`);
-      await says(page, 'Tasktap decides · by its words', 'Home, after a thought nobody chose a place for');
-      // Scratch, chosen.
+      await says(page, 'Auto', 'Home, after a thought nobody chose a place for');
+      // The Scratchpad, chosen.
       await click(page, '#dest-chip');
-      await click(page, '.cap-list > button', 'Scratch');
-      await says(page, 'Scratch · your choice', 'Home, Scratch chosen');
+      await click(page, `.cap-list > button[data-to="${P.scratch}"]`);
+      await says(page, 'Scratchpad', 'Home, the Scratchpad chosen');
       await page.focus(FIELD);
       await typed(page, 'try something');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(300);
-      expect((await sent(page))?.project_id === P.scratch, 'Home: the thought sent with Scratch chosen did not go to Scratch');
+      expect((await sent(page))?.project_id === P.scratch, 'Home: the thought sent with the Scratchpad chosen did not go to the Scratchpad');
 
       // New Task in a workspace: its folder, for that sheet; put away, Home's Composer has none of it.
       await page.evaluate((p) => (window.__ws.show(p), window.__ws.command('new-task')), P.cuegrid);
       await page.waitForTimeout(400);
-      await says(page, 'cuegrid · you are in it', 'New Task in cuegrid', '.sheet ');
+      await says(page, 'cuegrid', 'New Task in cuegrid', '.sheet ');
       await marks(page, 'cuegrid', 'New Task in cuegrid', '.sheet ');
       await page.focus(`.sheet ${FIELD}`);
       await typed(page, 'fix the export in ledger-api');
-      await says(page, 'ledger-api · named in it', 'New Task in cuegrid, a thought that names ledger-api', '.sheet ');
+      await says(page, 'ledger-api Auto', 'New Task in cuegrid, a thought that names ledger-api', '.sheet ');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(300);
       const named = await sent(page);
@@ -288,31 +293,33 @@ async function main() {
       await page.evaluate(() => window.__ws.dismiss());
       await page.evaluate(() => window.__ws.show('home'));
       await page.waitForTimeout(300);
-      await says(page, 'Tasktap decides · by its words', 'Home, after New Task in cuegrid was put away');
+      await says(page, 'Auto', 'Home, after New Task in cuegrid was put away');
       await page.evaluate((p) => (window.__ws.show(p), window.__ws.command('new-task')), P.scratch);
       await page.waitForTimeout(400);
-      await says(page, 'Tasktap decides · by its words', 'New Task in Scratch', '.sheet ');
+      await says(page, 'Auto', 'New Task in the Scratchpad', '.sheet ');
       await page.evaluate(() => (window.__ws.dismiss(), window.__ws.show('home')));
       await page.waitForTimeout(300);
-      await says(page, 'Tasktap decides · by its words', 'Home, after New Task in Scratch was put away');
+      await says(page, 'Auto', 'Home, after New Task in the Scratchpad was put away');
       for (const e of page.errors) failures.push(`where it goes: ${e}`);
       await page.context().close();
 
-      // Placing by a model agreed to: Tasktap decides, and says who reads it.
+      // Placing by a model agreed to: Auto, and its tooltip says who reads the task.
       page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 3 }, rev: 2 }] }, url: server.url, dpr: 1 });
-      // (Who reads it is known once the core has said which agents are signed in.)
-      const model = await until(() => chip(page), (v) => /^Tasktap decides · .+ reads it$/.test(v));
-      expect(/^Tasktap decides · .+ reads it$/.test(model), `Home, placing by a model agreed to: the chip says "${model}", not who reads the thought`);
+      // (Who reads the task is known once the core has said which agents are signed in.)
+      const model = await until(() => tip(page), (v) => /When the task names none, .+ reads the task and chooses the project\./.test(v));
+      expect(/When the task names none, .+ reads the task and chooses the project\./.test(model), `Home, placing by a model agreed to: the chip's tooltip says "${model}", not who reads the task`);
+      await says(page, 'Auto', 'Home, placing by a model agreed to');
       await page.focus(FIELD);
       await typed(page, 'fix the export in ledger-api');
-      await says(page, 'ledger-api · named in it', 'Home, placing by a model agreed to, a thought that names ledger-api');
+      await says(page, 'ledger-api Auto', 'Home, placing by a model agreed to, a thought that names ledger-api');
       await page.context().close();
 
-      // One project known, one folder open (Scratch not counted): it is where a thought that names none goes, on Home
+      // One project known, one folder open (the Scratchpad not counted): it is where a thought that names none goes, on Home
       // and in the notch.
       const one = { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' || p.id === P.cuegrid })) };
       page = await open(browser, { label: 'workspace', records: structuredClone(one), url: server.url, dpr: 1 });
-      await says(page, 'cuegrid · the only folder open', 'Home, one folder open');
+      await says(page, 'cuegrid', 'Home, one folder open');
+      expect((await tip(page)).startsWith('cuegrid is the only folder open, so a task that names no other project goes to cuegrid.'), `Home, one folder open: the chip's tooltip says "${await tip(page)}"`);
       await page.focus(FIELD);
       await typed(page, 'buy milk');
       await page.keyboard.press('Enter');
@@ -323,17 +330,17 @@ async function main() {
       await page.evaluate((g) => window.__fake.emit(g), GEO);
       await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
       await page.waitForTimeout(600);
-      await says(page, 'cuegrid · the only folder open', 'the notch, one folder open');
+      await says(page, 'cuegrid', 'the notch, one folder open');
       await page.context().close();
       // One project Tasktap knows and no folder open: never a default; a thought that names none is asked about.
       {
         const lone = { id: '019a8b6c-7d10-7000-8000-0000000c0009', rev: 1, folder: '/Users/someone/projects/tidepool', name: 'tidepool', names: [], about: 'A photo library', about_from: 'README.md',
           why: ['agent', 'git'], agents: ['claude'], repo: null, copy_of: null, inside: null, project_id: null, used: now, looks: [], hidden: false, main: false, available: true };
         page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' })), cards: [lone] }, url: server.url, dpr: 1 });
-        await says(page, 'Tasktap decides · by its words', 'Home, one project known and no folder open');
+        await says(page, 'Auto', 'Home, one project known and no folder open');
         await page.focus(FIELD);
         await typed(page, 'buy milk');
-        await says(page, 'Tasktap decides · asks you if unsure', 'Home, one project known, a thought that names none');
+        await says(page, 'Auto', 'Home, one project known, a thought that names none');
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
         const asked = await sent(page);
@@ -367,7 +374,7 @@ async function main() {
       await keep('buy cheese');
       await click(page, '.capture .cap-said button', 'Send to a folder…');
       const to = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button')].map((b) => b.textContent).join(', '));
-      expect(/fieldnotes/.test(to) && !/For later|Tasktap decides/.test(to), `Send to a folder on a kept thought's line opens ${to ? `"${to}"` : 'no list'}, not the folders`);
+      expect(/fieldnotes/.test(to) && !/For later|^Auto|, Auto/.test(to), `Send to a folder on a kept thought's line opens ${to ? `"${to}"` : 'no list'}, not the folders`);
       await click(page, '.cap-list > button', 'fieldnotes');
       const moved = await page.evaluate(() => window.__fake.updated);
       expect(moved?.project_id === P.fieldnotes, `Send to a folder, fieldnotes chosen: the kept thought was ${moved ? `sent to ${moved.project_id}` : 'not sent anywhere'}`);
@@ -375,7 +382,7 @@ async function main() {
       for (const e of page.errors) failures.push(`kept for later: ${e}`);
       await page.context().close();
 
-      // Where the foot is short of room: the chip's reason gives way first, then the microphone's key hint goes, and
+      // Where the foot is short of room: the chip's "Auto" after a place gives way first, then the microphone's key hint goes, and
       // only then does the chip's place shorten. The hint is never on a line of its own, and nothing wraps.
       // (With a model agreed to, and then with a follow-up's long name typed for.)
       const busy = flow(scene('busy'), 'session');
@@ -405,9 +412,24 @@ async function main() {
       }
       await page.context().close();
 
-      // No folder open: saved for later, and the chip says so.
-      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' })) }, url: server.url, dpr: 1 });
-      await says(page, 'No projects yet · saved for later', 'Home, no folder open');
+      // A first user with no project (the owner, 2026-11-21): the chip says Auto and Return sends the task, which is
+      // asked about, never saved for later unasked: "Where should the agent work?", with a folder to open or create, the
+      // Scratchpad (put away, and there to choose all the same) and keeping it for later.
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: false })), asks: {} }, url: server.url, dpr: 1 });
+      await says(page, 'Auto', 'Home, no project');
+      expect((await page.evaluate(() => document.querySelector('.home .capture .cap-row > .key')?.textContent.trim())) === 'Start', 'Home, no project: the key does not say Start');
+      await page.focus(FIELD);
+      await typed(page, 'make the build faster');
+      await page.keyboard.press('Enter');
+      const first = await sent(page);
+      expect(first && first.mode !== 'note' && !first.project_id, `Home, no project: the task was sent ${JSON.stringify(first && { mode: first.mode, project_id: first.project_id })}, not for Tasktap to ask`);
+      const firstAsked = await until(() => page.evaluate(() => { const q = document.querySelector('.cap-ask'); return q ? `${q.querySelector('.q-asks')?.textContent} | ${[...q.querySelectorAll('.qa > .ans > span')].map((s) => s.textContent).join(', ')}` : ''; }),
+        (v) => v.startsWith('Where should the agent work?'));
+      expect(firstAsked === 'Where should the agent work? | Open or create a folder…, Scratchpad, Keep for later', `Home, no project: the question reads "${firstAsked}"`);
+      // The Scratchpad, chosen there, sends the task to it.
+      await page.keyboard.press('2');
+      const toPad = await until(() => page.evaluate(() => window.__fake.updated ?? null), (u) => !!u);
+      expect(toPad?.project_id === P.scratch, `Home, no project: the Scratchpad chosen moved the task ${JSON.stringify(toPad)}`);
       await page.context().close();
 
       // Projects Tasktap knows and has not opened (docs/projects-design.md, the owner's decisions of 2026-11-19): never
@@ -429,7 +451,8 @@ async function main() {
         expect(!/pyrite|kiln|harbormaster|secret/.test(all), `Home: the list shows a project that is not open, unasked (${all})`);
         await page.focus(FIELD);
         await typed(page, 'roll back the deploy in harbor master');
-        await says(page, 'harbormaster · said as “harbor master” · not open yet', 'Home, a known project said with its parts apart');
+        await says(page, 'harbormaster Auto', 'Home, a known project said with its parts apart');
+        expect((await tip(page)).startsWith('Auto: the task names harbormaster. Sending the task opens harbormaster.'), `Home, a known project said: the chip's tooltip says "${await tip(page)}"`);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
         const spoken = await sent(page);
@@ -443,7 +466,7 @@ async function main() {
         await page.keyboard.type('harbor');
         const found = await until(() => page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.textContent)), (f) => !!f[0]?.startsWith('harbormaster'));
         expect(found[0]?.startsWith('harbormaster') && found.every((f) => !/pyrite|kiln/.test(f)), `Home: "harbor" in the list's field finds ${JSON.stringify(found)}`);
-        expect(found.every((f) => !/Tasktap decides|For later/.test(f)), `Home: while something is typed in the list's field it shows more than what it found (${found.join(', ')})`);
+        expect(found.every((f) => !/^Auto|For later/.test(f)), `Home: while something is typed in the list's field it shows more than what it found (${found.join(', ')})`);
         // A name no project has: none found, and the list says so; then the one that matches.
         await page.fill('#cap-find', 'zebra');
         const none = await until(() => page.evaluate(() => ({ rows: document.querySelectorAll('.cap-list > button[role=option]').length, said: document.querySelector('.cap-none')?.textContent })), (n) => n.rows === 0 && n.said === 'No project by that name.');
@@ -452,7 +475,8 @@ async function main() {
         await until(() => page.evaluate(() => document.querySelector('.cap-list > button[role=option]')?.textContent ?? ''), (t) => t.startsWith('harbormaster'));
         await page.keyboard.press('Enter');
         await page.waitForTimeout(200);
-        await says(page, 'harbormaster · your choice · opens it', 'Home, a known project chosen');
+        await says(page, 'harbormaster', 'Home, a known project chosen');
+        expect((await tip(page)).startsWith('The task goes to harbormaster. Sending the task opens harbormaster.'), `Home, a known project chosen: the chip's tooltip says "${await tip(page)}"`);
         await page.focus(FIELD);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
@@ -478,7 +502,7 @@ async function main() {
         const plain = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.querySelector('span')?.textContent));
         expect(!plain.some((f) => /pyrite|kiln|harbormaster/.test(f)), `Home, a thought that points at no project: the list shows a project not open (${plain.join(', ')})`);
         const rowsShown = await page.evaluate(() => document.querySelectorAll('.cap-list > *').length);
-        expect(rowsShown <= 1 + 3 + 1 + 6 + 1 + 1 + 1, `Home: the list has ${rowsShown} rows: more than its field, three guesses, Tasktap decides, six open folders, Scratch, another folder and For later`);
+        expect(rowsShown <= 1 + 3 + 1 + 6 + 1 + 1 + 1, `Home: the list has ${rowsShown} rows: more than its field, three guesses, Auto, six open folders, the Scratchpad, another folder and For later`);
         await page.keyboard.press('Escape');
         for (const e of page.errors) failures.push(`known projects: ${e}`);
         await page.context().close();
@@ -489,9 +513,9 @@ async function main() {
       await page.evaluate((g) => window.__fake.emit(g), GEO);
       await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
       await page.waitForTimeout(600);
-      await says(page, 'Tasktap decides · by its words', 'the notch, the newest thought in Scratch');
+      await says(page, 'Auto', 'the notch, the newest thought in the Scratchpad');
       await page.focus(FIELD);
-      await marks(page, 'Tasktap decides', 'the notch');
+      await marks(page, 'Auto', 'the notch');
       for (const e of page.errors) failures.push(`the notch: ${e}`);
       await page.context().close();
     }
@@ -559,7 +583,7 @@ async function main() {
     // Not now. A cap shows only where its key works.
     {
       const { projects } = require('./projects-fixtures.cjs');
-      const NOTES = ['named in it', 'where your last task went', 'worked on last'];
+      const NOTES = ['', 'matches “export”, “invoices”', ''];
       const asking = async (o = {}, extra = {}) => {
         const page = await open(browser, { label: 'workspace', records: { ...scene('normal'), asks: { notes: NOTES, ...o }, ...extra }, url: server.url, dpr: 1 });
         await page.focus(FIELD);
@@ -584,15 +608,26 @@ async function main() {
       const metal = (k) => !!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
       const key = (page, sel = '.home .capture .cap-row:not(.hear) > .key') => page.evaluate(([s, m]) => { const k = document.querySelector(s); return k ? `${(0, eval)(m)(k) ? 'metal' : 'quiet'} "${k.textContent.trim()}"` : 'none'; }, [sel, String(metal)]);
 
-      // R2, R10: asked at the Composer, the field keeping the keyboard; its rows numbered 1 to 5, the last two
-      // "Another project…" and "Keep for later"; the metal key says what Return will do.
+      // R2, R10: asked at the Composer, the field keeping the keyboard; its rows numbered 1 to 6, the last three
+      // "Another project…", the Scratchpad and "Keep for later"; the metal key says what Return will do. The person's
+      // words lead the card, larger than the quiet question under them, and the card is named by both (the owner,
+      // 2026-11-21).
       let page = await asking();
       expect((await key(page)).startsWith('metal'), 'Home, empty: the Composer\'s key is not the metal key');
       await sendIt(page);
       await arrived(page);
       expect((await where(page)) === 'composer', `a question about the thought just sent, the field empty: it is shown ${await where(page) || 'nowhere'}, not once at the Composer`);
       expect(await inField(page), 'a question asked at the Composer took the keyboard from the field');
-      expect((await caps(page, '.cap-ask')) === '1 2 3 4 5', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 4 5 (every row a number, no letters)`);
+      expect((await caps(page, '.cap-ask')) === '1 2 3 4 5 6', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 4 5 6 (every row a number, no letters)`);
+      const card = await page.evaluate(() => {
+        const q = document.querySelector('.cap-ask'), words = q?.querySelector('.q-words'), asks = q?.querySelector('.q-asks');
+        const size = (e) => parseFloat(getComputedStyle(e).fontSize);
+        return { order: words && asks ? !!(words.compareDocumentPosition(asks) & Node.DOCUMENT_POSITION_FOLLOWING) : false, larger: words && asks ? size(words) > size(asks) : false,
+          name: q?.getAttribute('aria-label'), rows: [...q.querySelectorAll('.qa > .ans > span')].map((s) => s.textContent).join(', ') };
+      });
+      expect(card.order && card.larger, `the question at the Composer: its words do not lead, larger than the question (${JSON.stringify(card)})`);
+      expect(card.name === 'Which project is this task for? make the export faster', `the question at the Composer is named "${card.name}", not the question and then the words`);
+      expect(card.rows === 'cuegrid, fieldnotes, ledger-api, Another project…, Scratchpad, Keep for later', `the question at the Composer offers ${card.rows}`);
       await ready(page);
       expect((await key(page)) === 'metal "Start in cuegrid"', `with the question at the Composer its key is ${await key(page)}, not the metal key saying "Start in cuegrid"`);
       expect(await page.evaluate(() => [...document.querySelectorAll('.cap-ask .qa > .ans')].every((a, i, all) => !i || a.getBoundingClientRect().top >= all[i - 1].getBoundingClientRect().bottom - 0.5)), 'the question\'s places are not one under another');
@@ -982,7 +1017,7 @@ async function main() {
         await page.context().close();
       }
 
-      // R8: the chip's reason is whole or not there, never cut ("asks y…"), at every width of window, in the sheet and
+      // R8: the chip's "Auto" after a place is whole or not there, never cut ("Au…"), at every width of window, in the sheet and
       // in the notch.
       for (const w of [540, 600, 660, 720, 800, 900, 1180]) {
         page = await open(browser, { label: 'workspace', records: agents(scene('normal'), 6), url: server.url, dpr: 1, viewport: { width: w, height: 700 } });
@@ -1552,7 +1587,7 @@ async function main() {
   // The chip never left its Composer while nothing else had its row.
   if (chipGone.length) failures.push(`a Composer's chip left it ${chipGone.length} times while nothing else had its row (a click there would miss); the first time the Composer was: ${chipGone[0]}`);
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut; asks a just-sent thought\'s question once, at the Composer it was sent from, the field keeping the keyboard (a row\'s number, the arrows and Return answer while it is empty, Return only after 600 ms of quiet and never held down; any other key types and leaves it in Needs you), its key saying and doing what Return does; says a placed thought in one line; shows no cap where its key does nothing; puts the first start\'s sheet in Home\'s first picture or not at all, lets nothing typed land on Allow or be lost, keeps it as Not now however it is put away; says Setup quietly and where it went; reaches the agent control by ⌘J, Tab and a list that always opens, Codex first for "co"; never cuts the chip\'s reason; and lands a click on Open another folder…');
+  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes in one name and why in its tooltip, never defaults to the Scratchpad or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has the Scratchpad and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut; asks a just-sent thought\'s question once, at the Composer it was sent from, the field keeping the keyboard (a row\'s number, the arrows and Return answer while it is empty, Return only after 600 ms of quiet and never held down; any other key types and leaves it in Needs you), its key saying and doing what Return does; says a placed thought in one line; shows no cap where its key does nothing; puts the first start\'s sheet in Home\'s first picture or not at all, lets nothing typed land on Allow or be lost, keeps it as Not now however it is put away; says Setup quietly and where it went; reaches the agent control by ⌘J, Tab and a list that always opens, Codex first for "co"; never cuts the chip\'s "Auto"; and lands a click on Open another folder…');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), restarted.forEach((r) => console.log('FAIL  ' + r)), process.exit(1)));

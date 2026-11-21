@@ -284,6 +284,9 @@ impl Store {
     }
 }
 
+/// The built-in project's name, as a person reads it everywhere.
+pub const SCRATCHPAD: &str = "Scratchpad";
+
 /// The one built-in scratch project (design §5), seeded with a new store.
 /// Its folder is beside the database; no call removes it or changes its kind.
 fn scratch(path: &Path, now: Time) -> Result<Project> {
@@ -297,7 +300,7 @@ fn scratch(path: &Path, now: Time) -> Result<Project> {
     Ok(Project {
         id: crate::state::fresh(now)?,
         rev: Rev::ZERO,
-        name: "Scratch".into(),
+        name: SCRATCHPAD.into(),
         folder: folder.into(),
         kind: ProjectKind::Scratch,
         color: String::new(),

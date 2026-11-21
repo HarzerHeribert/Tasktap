@@ -2,7 +2,8 @@
 // the field, where it will go and why (`where`), who runs it (rings.tsx: the usual agent, or another picked for this
 // thought alone), the microphone, and the key that says what Return does. The question about the thought it sent last
 // is asked under it (`atComposer`).
-// A thought with no folder to go to is saved for later: it waits on Home until it is sent to one.
+// A thought no name places is asked about (question.tsx): where it goes, also when no project is known at all; it is
+// saved for later only when the person says so.
 //
 // Under the row is what is on its way, by one mechanism for typing and for voice (way.ts): speech being heard and
 // written down, then the thought being placed, then where it goes with its brief, readable for the length of its hold,
@@ -13,6 +14,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { hit, keyName, spell } from './keys.ts';
+import { type Icon, rows, says, type Why } from './place.ts';
 import { inFront, talkKey } from './page.ts';
 import { Roll, rollIn, rolls, stopRoll } from './lines.ts';
 import { effectsOf } from './motion/motion.tsx';
@@ -50,15 +52,15 @@ export type Sent = { id: string; text: string; to: string | 'later'; pick?: stri
 
 export const cap = {
   draft: '',
-  /** The person's own pick of destination for the thought in the field: a project id, 'later', or '' for Tasktap
-   *  decides. It goes with that thought, so one saved for later, or sent to a folder by hand, does not decide where the
+  /** The person's own pick of destination for the thought in the field: a project id, 'later', or '' for Auto. It
+   *  goes with that thought, so one saved for later, or sent to a folder by hand, does not decide where the
    *  next goes. */
   dest: undefined as string | undefined,
   /** The agent the person picked for the thought in the field, by its ring. It goes with that thought and no further:
    *  the next is the usual agent's again (the `agent` preference, which only the Agents sheet changes). */
   agent: undefined as string | undefined,
   /** The folder of the workspace the capture sheet was opened in, for that opening only: the sheet clears it when it is
-   *  put away, and Home's and the notch's Composers never have it. Not a pick, and never Scratch. */
+   *  put away, and Home's and the notch's Composers never have it. Not a pick, and never the Scratchpad. */
   usual: undefined as string | undefined,
   /** The place chosen for the thought this Composer sent last: the chip says it is back from it, until a place is
    *  chosen again or the Composer is opened anew. */
@@ -105,7 +107,9 @@ const known = () => {
 const modelPlaces = () => placing(pref('route_by'), placers()) === 'on';
 
 /** The person's pick, while it can still be used. */
-export const picked = () => (cap.dest === '' || cap.dest === 'later' || (cap.dest && (records.projects.get(cap.dest)?.open || unopened(cap.dest))) ? cap.dest : undefined);
+export const picked = () => (cap.dest === '' || cap.dest === 'later' || (cap.dest && (records.projects.get(cap.dest)?.open || scratchpad(cap.dest) || unopened(cap.dest))) ? cap.dest : undefined);
+/** The Scratchpad, which a thought may go to also when it was put away: it opens again as the thought starts there. */
+const scratchpad = (id: string) => records.projects.get(id)?.kind === 'scratch';
 
 /** Where the router would send the text typed now, when it knows (route.hint): then Enter
  *  leaves the routing to it rather than picking for the person. */
@@ -119,11 +123,11 @@ export function hinted(): Route | undefined {
  *  thought alone; else a follow-up to the session its words name or the person is in; else the project its words
  *  name, as written or with its parts said apart, open or only known (it opens when the thought starts there), or a
  *  question when they name several or only sound like one; else the folder of the workspace this Composer was opened
- *  in; else Tasktap decides with a model, where placing by one is agreed to; else the one folder the person opened,
- *  when it is the only place there is; else Tasktap decides by its words, and asks where a thought goes that names
- *  none. With no project known a thought is saved for later. Scratch is never a default: a thought goes there only
- *  when the person chooses it. */
-export function where(pick = picked(), route = hinted(), usualId = cap.usual): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'named' | 'said' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'ask' | 'none' | 'starting' } {
+ *  in; else Auto, by a model, where placing by one is agreed to; else the one folder the person opened, when it is the
+ *  only place there is; else Auto by its words, which asks where a thought goes that names none, also with no project
+ *  known ("Where should the agent work?"). The Scratchpad is never a default: a thought goes there only when the person
+ *  chooses it or says it (the core's route). What the chip says of it is place.ts's. */
+export function where(pick = picked(), route = hinted(), usualId = cap.usual): { to: string; by: 'router' | 'pick' | 'later'; why: Why } {
   // The core has not answered yet: nothing is known, and nothing is said; a task started now is placed once it has.
   if (!core.in) return { to: '', by: 'router', why: 'starting' };
   const all = known();
@@ -137,40 +141,17 @@ export function where(pick = picked(), route = hinted(), usualId = cap.usual): {
   if (all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
   // The one place there is, when it is a folder the person opened: a project Tasktap only knows of is never a default.
   if (pick === undefined && all.length === 1 && records.projects.get(all[0]!)?.kind === 'folder') return { to: all[0]!, by: 'pick', why: 'only' };
-  if (!all.length) return { to: 'later', by: 'later', why: 'none' };
   return { to: '', by: 'router', why: cap.draft.trim() ? 'ask' : 'words' };
 }
-/** What the chip says: where the thought goes, and why, in a few words. A project not open yet says so. */
-function says(w: ReturnType<typeof where>, route: Route | undefined): [string, string] {
-  const label = route ? routeLabel(route) : '';
-  const fresh = unopened(w.to) ? ' · not open yet' : '';
-  switch (w.why) {
-    case 'chosen':
-      return [projectName(folder(w.to)), unopened(w.to) ? 'your choice · opens it' : 'your choice'];
-    case 'follows':
-      return [label, route?.confidence === 'clear' && 'session' in route.to && route.to.session === cap.current ? 'you are in it' : 'named in it'];
-    case 'model':
-      return ['Tasktap decides', `${agentName(first(pref('route_by'), placers()))} reads it`];
-    case 'in':
-      return [projectName(w.to), 'you are in it'];
-    case 'only':
-      return [projectName(w.to), 'the only folder open'];
-    case 'named':
-      return [label, `named in it${fresh}`];
-    case 'said':
-      return [label, `said as “${route?.confidence === 'clear' ? route.said : ''}”${fresh}`];
-    case 'asked':
-      return [label, 'you will be asked which'];
-    case 'words':
-      return ['Tasktap decides', 'by its words'];
-    case 'ask':
-      return ['Tasktap decides', 'asks you if unsure'];
-    case 'none':
-      return ['No projects yet', 'saved for later'];
-    case 'starting':
-      // Hidden (parts.css): the place its usual words take, so that nothing in its row moves when the core answers.
-      return ['Tasktap decides', 'by its words'];
-  }
+/** What the chip says of where the thought goes (place.ts), from the records. `back`: the thought before had a place
+ *  of its own, and this one goes where nobody chose. */
+function chipSays(w: ReturnType<typeof where>, route: Route | undefined, back: boolean) {
+  const session = route?.confidence === 'clear' && 'session' in route.to ? route.to.session : undefined;
+  return says(w.why, {
+    place: session ? sessionName(session) : projectName(folder(w.to)),
+    is: session ? 'session' : w.by === 'later' ? 'later' : records.projects.get(w.to)?.kind === 'scratch' ? 'scratch' : 'folder',
+    fresh: unopened(w.to), agent: modelPlaces() ? agentName(first(pref('route_by'), placers())) : undefined, back, key: spell('⌘K'),
+  });
 }
 const named = (w: ReturnType<typeof where>, current = cap.current): Partial<CaptureArgs> => (w.by === 'router' ? { current } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' });
 
@@ -332,12 +313,6 @@ function askRoute() {
   }, 150);
 }
 
-function routeLabel(r: Route) {
-  if (r.confidence === 'ambiguous') return r.candidates.map((c) => c.label).join(' or ');
-  if (r.confidence !== 'clear') return '';
-  return 'session' in r.to ? `Follow-up: ${sessionName(r.to.session)}` : projectName(routedProject(r));
-}
-
 export function choose(open: boolean) {
   cap.choosing = open;
   if (open) cap.agents = false;
@@ -398,33 +373,34 @@ function arrows(e: KeyboardEvent) {
   all[(at + step + all.length) % all.length]?.focus({ focusVisible: true });
 }
 
-/** The open folders, the one a thought last went to first, and Scratch. */
+/** The open folders, the one a thought last went to first, and the Scratchpad. */
 function recent() {
   const last = new Map<string, number>();
   for (const t of records.thoughts.values()) if (t.project_id) last.set(t.project_id, Math.max(last.get(t.project_id) ?? 0, t.updated));
-  // Scratch last: a thought goes there only when the person chooses it, so it is there to choose.
+  // The Scratchpad last: a thought goes there only when the person chooses it, so it is there to choose.
   return projects().sort((a, b) => Number(a.kind === 'scratch') - Number(b.kind === 'scratch') || (last.get(b.id) ?? 0) - (last.get(a.id) ?? 0) || a.name.localeCompare(b.name));
 }
 
-/** The list the chip opens, in the Composer's row (docs/projects-design.md, the owner's decisions of 2026-11-19): only
- *  what is in use, Tasktap decides, the open folders and For later, under a field that finds any project Tasktap
- *  knows, by its names or the line about it. A project not open appears only as an answer: to what is typed in the
- *  field or, with a thought already written, as the places (three at most) its words name or describe, first; none
- *  when they point at none, and never one only because it was worked on lately. Never a row of every
- *  folder, and nothing "more" to page through: the field reaches the rest. In the notch it is three rows of each. */
+/** The list the chip opens, in the Composer's row (docs/projects-design.md, the owner's decisions of 2026-11-19 and
+ *  2026-11-21): only what is in use, Auto, the open folders, the Scratchpad and For later (place.ts `rows`), under a
+ *  field that finds any project Tasktap knows, by its names or the line about it. A project not open appears only as
+ *  an answer: to what is typed in the field or, with a thought already written, as the places (three at most) its words
+ *  name or describe, first; none when they point at none, and never one only because it was worked on lately. Never a
+ *  row of every folder, and nothing "more" to page through: the field reaches the rest. In the notch it is three rows of
+ *  each. */
 function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; later: boolean; raised: boolean; hooks: Hooks }) {
   const typed = cap.find.trim(), asked = typed || (cap.moving ? '' : cap.draft.trim());
   const answers = asked && cap.found?.text === asked && cap.found.thought === !typed ? cap.found.list : [];
-  const rows = raised ? 6 : 3;
+  const most = raised ? 6 : 3;
   const id = (f: Found) => ('project' in f.to ? f.to.project : 'card' in f.to ? f.to.card : '');
-  const shown = answers.filter((f) => id(f)).slice(0, typed ? rows : 3);
-  const all = recent().filter((p) => !shown.some((f) => id(f) === p.id)), scratch = all.filter((p) => p.kind === 'scratch');
-  const open = typed ? [] : [...all.filter((p) => p.kind !== 'scratch').slice(0, rows), ...scratch];
-  const option = (to: string, on: boolean, mark: ComponentChildren, name: string, why?: string) => (
-    <button type="button" role="option" aria-selected={on} data-to={to} onClick={() => pick(to)}>{mark}<span>{name}</span>{why && <em>{why}</em>}</button>
-  );
+  const shown = answers.filter((f) => id(f)).slice(0, typed ? most : 3);
+  // The Scratchpad is there to choose also when it was put away (closed): choosing it opens it.
+  const put = [...records.projects.values()].filter((p) => p.kind === 'scratch' && !p.open);
+  const list = rows({ found: shown.map((f) => ({ id: id(f), name: f.name, why: f.why, fresh: 'card' in f.to })), open: [...recent(), ...put].filter((p) => !shown.some((f) => id(f) === p.id)),
+    typed: !!typed, moving: !!cap.moving, most });
+  const on = (to: string) => !cap.moving && (to === 'later' ? later : to ? to === w.to : w.by === 'router' && !w.to);
   return (
-    <div key="list" class="cap-row cap-list" role="listbox" aria-label={cap.moving ? 'Send it to' : 'Where it goes'} data-keys onKeyDown={arrows}
+    <div key="list" class="cap-row cap-list" role="listbox" aria-label={cap.moving ? 'Send the task to' : 'Where the task goes'} data-keys onKeyDown={arrows}
       // A row pressed keeps the keyboard in the field. A button takes none in WebKit (the Mac's web view): the field lost
       // it, the list closed under the pointer, and the click on "Open another folder…" or a project never landed.
       onMouseDown={(e) => !(e.target as HTMLElement).closest('input') && e.preventDefault()}
@@ -435,21 +411,21 @@ function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; late
           onInput={(e) => {
             cap.find = e.currentTarget.value;
             const find = cap.find.trim();
-            ask(find || (cap.moving ? '' : cap.draft.trim()), find ? rows : 3, !find);
+            ask(find || (cap.moving ? '' : cap.draft.trim()), find ? most : 3, !find);
             redraw();
           }} />
         <Key k="esc" cap />
       </label>
-      {shown.map((f) => option(id(f), !cap.moving && id(f) === w.to, <I n="folder" />, f.name,
-        [f.why, 'card' in f.to ? 'not open yet' : ''].filter(Boolean).join(' · ')))}
+      {/* Nothing found for what is typed: then the list is only Open another folder…, under this line. */}
       {typed && !shown.length && <p class="cap-none">{cap.found?.text === typed && !cap.found.thought ? 'No project by that name.' : 'Looking…'}</p>}
-      {!typed && !cap.moving && known().length > 0 && option('', w.by === 'router' && !w.to, <I n="arrow" />, 'Tasktap decides')}
-      {open.map((p) => option(p.id, !cap.moving && p.id === w.to, <I n="folder" />, p.name))}
-      <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open another folder…</span></button>
-      {!typed && !cap.moving && option('later', later, <Mark s="later" label="" />, 'For later')}
+      {list.map((r) => (r.to === 'add'
+        ? <button type="button" onClick={() => void addProject(hooks)}>{icon(r.mark)}<span>{r.name}</span></button>
+        : <button type="button" role="option" aria-selected={on(r.to)} data-to={r.to} onClick={() => pick(r.to)}>{icon(r.mark)}<span>{r.name}</span>{r.dim.map((d) => <em>{d}</em>)}</button>))}
     </div>
   );
 }
+/** A row's or the chip's icon (place.ts), For later's being its mark. */
+const icon = (m: Icon) => (m === 'later' ? <Mark s="later" label="" /> : <I n={m} />);
 
 // ——— Voice ———
 
@@ -713,11 +689,11 @@ function answerKey(q: Question, e: KeyboardEvent): boolean {
  *  just sent is asked here, under the field and on the same surface (Home's or the capture sheet's, never both). */
 export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { raised?: boolean; asks?: boolean }) {
   const route = hinted(), w = where();
-  const all = known().length;
-  const later = w.by === 'later', model = w.why === 'model';
+  const later = w.by === 'later';
   const session = route?.confidence === 'clear' && 'session' in route.to ? route.to.session : undefined;
   // After a thought with a place of its own is sent, the next goes where nobody chose, and the chip says it is back.
-  const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'only' || w.why === 'words' || w.why === 'ask');
+  const back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (w.why === 'model' || w.why === 'in' || w.why === 'only' || w.why === 'words' || w.why === 'ask');
+  const chip = chipSays(w, route, back);
   // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
   // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows that it works.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
@@ -730,11 +706,13 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   // With the question at the Composer the key does what Return does, and says so: the row the arrows are on.
   const row = q && !cap.draft ? chosenRow(q) : undefined;
   if (q && row) settle(q, row);
-  const does = row ? (row.does === 'place' ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
+  // A place (a project, the Scratchpad) starts the task there; a session is sent the task.
+  const into = row?.does === 'place' || row?.does === 'scratch';
+  const does = row ? (into ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
     : now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   // On the key the place is cut short, and where the foot has no room for it the key says only what it does (`.k-in`
   // goes, parts.css); the row the arrows are on says where. Quiet until Return answers, metal from then on.
-  const verb = row && (row.does === 'place' || row.does === 'session') ? (row.does === 'place' ? 'Start' : 'Send') : '';
+  const verb = row && (into || row.does === 'session') ? (into ? 'Start' : 'Send') : '';
   const waits = !!q && !!row && !answers(q);
   const ready = q ? (asked.get(q.id)?.ready ?? 0) : 0;
   useEffect(() => {
@@ -763,8 +741,8 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     el.style.height = `${el.scrollHeight}px`;
   };
   useLayoutEffect(() => fit());
-  // The foot where it is short of room, in this order (NOTES §13): the chip's reason gives way first, by itself
-  // (parts.css); then the microphone's key hint is dropped, once the reason is gone and only where that gives the
+  // The foot where it is short of room, in this order (NOTES §13): the chip's "Auto" after a place gives way first, by
+  // itself (parts.css); then the microphone's key hint is dropped, once that word is gone and only where that gives the
   // names room; then the names are cut short, the place's and the agent's. Nothing wraps; the key never moves.
   // Measured when the foot's width or what the chip, the agent and the key say change, and on no other render.
   const foot = useRef<HTMLDivElement>(null), runs = chosen(session).a?.id;
@@ -773,14 +751,14 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     if (!row) return undefined;
     const room = () => {
       const place = row.querySelector<HTMLElement>('#dest-chip b'), reason = row.querySelector<HTMLElement>('#dest-chip span'), who = row.querySelector<HTMLElement>('.cap-agent .nm');
-      if (!place || !reason) return;
+      if (!place) return;
       const cut = (el: HTMLElement | null) => !!el && el.scrollWidth > el.clientWidth + 0.5;
       const over = () => row.scrollWidth > row.clientWidth + 0.5;
       row.removeAttribute('data-short');
       row.removeAttribute('data-bare');
       row.removeAttribute('data-tight');
-      // The reason is whole or not there: one that would be cut ("asks y…") goes, whole (the review's R8).
-      if (!cut(reason) && !over()) return;
+      // The word is whole or not there: one that would be cut ("Au…") goes, whole (the review's R8).
+      if (!cut(reason) && !cut(place) && !over()) return;
       row.setAttribute('data-bare', '');
       // Then the key hints, the microphone's and the agent control's, where a name is still cut without them.
       if (cut(place) || cut(who) || over()) row.setAttribute('data-short', '');
@@ -791,7 +769,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     const watch = new ResizeObserver(room);
     watch.observe(row);
     return () => watch.disconnect();
-  }, [name, why, back, does, busy, hearing, cap.choosing, cap.agents, runs, waits]);
+  }, [chip.name, chip.auto, does, busy, hearing, cap.choosing, cap.agents, runs, waits]);
   // The line rolls while this field may (lines.ts `rolls`): told on every render, as the field gains or loses the
   // keyboard, as the window does, and as Reduce Motion changes; the field gone, its roll goes with it.
   const sync = () => invite.run(rollsHere(area.current), area.current);
@@ -880,15 +858,12 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
           // The foot: where it goes, who runs it, the microphone, and the key that says what Return does, in that order.
           <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false} data-starting={w.why === 'starting' || undefined}
-              title={`${back ? 'Your choice was for the task before. ' : ''}${!all ? 'No project is known yet: a task is saved for later until a folder is open. Click to open a folder' : later ? 'Saved for later: nothing starts. Click to change'
-                : model ? `${agentName(first(pref('route_by'), placers()))} reads the task and chooses where the task goes. Click to choose the place yourself`
-                  : w.why === 'words' || w.why === 'ask' ? 'Tasktap places it in the project its words name, and asks you where when they name none. Click (or ⌘K) to choose the place yourself'
-                    : w.why === 'only' ? 'The one folder open, so a task that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
-              onClick={() => choose(true)}
+              title={chip.title} onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
-              {!later ? <I n={session ? 'term' : 'arrow'} /> : all ? <Mark s="later" label="" /> : <I n="folder" />}
-              <b>{back ? `Back to ${name}` : name}</b>
-              <span>{why}</span>
+              {/* One name; after a place Auto found, the word Auto, dim. The space between is no gap on the screen (a flex
+                  row draws no blank between its items) and the chip's name for VoiceOver ("cuegrid Auto"). */}
+              {icon(chip.mark)}
+              <b>{chip.name}</b>{chip.auto && ' '}{chip.auto && <span>Auto</span>}
               <I n="chev" />
             </button>
             <AgentControl session={session} />

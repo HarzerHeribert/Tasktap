@@ -374,6 +374,11 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hq-t{overflow:hidden;text-overflow:ellipsis}
 .hq time{font:var(--f-num);color:var(--fg3);text-align:right}
 .hq-a{grid-column:2/4;margin-top:5px}
+/* Tasktap's own question has no line above it: its words take the first line, beside the time; the ring stays with
+   that line. */
+.hq.place>.hq-a{grid-row:1;grid-column:2;margin-top:0}
+.hq.place>time{grid-row:1;grid-column:3}
+.hq.place>.st{align-self:start;margin-top:1px}
 .ask-home .qp{max-width:62ch}
 .ask-home .qa{margin-top:10px}
 .ask-home .q-detail{max-width:62ch}

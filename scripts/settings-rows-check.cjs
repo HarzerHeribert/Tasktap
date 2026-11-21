@@ -29,8 +29,8 @@
 //       `agent_commands`; one that holds what Tasktap sets for a run, then Return, is refused in the core's sentence
 //       under the field and the one before stays, and the sentence goes with the section, which shows the one kept
 //       again; emptied, the command goes. One whose command does not start it stays in sight, not folded away, and
-//       says why in the core's words; signing in to one that is signed out, and a terminal of it, type the person's
-//       command.
+//       says why in the core's words; signing in to one that is signed out, and a terminal of it, type the agent's
+//       program as before, its command set or not: what is typed in a shell is the shell's.
 //   And a sweep in WebKit by the pointer alone of every control in Settings that acts on a click and then takes keys:
 //   each recorder, the project's choice, Add your own agent, a project's other name, the font field, the field that
 //   finds a project, a section's tab with the arrows, a switch with Space, and Check now.
@@ -457,7 +457,8 @@ async function starts(browser, url, system) {
   for (const e of lost.errors) failures.push(`${at}: page: ${e}`);
   await lost.context().close();
 
-  // Signed out, signing in types the person's command where it would type the agent's program.
+  // Signed out, signing in types the agent's program as before, though the person has a command for it: what is typed
+  // in a shell is the shell's, where the person's own alias applies.
   const out = scene('busy');
   out.agents = out.agents.map((a) => (a.id === 'codex' ? { ...a, signed_in: false, identity: null } : a));
   out.prefs = [...(out.prefs || []), { id: 'agent_commands', rev: 9, value: [{ agent: 'codex', command: 'op run -- codex' }] }];
@@ -472,7 +473,7 @@ async function starts(browser, url, system) {
   // And so does a terminal of the agent opened by hand (a workspace's New Codex Session).
   await signs.evaluate(() => window.__ws.startAgent(window.__ws.LOOSE, 'codex'));
   const typed = await signs.evaluate(() => JSON.stringify(window.__typed));
-  expect(typed === JSON.stringify(['op run -- codex login', 'op run -- codex']), `${at}: Sign in to Codex, and a terminal of it, type its command: ${typed}`);
+  expect(typed === JSON.stringify(['codex login', 'codex']), `${at}: Sign in to Codex, and a terminal of it, type the program, not its command: ${typed}`);
   for (const e of signs.errors) failures.push(`${at}: page: ${e}`);
   await signs.context().close();
 }

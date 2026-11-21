@@ -629,10 +629,20 @@ pub fn judge(agent: &dyn Agent, command: &str) -> Result<Vec<String>, String> {
             "The command of {name} needs a program as its first word"
         ));
     }
+    if cfg!(windows)
+        && let Some(why) = words
+            .first()
+            .and_then(|first| windows(name, agent.program(), first))
+    {
+        return Err(why);
+    }
     let args = theirs(agent.program(), &words);
     let flag = match rules::of(agent.id()) {
         Some(rules) => rules.refused(args),
-        None => (args.iter()).find_map(|arg| rules::given(agent.refused(), arg)),
+        None => {
+            let known = rules::shorts(&[agent.refused()]);
+            (args.iter()).find_map(|arg| rules::at_save(agent.refused(), &known, arg))
+        }
     };
     match flag {
         Some(flag) => Err(format!(
@@ -741,11 +751,6 @@ pub fn start(
     let found = found.ok_or_else(|| {
         format!("Tasktap finds no program named {first} for the command of {name}")
     })?;
-    if cfg!(windows)
-        && let Some(why) = batch(name, program, first, &found, find(program).as_deref())
-    {
-        return Err(why);
-    }
     Ok(Start {
         program: found,
         head: rest.to_vec(),
@@ -753,32 +758,28 @@ pub fn start(
     })
 }
 
-/// Why Windows cannot start the agent named `name` through `first`, the
-/// first word of the person's command, found at `found`, where its own
-/// program `program` is `own` as Tasktap finds it: a batch file (npm
-/// installs a tool as one) reads the task by the command prompt's rules,
-/// which Tasktap writes it for only where the batch file is what it starts
-/// (`sys::command_line`). None where the first word is that batch file, or
-/// names the agent's program itself.
-pub fn batch(
-    name: &str,
-    program: &str,
-    first: &str,
-    found: &Path,
-    own: Option<&Path>,
-) -> Option<String> {
-    let batch = |path: &Path| {
-        let ext = path.extension().unwrap_or_default();
-        ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat")
-    };
-    let own = own.filter(|own| batch(own))?;
-    if batch(found) || names(first, program) {
-        return None;
-    }
-    let file = own.file_name().unwrap_or(own.as_os_str()).to_string_lossy();
-    Some(format!(
-        "Windows cannot pass a task safely through {first} to {file}: start {name} without a wrapper on Windows"
-    ))
+/// Why the person's command for the agent named `name`, whose program is
+/// `program`, cannot start with `first` on Windows: there it starts with the
+/// agent's program, a file of that name with a folder or none and an
+/// extension a program has, and with no program of theirs around it, which
+/// would hand the task on without the quoting Tasktap writes for it
+/// (`sys::command_line`), to a batch file through the command prompt.
+pub fn windows(name: &str, program: &str, first: &str) -> Option<String> {
+    let file = first
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(first)
+        .to_ascii_lowercase();
+    let exts = [".exe", ".cmd", ".bat", ".com"];
+    let stem = exts
+        .iter()
+        .find_map(|ext| file.strip_suffix(ext))
+        .unwrap_or(&file);
+    (stem != program).then(|| {
+        format!(
+            "On Windows the command of {name} must start with {program}: Windows cannot pass a task safely through another program"
+        )
+    })
 }
 
 /// What starts `agent` as the core runs and asks it: the person's command

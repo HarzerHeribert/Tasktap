@@ -76,45 +76,72 @@ const VALUE_OPTIONS: &[&str] = &[
     "--mcp-github-auth", "--add-github-mcp-tool", "--add-github-mcp-toolset",
 ];
 
-/// The flag of `flags` that `arg` gives: `--name` alone or with `=value`;
-/// `-x` alone, with its value attached (`-x/tmp`, `-x=/tmp`), or among
-/// short flags given together (`-px`) after ones that take no value. One
-/// in `flags` that ends in `=` is a prefix of any argument, and is named
-/// without it.
-pub fn given(flags: &[&str], arg: &str) -> Option<String> {
-    let named = |f: &&str| {
-        let valued =
-            f.starts_with("--") && arg.strip_prefix(*f).is_some_and(|v| v.starts_with('='));
-        arg == *f || (f.ends_with('=') && arg.starts_with(*f)) || valued
+/// The flag of `flags` that `arg` is, as a start typed in a shell is read:
+/// the flag itself, or one ending in `=` that begins it, named without it.
+fn typed(flags: &[&str], arg: &str) -> Option<String> {
+    let named = |f: &&&str| arg == **f || (f.ends_with('=') && arg.starts_with(**f));
+    flags
+        .iter()
+        .find(named)
+        .map(|f| f.trim_end_matches('=').to_owned())
+}
+
+/// The flag of `flags` that `arg` gives, as the person's command for an
+/// agent is judged when it is kept: as typed, and also a long flag with
+/// `=value`, a short one with a value attached (`-C/tmp`, `-C=/tmp`) where
+/// it takes one, and short flags given together (`-pc`) where each is one
+/// of `known`, the agent's. Anything else is no flag of `flags`.
+pub fn at_save(flags: &[&str], known: &[&str], arg: &str) -> Option<String> {
+    let valued = |f: &&&str| {
+        f.starts_with("--") && arg.strip_prefix(**f).is_some_and(|v| v.starts_with('='))
     };
-    if let Some(flag) = flags.iter().copied().find(named) {
-        return Some(flag.trim_end_matches('=').to_owned());
+    if let Some(flag) =
+        typed(flags, arg).or_else(|| flags.iter().find(valued).map(|f| (*f).to_owned()))
+    {
+        return Some(flag);
     }
-    let shorts = arg.strip_prefix('-').filter(|s| !s.starts_with('-'))?;
-    for c in shorts.chars().take_while(char::is_ascii_alphabetic) {
-        let flag = format!("-{c}");
-        if flags.contains(&flag.as_str()) {
-            return Some(flag);
-        }
-        if VALUE_OPTIONS.contains(&flag.as_str()) {
-            return None;
-        }
+    let shorts = arg
+        .strip_prefix('-')
+        .filter(|s| s.len() > 1 && !s.starts_with('-'))?;
+    let all: Vec<String> = shorts.chars().map(|c| format!("-{c}")).collect();
+    if VALUE_OPTIONS.contains(&all[0].as_str()) {
+        return flags.contains(&all[0].as_str()).then(|| all[0].clone());
     }
-    None
+    let one = |f: &String| f.len() == 2 && known.contains(&f.as_str());
+    match all.iter().all(one) {
+        true => all.into_iter().find(|f| flags.contains(&f.as_str())),
+        false => None,
+    }
+}
+
+/// The short flags among `lists`, one letter each: the ones an agent is
+/// known to have.
+pub fn shorts<'a>(lists: &[&[&'a str]]) -> Vec<&'a str> {
+    let short =
+        |f: &&str| f.len() == 2 && f.starts_with('-') && f.as_bytes()[1].is_ascii_alphabetic();
+    lists
+        .iter()
+        .flat_map(|list| list.iter().copied())
+        .filter(short)
+        .collect()
 }
 
 impl Rules {
     /// Whether a person will type to this run; the terminal is checked apart.
     pub fn interactive(&self, args: &[String]) -> bool {
-        self.untyped(args).is_none()
+        self.untyped(args, typed).is_none()
     }
 
-    /// What in `args` makes a run nobody types to: a flag that says so, of
-    /// any agent or of this one, or a subcommand that runs without a session
-    /// as the first word that is no flag nor a flag's value.
-    pub fn untyped(&self, args: &[String]) -> Option<String> {
-        let flagged =
-            |a: &String| given(NONINTERACTIVE, a).or_else(|| given(self.noninteractive, a));
+    /// What in `args` makes a run nobody types to, with its flags read by
+    /// `read`: a flag that says so, of any agent or of this one, or a
+    /// subcommand that runs without a session as the first word that is no
+    /// flag nor a flag's value.
+    fn untyped(
+        &self,
+        args: &[String],
+        read: impl Fn(&[&str], &str) -> Option<String>,
+    ) -> Option<String> {
+        let flagged = |a: &String| read(NONINTERACTIVE, a).or_else(|| read(self.noninteractive, a));
         if let Some(flag) = args.iter().find_map(flagged) {
             return Some(flag);
         }
@@ -136,11 +163,16 @@ impl Rules {
     }
 
     /// What in the person's own arguments of their command for this agent
-    /// sets what a run Tasktap starts sets itself: what makes nobody type to
-    /// it ([`Rules::untyped`]), or one of [`Rules::taken`].
+    /// sets what a run Tasktap starts sets itself, read as it is kept
+    /// ([`at_save`]): what makes nobody type to it, or one of
+    /// [`Rules::taken`]. A start typed in a shell is read as before.
     pub fn refused(&self, args: &[String]) -> Option<String> {
-        let taken = |a: &String| given(self.taken, a);
-        self.untyped(args).or_else(|| args.iter().find_map(taken))
+        let lists = [NONINTERACTIVE, self.noninteractive, self.policy, self.taken];
+        let known = shorts(&lists);
+        let read = |flags: &[&str], arg: &str| at_save(flags, &known, arg);
+        let taken = |a: &String| read(self.taken, a);
+        self.untyped(args, read)
+            .or_else(|| args.iter().find_map(taken))
     }
 
     /// The default approval policy, unless the person stated one.
@@ -202,12 +234,6 @@ mod tests {
             ("claude", &["--", "mcp"], true),
             ("claude", &["--resume", "abc"], true),
             ("claude", &["--remote=x"], false),
-            // Short flags given together, or with their value attached.
-            ("claude", &["-pc"], false),
-            ("claude", &["-c"], true),
-            ("codex", &["-C/tmp/x"], true),
-            ("codex", &["-pwork"], true),
-            ("codex", &["e"], false),
             ("codex", &["exec", "x"], false),
             ("codex", &["-c", "model=o3", "resume"], true),
             ("codex", &["-p", "work"], true),
@@ -289,6 +315,52 @@ mod tests {
                 typed,
                 "{agent} {args:?}"
             );
+        }
+    }
+
+    /// How a start typed in a shell was read at d4505ca, before the person's
+    /// command for an agent was judged with flags given together.
+    fn before(rules: &Rules, args: &[String]) -> bool {
+        let flagged = |flags: &[&str], arg: &str| {
+            (flags.iter()).any(|f| arg == *f || (f.ends_with('=') && arg.starts_with(f)))
+        };
+        if (args.iter()).any(|a| flagged(NONINTERACTIVE, a) || flagged(rules.noninteractive, a)) {
+            return false;
+        }
+        let mut args = args.iter();
+        while let Some(arg) = args.next() {
+            if arg == "--" {
+                return true;
+            }
+            if VALUE_OPTIONS.contains(&arg.as_str()) {
+                args.next();
+            } else if !arg.starts_with('-') {
+                return !rules.passthrough.contains(&arg.as_str());
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn a_start_typed_in_a_shell_is_read_as_it_was() {
+        #[rustfmt::skip]
+        let cases: &[&[&str]] = &[
+            &["-dhooks"], &["-pc"], &["-cp"], &["-rabc"], &["-C/tmp/x"], &["-C=/tmp/x"], &["-p"],
+            &["--print=x"], &["--remote=x"], &["-hV"], &["-Vh"], &["-ph"], &["e"], &["review"],
+            &["--model", "opus", "mcp"], &["-c", "model=o3", "resume"], &["--", "-p"], &["-pwork"],
+            &["--json"], &["--help"], &["-i", "fix the bug"], &["--prompt=hi"], &["-vfoo"],
+        ];
+        let all = RULES.iter().copied().chain([&super::super::cursor::RULES]);
+        for rules in all {
+            for args in cases {
+                let args = words(args);
+                assert_eq!(
+                    rules.interactive(&args),
+                    before(rules, &args),
+                    "{} {args:?}",
+                    rules.agent
+                );
+            }
         }
     }
 

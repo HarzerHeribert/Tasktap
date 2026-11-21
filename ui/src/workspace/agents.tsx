@@ -17,11 +17,10 @@ import { HERE, mac } from '../system.ts';
 import { I, Ring, ago } from '../ui.tsx';
 import { agentState, ownAgentLacks } from '../way.ts';
 import { Row, Switch, setPref } from './form.tsx';
-import { LOOSE, agent, call, commandOf, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
+import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
 
-/** What is typed into a terminal to sign an agent in: after the person's command for it, where they start it their own
- *  way, in place of its program. */
-const signIn: Record<string, string> = { claude: '', codex: ' login', agy: '', pi: '', opencode: ' auth login' };
+/** What is typed into a terminal to sign an agent in. */
+const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
 /** What a row adds about its agent: whose models it runs, where its name does not say, and what of it the notch
  *  cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`, `questions`): of
  *  one that reports nothing Tasktap hears only when it ends, and what one asks where nothing outside its terminal
@@ -45,6 +44,9 @@ const mint = () => `own-${[...crypto.getRandomValues(new Uint8Array(10))].map((b
 /** Writes the person's own agents as they are now; the core says in a sentence what one of them lacks. */
 const keepOwn = (all: OwnAgent[]) => call('put', { c: 'prefs', id: 'own_agents', patch: all });
 
+/** How the person starts one of Tasktap's agents their own way (`agent_commands`): empty where Tasktap starts it its own
+ *  way. It applies to the starts the core makes itself; what is typed in a shell, Sign in's too, is the shell's. */
+const commandOf = (id: string) => pref('agent_commands').find((c) => c.agent === id)?.command ?? '';
 /** Writes the command of `a` as typed, or none for an empty field: the core's sentence for one it refuses, else none. Its
  *  length is counted in bytes, as the core counts it. */
 function keepCommand(a: AgentHealth, typed: string): Promise<string> {
@@ -134,8 +136,8 @@ export function AgentsPane() {
           <span class="t">{a.name}</span>
           <span class="x" title={says}>{says}</span>
           <span class="acts">
-            {off && a.id in signIn && (
-              <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: (commandOf(a.id) || a.program) + signIn[a.id] }))}>Sign in</button>
+            {off && signIn[a.id] && (
+              <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }))}>Sign in</button>
             )}
             {a.own && <button type="button" class="btn" onClick={() => setForm(a.id)}>Change</button>}
             {a.id === usual ? <span class="x def">Runs new tasks</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Use for new tasks</button>}

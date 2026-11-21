@@ -58,6 +58,13 @@ fn refused(agent: &str, command: &str) -> String {
     judged(agent, command).unwrap_err()
 }
 
+/// What judging `command` says: `said`, but on Windows, where a command
+/// starts with the agent's program, that it must ([`agents::windows`]).
+fn on(agent: &dyn Agent, command: &str, said: String) -> String {
+    let first = words(command).into_iter().next().unwrap_or_default();
+    let windows = agents::windows(agent.name(), agent.program(), &first);
+    windows.filter(|_| cfg!(windows)).unwrap_or(said)
+}
 fn line(agent: &str, command: &str) -> AgentCommand {
     AgentCommand {
         agent: agent.into(),
@@ -229,7 +236,6 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
         ("claude", "Claude Code", "claude --help", "--help"),
         ("claude", "Claude Code", "claude --version", "--version"),
         ("claude", "Claude Code", "claude mcp", "mcp"),
-        ("claude", "Claude Code", "claude -rabc", "-r"),
         ("claude", "Claude Code", "claude --resume=abc", "--resume"),
         ("claude", "Claude Code", "claude -c", "-c"),
         (
@@ -272,8 +278,12 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
         ("droid", "Droid", "droid --model x", "--model"),
         ("aider", "Aider", "aider --message=x", "--message"),
     ] {
-        if agents::find(agent).is_some() {
-            assert_eq!(refused(agent, command), says(flag, name), "{command}");
+        if let Some(found) = agents::find(agent) {
+            assert_eq!(
+                refused(agent, command),
+                on(found, command, says(flag, name)),
+                "{command}"
+            );
         }
     }
     // Only the words after the last that names the agent's program are its
@@ -285,6 +295,7 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
         "docker run --name claude --model x img claude",
         "my-claude --resume x -p",
         "claude --setting-sources user",
+        "claude -dhooks",
         "codex -p work",
         "codex -c model_reasoning_effort=high",
     ] {
@@ -293,16 +304,18 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
         } else {
             "claude"
         };
-        assert!(judged(agent, fine).is_ok(), "{fine}");
+        let found = agents::find(agent).unwrap();
+        let said = judged(agent, fine).err().unwrap_or_default();
+        assert_eq!(said, on(found, fine, String::new()), "{fine}");
     }
     assert_eq!(
         refused("claude", "claude\n--verbose"),
         "The command of Claude Code is too long, or not one line"
     );
     // The length in bytes, as it is stored.
-    assert!(judged("claude", &"é".repeat(1000)).is_ok());
+    assert!(judged("claude", &format!("claude {}", "é".repeat(996))).is_ok());
     assert_eq!(
-        refused("claude", &"é".repeat(1001)),
+        refused("claude", &format!("claude {}", "é".repeat(997))),
         "The command of Claude Code is too long, or not one line"
     );
 }
@@ -311,7 +324,7 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
 fn a_stored_command_this_build_refuses_harms_only_its_own_agent() {
     let _one = COMMANDS.lock().unwrap_or_else(|e| e.into_inner());
     let bad = line("claude", "claude --model opus");
-    let good = line("codex", "caffeinate -i codex");
+    let good = line("codex", "codex -c model_reasoning_effort=high");
     // Put: a command kept as it was stands; one new or changed is judged.
     let was = [bad.clone()];
     assert!(agents::check_commands(&[bad.clone(), good.clone()], &was).is_ok());
@@ -339,7 +352,10 @@ fn a_stored_command_this_build_refuses_harms_only_its_own_agent() {
     assert!(
         changed.iter().any(|a| a.id() == "claude") && changed.iter().any(|a| a.id() == "codex")
     );
-    assert_eq!(agents::command(codex), words("caffeinate -i codex"));
+    assert_eq!(
+        agents::command(codex),
+        words("codex -c model_reasoning_effort=high")
+    );
     assert!(agents::command(claude).is_empty());
     assert_eq!(agents::command_refused(claude).as_deref(), Some(said));
     assert_eq!(
@@ -351,40 +367,32 @@ fn a_stored_command_this_build_refuses_harms_only_its_own_agent() {
 }
 
 #[test]
-fn on_windows_a_wrapper_may_not_pass_a_task_to_an_agent_that_is_a_batch_file() {
-    let batch = |first: &str, found: &str, own: &str| {
-        agents::batch(
-            "Claude Code",
-            "claude",
-            first,
-            Path::new(found),
-            Some(Path::new(own)),
-        )
-    };
-    assert_eq!(
-        batch("wrap", "C:/tools/wrap.exe", "C:/npm/claude.cmd").as_deref(),
-        Some(
-            "Windows cannot pass a task safely through wrap to claude.cmd: start Claude Code without a wrapper on Windows"
-        )
-    );
-    // The batch file itself first keeps the quoting it has; so does another
-    // copy of the agent's program, and an agent that is no batch file.
-    assert_eq!(
-        batch("claude", "C:/npm/claude.cmd", "C:/npm/claude.cmd"),
-        None
-    );
-    assert_eq!(
-        batch("C:/tools/claude", "C:/tools/claude", "C:/npm/claude.CMD"),
-        None
-    );
-    assert_eq!(
-        batch("wrap", "C:/tools/wrap.exe", "C:/bin/claude.exe"),
-        None
-    );
-    assert_eq!(
-        batch("wrap.bat", "C:/tools/wrap.bat", "C:/npm/claude.cmd"),
-        None
-    );
+fn on_windows_the_command_starts_with_the_agents_own_program() {
+    let windows = |first: &str| agents::windows("Claude Code", "claude", first);
+    for first in [
+        "claude",
+        "/opt/tools/claude",
+        r"C:\npm\claude.cmd",
+        "C:/x/claude.EXE",
+        "claude.bat",
+    ] {
+        assert_eq!(windows(first), None, "{first}");
+    }
+    for first in [
+        "op",
+        "caffeinate",
+        r"C:\tools\wrap.exe",
+        "claude-code",
+        "my-claude.cmd",
+    ] {
+        assert_eq!(
+            windows(first).as_deref(),
+            Some(
+                "On Windows the command of Claude Code must start with claude: Windows cannot pass a task safely through another program"
+            ),
+            "{first}"
+        );
+    }
 }
 
 #[test]
@@ -406,7 +414,28 @@ fn the_persons_approval_policy_stands_and_tasktaps_is_added_only_without_one() {
 }
 
 #[test]
-fn the_command_is_refused_when_put_and_one_that_does_not_start_the_agent_says_so() {
+fn a_command_is_refused_when_it_is_put_in_one_sentence() {
+    let mut s = Scene::real("cq", "fixture");
+    let e = put(&mut s.w, commands(&[("fixture", "fixture-agent --hook x")])).unwrap_err();
+    assert_eq!(
+        (e.code, e.message.as_str()),
+        (
+            Code::Invalid,
+            "Tasktap sets --hook itself for Fixture agent: take --hook out of the command"
+        )
+    );
+    assert!(
+        put(
+            &mut s.w,
+            commands(&[("fixture", "fixture-agent --verbose")])
+        )
+        .is_ok()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_command_that_does_not_start_the_agent_says_so() {
     let mut s = Scene::real("cs", "fixture");
     let detect = |s: &mut Scene| {
         s.w.ok::<call::AgentsDetect>(&tasktap_proto::DetectAgents {
@@ -421,14 +450,6 @@ fn the_command_is_refused_when_put_and_one_that_does_not_start_the_agent_says_so
             .is_some_and(|a| a.signed_in == Some(true))
     });
     assert_eq!(s.w.model.agents["fixture"].program, "fixture-agent");
-    let e = put(&mut s.w, commands(&[("fixture", "fixture-agent --hook x")])).unwrap_err();
-    assert_eq!(
-        (e.code, e.message.as_str()),
-        (
-            Code::Invalid,
-            "Tasktap sets --hook itself for Fixture agent: take --hook out of the command"
-        )
-    );
     // A first word that is no program is said where the agent's state is.
     put(&mut s.w, commands(&[("fixture", "cluade")])).unwrap();
     s.w.until("the agent is said to be missing", |m| {

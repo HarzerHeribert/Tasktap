@@ -144,10 +144,6 @@ export function agent(): AgentHealth | undefined {
 /** The name of an agent the person added, also of one they have removed since: their `own_agents` preference keeps
  *  it, so what such an agent ran still says who ran it. */
 export const ownName = (id: string | null | undefined) => pref('own_agents').find((o) => o.id === id)?.name;
-/** How the person starts one of Tasktap's agents their own way, as they would type it (`agent_commands`): empty where
- *  Tasktap starts it its own way. Typed into a shell in place of the agent's program, where Tasktap starts an agent so
- *  for the person (a terminal of that agent, its sign-in). */
-export const commandOf = (id: string) => pref('agent_commands').find((c) => c.agent === id)?.command ?? '';
 /** An agent's name, as the core says it: its row of the agents carries it, so no page keeps a list of its own. */
 export const agentName = (id: string | null | undefined) => (id ? (records.agents.get(id)?.name ?? ownName(id) ?? id) : 'Agent');
 /** Whether a thought was run by an agent Tasktap hears nothing of but its end (the plain tier: Aider, and the ones

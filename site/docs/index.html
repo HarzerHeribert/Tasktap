@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0a0a0b">
 <title>How Tasktap works</title>
-<meta name="description" content="A short guide to Tasktap as it is built today: capture, placing and the brief, questions, results with Keep and Discard, the workspace, the agents, voice, Windows, settings and effects.">
+<meta name="description" content="A short guide to Tasktap 2.0 on the Mac and on Windows: capture, placing and the brief, questions, results with Keep and Discard, the workspace, the agents, voice, Windows, settings and effects.">
 <link rel="icon" href="../assets/favicon.png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <link rel="stylesheet" href="../app/tokens.css">
@@ -27,7 +27,7 @@
 <main id="main" class="doc wrap">
   <header class="doc-head">
     <h1>How it works</h1>
-    <p class="lead">A short guide to Tasktap 2.0 on the Mac: what it does, and where each part of it is. What it leaves out is listed at its end.</p>
+    <p class="lead">A short guide to Tasktap 2.0 on the Mac and on Windows: what Tasktap does, and where each part of Tasktap is. What this guide leaves out is listed at the guide’s end.</p>
   </header>
 
   <div class="doc-in">
@@ -115,9 +115,9 @@
 
       <section id="windows" aria-labelledby="windows-h">
         <h2 id="windows-h">On Windows</h2>
-        <p>Windows is being built, and can be built from source. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings › Tasks, at Display that shows Tasktap’s tab, chooses its display, or None turns it off.</p>
+        <p>On Windows on x64, Tasktap works as this guide describes, with the differences named in this section. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings › Tasks, at Display that shows Tasktap’s tab, chooses its display, or None turns it off.</p>
         <p>Keys follow one rule: Ctrl stands where the Mac has <kbd>⌘</kbd>, and with a letter Shift is held too, so Ctrl and a letter alone stay the terminal’s. New terminal is Ctrl+Shift+T, and Find Ctrl+Shift+F. The capture key is Alt+Shift+Space, and the keys that answer a question from any program Alt+Shift+J, Y and N, since many keyboards read Ctrl+Alt as AltGr; hold to talk is Ctrl+Space.</p>
-        <p>So far Claude Code, Codex and the agents you add run on Windows. Speech there goes through a speech service. The installer is not code-signed, so SmartScreen stops a copy downloaded in a browser; the line for PowerShell under <a href="../#get">Get it</a> fetches and checks it without that stop.</p>
+        <p>On Windows, Tasktap starts Claude Code, Codex and any agent you add; the other nine built-in agents run on the Mac only. Speech on Windows goes through a speech service. Tasktap for Windows needs an x64 processor, and the PowerShell line refuses a computer with an ARM64 processor. The Windows installer is not code-signed, so SmartScreen stops a copy downloaded in a browser until you choose More info, then Run anyway; the PowerShell line under <a href="../#get">Get it</a> downloads the installer, checks the installer’s SHA-256 and installs Tasktap for you alone, without that stop.</p>
       </section>
 
       <section id="settings" aria-labelledby="settings-h">
@@ -151,7 +151,6 @@
           <li>Placing in depth: follow-ups to a running session, and examples of briefs.</li>
           <li>Earlier and For later on Home.</li>
           <li>Where Tasktap keeps its data, and troubleshooting.</li>
-          <li>Windows in full, once it can be installed.</li>
         </ul>
       </section>
     </article>

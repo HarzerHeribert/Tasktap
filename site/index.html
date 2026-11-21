@@ -40,7 +40,7 @@
         <a class="key lg" href="#get"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Get Tasktap</a>
         <a class="btn lg" href="docs/">How it works</a>
       </p>
-      <p class="fine">For Macs with Apple silicon, and for Windows on x64, where it is still being built.</p>
+      <p class="fine">For Macs with Apple silicon, and for Windows on x64.</p>
     </div>
     <figure class="stage" id="stage">
       <span class="band" aria-hidden="true"><span class="motion" id="band"><picture><source media="(max-width:699px), (min-width:1000px) and (max-width:1135px)" srcset="app/shots/band-s.webp 1x, app/shots/band-s@2x.webp 2x"><img src="app/shots/band.webp" srcset="app/shots/band.webp 1x, app/shots/band@2x.webp 2x" width="860" height="380" alt="" decoding="async"></picture></span></span>
@@ -177,7 +177,7 @@
     <div><dt>Voice</dt><dd>Hold <kbd>⌥Space</kbd> and talk. Your voice can be turned into text on the Mac itself and sent nowhere (a 574 MB download, made once); it was tried in German, in English, and in both mixed. Or use a speech service of your choice with your own key.</dd></div>
     <div><dt>Privacy</dt><dd>Tasktap sends your words nowhere by itself. Before a task goes to a model, or a recording to a speech service, you read exactly what would be sent. The one thing Tasktap fetches without asking is the check for a new version, which you can turn off in Settings › About.</dd></div>
     <div><dt>Effects</dt><dd>The moving light is one setting, Full, Still or Off, and follows Reduce Motion and Low Power Mode.</dd></div>
-    <div><dt>Platforms</dt><dd>macOS 13 or later. Windows is being built: there a tab at the top edge of the screen and an icon by the clock stand in for the notch, and so far Claude Code, Codex and the agents you add run there. Speech on Windows goes through a speech service.</dd></div>
+    <div><dt>Platforms</dt><dd>macOS 13 or later on Apple silicon, and Windows on x64. On Windows, Tasktap works the same way from any app, with a tab at the top edge of the screen and an icon by the clock in place of the notch. On Windows, Tasktap starts Claude Code, Codex and any agent you add; the other nine built-in agents run on the Mac only. Speech on Windows goes through a speech service.</dd></div>
   </dl>
 </section>
 
@@ -200,9 +200,9 @@
       <div class="for-win">
         <h3>On Windows</h3>
         <div class="line"><pre class="pan" tabindex="0" aria-label="The line for PowerShell"><code>irm https://harzerheribert.github.io/Tasktap/install.ps1 | iex</code></pre><button type="button" class="btn copy">Copy</button></div>
-        <p class="fine">In PowerShell, this line downloads the newest installer from GitHub, checks its SHA-256 against the release’s list and installs Tasktap for you alone. <a href="install.ps1.txt">Read the script</a>.</p>
+        <p class="fine">In PowerShell, the Windows install line downloads the newest installer from GitHub, checks its SHA-256 against the release’s list and installs Tasktap for you alone, in your own user folder, with no administrator. <a href="install.ps1.txt">Read the Windows install script</a>.</p>
         <p class="acts"><a class="btn lg" href="https://github.com/HarzerHeribert/Tasktap/releases/latest/download/Tasktap_x64-setup.exe">Download the installer</a></p>
-        <p class="fine">The installer is not code-signed, so SmartScreen stops a copy downloaded in a browser until you choose More info, then Run anyway.</p>
+        <p class="fine">The Windows installer is not code-signed, so SmartScreen stops a copy downloaded in a browser until you choose More info, then Run anyway. Tasktap for Windows needs an x64 processor. To remove Tasktap, open Windows Settings › Apps › Installed apps.</p>
       </div>
     </div>
   </div>

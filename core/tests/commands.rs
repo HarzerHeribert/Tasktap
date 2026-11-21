@@ -459,15 +459,15 @@ fn a_command_that_does_not_start_the_agent_says_so() {
                 == Some("Tasktap finds no program named cluade for the command of Fixture agent")
     });
     // A program of the person's that does not start the agent: asked for its
-    // version it printed no version, and nothing of a sign-in counts.
-    for (typed, said) in [
-        (
-            "/usr/bin/env cluade",
-            "env: cluade: No such file or directory",
-        ),
+    // version it printed no version, and nothing of a sign-in counts. What
+    // it printed is said as it printed it, which is env's own wording: on a
+    // Mac "env: cluade: No such file or directory", with GNU's env
+    // "/usr/bin/env: ‘cluade’: No such file or directory".
+    for (typed, missing) in [
+        ("/usr/bin/env cluade", "cluade"),
         (
             "/usr/bin/env no-such-agent-of-tasktap",
-            "env: no-such-agent-of-tasktap: No such file or directory",
+            "no-such-agent-of-tasktap",
         ),
     ] {
         // The look the change itself asks for, before the one asked here.
@@ -477,9 +477,18 @@ fn a_command_that_does_not_start_the_agent_says_so() {
             a.installed && a.command_fails.is_none()
         });
         detect(&mut s);
-        let want = format!("The command of Fixture agent did not start Fixture agent: {said}");
+        let says = |fails: &str| {
+            fails
+                .strip_prefix("The command of Fixture agent did not start Fixture agent: ")
+                .is_some_and(|said| {
+                    said.contains(missing) && said.ends_with("No such file or directory")
+                })
+        };
         s.w.until("the agent says its command did not start it", |m| {
-            m.agents["fixture"].command_fails.as_deref() == Some(want.as_str())
+            m.agents["fixture"]
+                .command_fails
+                .as_deref()
+                .is_some_and(says)
         });
         let a = &s.w.model.agents["fixture"];
         assert!(a.installed, "{typed}");

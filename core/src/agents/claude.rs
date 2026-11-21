@@ -235,6 +235,23 @@ impl Agent for Claude {
         "claude"
     }
 
+    /// Its one-task print mode, a conversation of its own to continue, the
+    /// session's id and the settings file its hooks are in; the task after
+    /// `--`.
+    fn refused(&self) -> &'static [&'static str] {
+        &[
+            "-p",
+            "--print",
+            "-c",
+            "--continue",
+            "-r",
+            "--resume",
+            "--session-id",
+            "--settings",
+            "--",
+        ]
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             events: true,
@@ -256,7 +273,7 @@ impl Agent for Claude {
             Some(handle) => argv.extend(["--resume".into(), handle.into()]),
             None => argv.extend(["--session-id".into(), run.session.uuid().to_string()]),
         }
-        argv.extend(RULES.default.iter().map(|a| (*a).to_owned()));
+        argv.extend(RULES.approval(run.args).iter().map(|a| (*a).to_owned()));
         argv.extend(["--".into(), run.told(self)]);
         argv
     }

@@ -187,6 +187,11 @@ impl Agent for Copilot {
         "copilot"
     }
 
+    /// Its one-task mode, the session it continues and where the task goes.
+    fn refused(&self) -> &'static [&'static str] {
+        &["-p", "--prompt", "--resume", "--interactive"]
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             events: true,

@@ -153,6 +153,20 @@ impl Agent for Pi {
         "pi"
     }
 
+    /// Its print and other modes, the session it continues, and whether a
+    /// project's own code is read, which is the person's switch; the task
+    /// after `--`.
+    fn refused(&self) -> &'static [&'static str] {
+        &[
+            "-p",
+            "--mode",
+            "--session",
+            "--approve",
+            "--no-approve",
+            "--",
+        ]
+    }
+
     /// It asks for no approval, so none is heard. What an extension of the
     /// person's asks in a dialog is shown, and answered in its terminal.
     fn caps(&self) -> Caps {

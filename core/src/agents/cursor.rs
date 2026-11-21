@@ -112,6 +112,11 @@ impl Agent for Cursor {
         "cursor-agent"
     }
 
+    /// Its print mode and the chat it continues; the task after `--`.
+    fn refused(&self) -> &'static [&'static str] {
+        &["-p", "--print", "--resume", "--"]
+    }
+
     /// What it asks, an approval or a question, no hook hears: it asks in
     /// its terminal and the thought shows what it last did.
     fn caps(&self) -> Caps {

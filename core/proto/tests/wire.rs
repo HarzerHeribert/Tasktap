@@ -382,6 +382,7 @@ fn every_call_round_trips() {
     let health = AgentHealth {
         id: "codex".into(),
         name: "Codex".into(),
+        program: "codex".into(),
         supported: true,
         own: false,
         note: None,

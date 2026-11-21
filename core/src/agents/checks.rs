@@ -57,15 +57,16 @@ pub enum Asked {
 /// and one asks its service.
 pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let mut health = found(agent);
-    let program = crate::terminal::find(agent.program()).filter(|_| health.supported);
-    let Some(program) = program else {
+    // Started as the person starts it, without their arguments.
+    let start = super::started(agent).ok().filter(|_| health.supported);
+    let Some(start) = start else {
         return health;
     };
     // A command it has not got is not run: the program alone would start it.
     let checks = agent.detect();
     let asked = |args: &'static [&'static str]| match args.is_empty() {
         true => Err(String::new()),
-        false => output(&program, args),
+        false => output(&start.program, &[&start.head[..], &words(args)].concat()),
     };
     if let Ok((_, out)) = asked(checks.version) {
         health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
@@ -79,7 +80,9 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
 }
 
 /// What is known of `agent` with no command of its own run: its name, what
-/// its runs can do, and whether its program is on the PATH. A core puts
+/// its runs can do, and whether its program is on the PATH, or the first
+/// word of the person's command for it, where they start it their own
+/// way ([`super::started`]). A core puts
 /// this as it starts, with what its commands last said ([`Said`]), so a
 /// page names its agents and shows their rings at once.
 pub fn found(agent: &dyn Agent) -> AgentHealth {
@@ -87,6 +90,7 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
     let mut health = AgentHealth {
         id: agent.id().into(),
         name: agent.name().into(),
+        program: agent.program().into(),
         supported: agent.supported(),
         own: agent.own(),
         note: agent.note().map(Into::into),
@@ -112,8 +116,12 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         permissions: caps.permissions,
         questions: caps.questions,
     };
-    health.installed = crate::terminal::find(agent.program()).is_some();
+    health.installed = super::started(agent).is_ok();
     health
+}
+
+fn words(args: &[&str]) -> Vec<String> {
+    args.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
 /// What an agent's commands said when a core last ran them, kept in the
@@ -320,8 +328,8 @@ pub fn ask(
     (hear, heard): (mpsc::Sender<Asked>, mpsc::Receiver<Asked>),
 ) -> Result<String, Failed> {
     let name = agent.program();
-    let program = crate::terminal::find(name)
-        .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
+    // Started as the person starts it, without their arguments.
+    let start = super::started(agent)?;
     let file = folder.join("schema.json");
     // Written whole or not at all, since another question may read it now.
     if std::fs::read_to_string(&file).ok().as_deref() != Some(schema) {
@@ -334,7 +342,7 @@ pub fn ask(
         file: &file,
     };
     let spawned = crate::sys::Tree::spawn(
-        command(&program, &(how.args)(&schema))
+        command(&start.program, &[start.head, (how.args)(&schema)].concat())
             .current_dir(folder)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -424,7 +432,7 @@ fn command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>]) -> Command {
 
 /// Runs `program` with `args`, and returns its exit code and what it
 /// printed on either output, within [`LIMIT`].
-fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String> {
+fn output(program: &Path, args: &[String]) -> Result<(Option<i32>, String), String> {
     let spawned = crate::sys::Tree::spawn(
         command(program, args)
             .stdin(Stdio::null())

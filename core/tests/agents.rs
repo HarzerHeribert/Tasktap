@@ -366,6 +366,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/x"),
         allowed: &[],
+        args: &[],
     }
 }
 
@@ -1249,6 +1250,7 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
     let found = |installed, signed_in| AgentHealth {
         id: "codex".into(),
         name: "Codex".into(),
+        program: "codex".into(),
         supported: true,
         own: false,
         note: None,

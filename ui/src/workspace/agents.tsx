@@ -4,16 +4,18 @@
 // is a switch under its line, off until turned on, with what it allows. The ones that are not installed are folded
 // into one line at the end, and with them the person's own that they removed: such an agent is kept, so that what it
 // ran still says who ran it, until it is added back or forgotten. Last, an agent of the person's own: a name and a
-// command line.
+// command line. Under each agent Tasktap brings, the command that starts it, where the person starts it their own way
+// (a program of theirs around it, arguments of theirs): empty, Tasktap starts it as always. One whose command names no
+// program Tasktap finds stays in sight and says so, as one of the person's own does.
 //
 // No agent's program runs as the app starts. Opening this section has the core ask those it has not asked in its
 // life whether they are signed in, as giving an agent its first thought does (calls.rs `look`); "Check now" asks
 // every one.
 import { useEffect, useState } from 'preact/hooks';
 import type { AgentHealth, OwnAgent } from '../../../core/proto/protocol.ts';
-import { HERE } from '../system.ts';
+import { HERE, mac } from '../system.ts';
 import { I, Ring, ago } from '../ui.tsx';
-import { agentState, ownAgentLacks } from '../way.ts';
+import { agentState, ownAgentLacks, startLost } from '../way.ts';
 import { Row, Switch, setPref } from './form.tsx';
 import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
 
@@ -41,6 +43,32 @@ const mint = () => `own-${[...crypto.getRandomValues(new Uint8Array(10))].map((b
 
 /** Writes the person's own agents as they are now; the core says in a sentence what one of them lacks. */
 const keepOwn = (all: OwnAgent[]) => call('put', { c: 'prefs', id: 'own_agents', patch: all });
+
+/** The person's command for one of Tasktap's agents (`agent_commands`): empty where Tasktap starts it its own way. */
+const commandOf = (id: string) => pref('agent_commands').find((c) => c.agent === id)?.command ?? '';
+/** What the core said a command it refused cannot have, by agent, until the next one it takes. */
+const refused = new Map<string, string>();
+/** Writes the command of `a` as typed, or none for an empty field; the core says in a sentence what one cannot have. */
+function keepCommand(a: AgentHealth, typed: string) {
+  const command = typed.trim(), rest = pref('agent_commands').filter((c) => c.agent !== a.id);
+  void call('put', { c: 'prefs', id: 'agent_commands', patch: command ? [...rest, { agent: a.id, command }] : rest })
+    .then(() => refused.delete(a.id), (e: Error) => refused.set(a.id, sentence(e.message))).then(redraw);
+}
+/** The row under an agent Tasktap brings: the command that starts it, what Tasktap starts with none, and an example of
+ *  a program of the person's around it (on Windows an argument of Claude Code's; none for Codex, which has no such
+ *  harmless one to show). */
+function Start({ a }: { a: AgentHealth }) {
+  const name = `Command that starts ${a.name}`, p = a.program, why = refused.get(a.id);
+  const example = mac ? `caffeinate -i ${p}` : a.id === 'claude' ? `${p} --verbose` : '';
+  const hint = <>Leave the field empty and Tasktap starts {a.name} as <code>{p}</code>.{example && <> Write your own start instead, for example <code>{example}</code>, and Tasktap adds the task after your words.</>} Aliases of your shell do not count: write out what the alias stands for.</>;
+  return (
+    <Row name={name} hint={why ? undefined : hint}>
+      <input key={a.id} class="text wide" aria-label={name} placeholder={p} spellcheck={false} autocomplete="off" maxLength={2000} defaultValue={commandOf(a.id)}
+        onChange={(e) => keepCommand(a, e.currentTarget.value)} />
+      {why && <p class="hint err" role="alert">{why}</p>}
+    </Row>
+  );
+}
 
 const NAME = 'Name shown in Tasktap', COMMAND = 'Command that runs it';
 /** The form for an agent of the person's own, new (`at` null) or one of theirs to change or remove. */
@@ -82,18 +110,22 @@ export function AgentsPane() {
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Finding your agents…</p>;
   const usual = agent()?.id, allowed = pref('agent_options'), own = pref('own_agents');
-  // Here, or the person's own: one of theirs stays in sight where its program is missing, to be changed.
-  const here = agents.filter((a) => runs(a) || a.own), rest = agents.filter((a) => !runs(a) && !a.own);
+  // Here, or the person's own, or started their own way: such a one stays in sight where its program is missing, to be
+  // changed.
+  const mine = (a: AgentHealth) => a.own || (a.supported && !!commandOf(a.id));
+  const here = agents.filter((a) => runs(a) || mine(a)), rest = agents.filter((a) => !runs(a) && !mine(a));
   // The person's own that they removed: no agents any more, and kept by name for what they ran.
   const gone = own.filter((o) => o.removed);
   const line = (a: AgentHealth) => {
     const off = runs(a) && a.signed_in === false, on = runs(a) && !off;
-    // Of one of the person's own that is here there is nothing to check: only what Tasktap hears of it is said.
-    const state = a.own && runs(a) ? '' : agentState(a, looking.on, ago(a.checked));
+    // Of one of the person's own that is here there is nothing to check: only what Tasktap hears of it is said. Of one
+    // started the person's way whose program is missing, which word of their command is no program.
+    const lost = a.supported && !a.installed && !a.own ? startLost(a.name, commandOf(a.id)) : '';
+    const state = a.own && runs(a) ? '' : lost || agentState(a, looking.on, ago(a.checked));
     const says = [a.version, state, ...about(a), a.identity].filter(Boolean).join(' · ');
     // What wants the person: one that is signed out, one of their own whose program is missing. One that is simply
     // not here is said quietly.
-    const s = on ? undefined : off || a.own ? 'off' : 'none';
+    const s = on ? undefined : off || mine(a) ? 'off' : 'none';
     return (
       <>
         <div class="line ag" data-s={s} data-agent={a.id}>
@@ -121,6 +153,7 @@ export function AgentsPane() {
             </div>
           );
         })}
+        {!a.own && a.supported && <Start a={a} />}
       </>
     );
   };

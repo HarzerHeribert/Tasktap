@@ -589,7 +589,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     };
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
-    let (mut kept, mut own, mut look) = (false, false, false);
+    let (mut kept, mut own, mut look, mut commands) = (false, false, false, false);
     match target {
         PutTarget::Cards { id, patch } => {
             let mut c = tx.card(id).map_err(fail)?.ok_or_else(|| gone(id))?;
@@ -681,6 +681,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             let value = PrefValue::from(patch);
             kept = value.key() == PrefKey::KeepDays;
             own = value.key() == PrefKey::OwnAgents;
+            commands = value.key() == PrefKey::AgentCommands;
             // An agreement names what this core would really ask (design §8).
             if let PrefValue::RouteBy(Some(by)) = &value {
                 crate::route::valid(by).map_err(|why| Error::new(Code::Invalid, why))?;
@@ -701,6 +702,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                     }
                 }
                 PrefValue::OwnAgents(agents) => crate::agents::plain::own(agents).map(|_| ()),
+                PrefValue::AgentCommands(list) => crate::agents::commands(list).map(|_| ()),
                 _ => Ok(()),
             }
             .map_err(invalid)?;
@@ -754,6 +756,9 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     }
     if own {
         crate::calls::own_agents(core);
+    }
+    if commands {
+        crate::calls::agent_commands(core, true);
     }
     // A look switched on is read at once.
     if look {
@@ -842,6 +847,14 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         }
     ) {
         crate::calls::own_agents(core);
+    }
+    if matches!(
+        args,
+        Delete::Prefs {
+            id: PrefKey::AgentCommands
+        }
+    ) {
+        crate::calls::agent_commands(core, true);
     }
     Ok(revision)
 }

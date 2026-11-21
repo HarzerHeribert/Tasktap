@@ -272,6 +272,18 @@ impl Agent for Antigravity {
         "agy"
     }
 
+    /// Its one-question mode, where the task goes, the settings file its hooks
+    /// are in and the conversation it continues.
+    fn refused(&self) -> &'static [&'static str] {
+        &[
+            "-p",
+            "--prompt",
+            "--prompt-interactive",
+            "--settings",
+            "--conversation",
+        ]
+    }
+
     /// What it asks, it asks in its terminal: the notch shows it and the
     /// person answers there.
     fn caps(&self) -> Caps {

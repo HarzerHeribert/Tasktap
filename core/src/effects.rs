@@ -707,9 +707,8 @@ fn begin(core: &mut Core, launch: Launch, token: Secret) -> Option<Outcome> {
     crate::calls::aside(core, look, move |core, found| {
         let lost = || "the check before the start ended without an answer".to_owned();
         let found = found.ok_or_else(lost).flatten();
-        let started = found.and_then(|(program, more)| {
-            crate::launch::start(core, &launch, prepared, program, more, &token)
-        });
+        let started =
+            found.and_then(|argv| crate::launch::start(core, &launch, prepared, argv, &token));
         launched(core, attempt, started, &token);
     });
     None

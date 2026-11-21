@@ -92,6 +92,11 @@ pub struct Run<'a> {
     /// What the person lets agents do beyond their default: the
     /// `agent_options` preference, each `<agent>.<option>`.
     pub allowed: &'a [String],
+    /// The person's own arguments from their command for the agent (the
+    /// `agent_commands` preference, [`args`]), which the core puts before
+    /// the ones [`Agent::launch`] gives: an adapter reads in them only the
+    /// approval policy they state, as a shim reads it in what is typed.
+    pub args: &'a [String],
 }
 
 /// Something an agent does only when the person lets it ([`Agent::options`]):
@@ -322,6 +327,16 @@ pub trait Agent: Sync {
     /// Its program, found on the PATH of the terminals.
     fn program(&self) -> &'static str;
 
+    /// Arguments that set what Tasktap sets for its runs itself, which the
+    /// person's command for it may not hold ([`commands`]): what names a
+    /// run's session, the file its hooks are in, where its task goes, the
+    /// folder it works in, and what makes it take nobody at its terminal.
+    /// One that starts with `--` is refused with its value too. None for
+    /// most agents.
+    fn refused(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn caps(&self) -> Caps;
 
     /// The command line of a run, new or continuing `run.resume`: first the
@@ -524,6 +539,207 @@ pub fn set_own(list: &[tasktap_proto::OwnAgent]) -> Result<(), String> {
     };
     *own = checked.into_iter().map(adapter).collect();
     Ok(())
+}
+
+/// How the person starts the core's agents that they start their own way
+/// (the `agent_commands` preference): each one's command, word by word.
+static COMMANDS: std::sync::RwLock<Vec<(&'static str, Vec<String>)>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// Takes how the person starts the core's agents as it is now, or says why
+/// one of the commands cannot start its agent and leaves the ones before.
+/// Returns the agents whose command changed.
+pub fn set_commands(
+    list: &[tasktap_proto::AgentCommand],
+) -> Result<Vec<&'static dyn Agent>, String> {
+    let checked = commands(list)?;
+    let now: Vec<_> = (checked.into_iter())
+        .map(|(agent, words)| (agent.id(), words))
+        .collect();
+    let mut kept = COMMANDS.write().unwrap_or_else(|e| e.into_inner());
+    let was = std::mem::replace(&mut *kept, now);
+    let of = |list: &[(&str, Vec<String>)], id: &str| {
+        let words = list.iter().find(|(agent, _)| *agent == id);
+        words.map(|(_, words)| words.clone())
+    };
+    let changed = |agent: &&'static dyn Agent| of(&was, agent.id()) != of(&kept, agent.id());
+    Ok(AGENTS.iter().copied().filter(changed).collect())
+}
+
+/// The person's command for `agent`, word by word: none where Tasktap
+/// starts it its own way.
+pub fn command(agent: &dyn Agent) -> Vec<String> {
+    let kept = COMMANDS.read().unwrap_or_else(|e| e.into_inner());
+    let words = kept.iter().find(|(id, _)| *id == agent.id());
+    words.map(|(_, words)| words.clone()).unwrap_or_default()
+}
+
+/// An agent and the person's command for it, word by word.
+pub type Command = (&'static dyn Agent, Vec<String>);
+
+/// How the person starts the core's agents, checked, or why one of the
+/// commands cannot start its agent: a sentence the interface shows as it
+/// is. An empty command is none.
+pub fn commands(list: &[tasktap_proto::AgentCommand]) -> Result<Vec<Command>, String> {
+    let mut all = Vec::new();
+    for (i, command) in list.iter().enumerate() {
+        let id = command.agent.as_str();
+        let agent = AGENTS.iter().copied().find(|agent| agent.id() == id);
+        let agent = agent.ok_or_else(|| format!("Tasktap brings no agent named {id}"))?;
+        let name = agent.name();
+        if list[..i].iter().any(|other| other.agent == id) {
+            return Err(format!("{name} has two commands"));
+        }
+        if command.command.len() > 2000 || command.command.chars().any(char::is_control) {
+            return Err(format!(
+                "The command of {name} is too long, or not one line"
+            ));
+        }
+        let words = split(&command.command)?;
+        for word in args(agent.program(), &words) {
+            let refused = |flag: &&str| {
+                let valued = word.strip_prefix(*flag).is_some_and(|v| v.starts_with('='));
+                word == flag || (flag.len() > 2 && flag.starts_with("--") && valued)
+            };
+            if let Some(flag) = agent.refused().iter().copied().find(refused) {
+                return Err(format!(
+                    "Tasktap sets {flag} itself for {name}: take {flag} out of the command"
+                ));
+            }
+        }
+        if !words.is_empty() {
+            all.push((agent, words));
+        }
+    }
+    Ok(all)
+}
+
+/// The words of a person's command for an agent, as [`plain::words`] has
+/// them, with a leading `~/` their home folder, as a shell would have it.
+pub fn split(text: &str) -> Result<Vec<String>, String> {
+    let home = crate::terminal::home();
+    let home = |word: String| match word.strip_prefix("~/") {
+        Some(rest) => home.join(rest).to_string_lossy().into_owned(),
+        None => word,
+    };
+    Ok(plain::words(text)?.into_iter().map(home).collect())
+}
+
+/// Whether `word` names a file of the program `program`: with a folder or
+/// none, and on Windows in any case and with an extension of `PATHEXT`, as
+/// the program is found.
+fn names(word: &str, program: &str) -> bool {
+    let Some(file) = Path::new(word).file_name().and_then(|f| f.to_str()) else {
+        return false;
+    };
+    if !cfg!(windows) {
+        return file == program;
+    }
+    let file = file.to_ascii_lowercase();
+    let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    let mut exts = exts.split(';').filter(|e| !e.is_empty());
+    let stem = exts.find_map(|ext| file.strip_suffix(&ext.to_ascii_lowercase()));
+    stem.unwrap_or(&file) == program
+}
+
+/// A word that names a program without a folder, which is found on a PATH.
+fn bare(word: &str) -> bool {
+    let path = Path::new(word);
+    path.components().count() == 1 && !path.has_root()
+}
+
+/// The person's own arguments in their command for an agent whose program
+/// is `program`: the words after that program; none where no word is it.
+pub fn args<'a>(program: &str, words: &'a [String]) -> &'a [String] {
+    match words.iter().position(|word| names(word, program)) {
+        Some(at) => &words[at + 1..],
+        None => &[],
+    }
+}
+
+/// What starts an agent, up to the arguments Tasktap gives it: the program
+/// that is run, found; the words after it up to the agent's own program,
+/// that program among them; and the person's arguments after it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Start {
+    pub program: PathBuf,
+    pub head: Vec<String>,
+    pub args: Vec<String>,
+}
+
+impl Start {
+    /// The command line of a run: this, what its check added (`more`), and
+    /// the arguments its adapter gives it (`launched`, as [`Agent::launch`]
+    /// gives it, whose program this stands for), so that Tasktap's come last.
+    pub fn run(self, more: Vec<String>, launched: Vec<String>) -> Vec<String> {
+        let program = self.program.to_string_lossy().into_owned();
+        let tasktap = more.into_iter().chain(launched.into_iter().skip(1));
+        let words = self.head.into_iter().chain(self.args).chain(tasktap);
+        std::iter::once(program).chain(words).collect()
+    }
+
+    /// The program and the words that a question of Tasktap's own to the
+    /// agent starts with (its checks, a thought placed by its model): this
+    /// without the person's arguments, which might change what it answers.
+    pub fn asks(&self) -> Vec<String> {
+        let program = self.program.to_string_lossy().into_owned();
+        std::iter::once(program).chain(self.head.clone()).collect()
+    }
+}
+
+/// What starts the agent named `name`, whose program is `program`, as
+/// `words`, the person's command for it, say; with none, its program alone.
+/// `find` finds a program named without a folder; one named with a folder
+/// is taken as written, a whole path to a file that may be run. Where the
+/// agent's program follows a program of the person's, it is found too, or
+/// left as written for that program to find; where no word is the agent's
+/// program, the whole command stands in its place.
+pub fn start(
+    name: &str,
+    program: &str,
+    words: &[String],
+    find: impl Fn(&str) -> Option<PathBuf>,
+) -> Result<Start, String> {
+    let Some((first, rest)) = words.split_first() else {
+        let found = find(program)
+            .ok_or_else(|| format!("{program} is not installed: no folder of the PATH has it"))?;
+        return Ok(Start {
+            program: found,
+            head: Vec::new(),
+            args: Vec::new(),
+        });
+    };
+    let found = match bare(first) {
+        true => find(first),
+        false => Some(PathBuf::from(first))
+            .filter(|path| path.is_absolute() && crate::roles::shim::runnable(path)),
+    };
+    let found = found.ok_or_else(|| {
+        format!("Tasktap finds no program named {first} for the command of {name}")
+    })?;
+    let (head, args) = match words.iter().position(|word| names(word, program)) {
+        None => (rest.to_vec(), Vec::new()),
+        Some(0) => (Vec::new(), rest.to_vec()),
+        Some(at) => {
+            let own = &words[at];
+            let own = (bare(own).then(|| find(own)).flatten())
+                .map_or_else(|| own.clone(), |p| p.to_string_lossy().into_owned());
+            let head = words[1..at].iter().cloned().chain([own]);
+            (head.collect(), words[at + 1..].to_vec())
+        }
+    };
+    Ok(Start {
+        program: found,
+        head,
+        args,
+    })
+}
+
+/// What starts `agent` as the core runs and asks it: the person's command
+/// for it, with its programs found on the PATH of the terminals.
+pub fn started(agent: &dyn Agent) -> Result<Start, String> {
+    let words = command(agent);
+    start(agent.name(), agent.program(), &words, crate::terminal::find)
 }
 
 /// The agents a core lists as it starts and looks at by itself, the first
@@ -753,6 +969,11 @@ impl Agent for Fixture {
 
     fn program(&self) -> &'static str {
         crate::roles::fixture::PROGRAM
+    }
+
+    /// Its hooks, as an agent's file of them is.
+    fn refused(&self) -> &'static [&'static str] {
+        &["--hook"]
     }
 
     fn caps(&self) -> Caps {

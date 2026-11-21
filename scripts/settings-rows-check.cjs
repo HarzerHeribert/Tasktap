@@ -23,6 +23,12 @@
 //       writes `update_checks` false, after which About asks nothing, Anything else says Nothing, and Check now (by
 //       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
 //       has no switch.
+//   P6  Agents, the command that starts each agent Tasktap brings: a row under each, empty, the agent's program in its
+//       field, a sentence of what an empty field does and an example of a start of the person's own (caffeinate on a
+//       Mac; on Windows an argument of Claude Code's, none for Codex); a command typed and Tab keep it as
+//       `agent_commands`; one that holds what Tasktap sets for a run, then Return, is refused in the core's sentence
+//       under the field and the one before stays; emptied, the command goes. One whose first word Tasktap does not
+//       find stays in sight, not folded away, and says which word.
 //   And a sweep in WebKit by the pointer alone of every control in Settings that acts on a click and then takes keys:
 //   each recorder, the project's choice, Add your own agent, a project's other name, the font field, the field that
 //   finds a project, a section's tab with the arrows, a switch with Space, and Check now.
@@ -391,6 +397,59 @@ async function versions(browser, url, system) {
   await here.context().close();
 }
 
+// ——— P6: the command that starts an agent ———
+async function starts(browser, url, system) {
+  const at = `${system}, the command that starts an agent`;
+  const page = await open(browser, { label: 'workspace', records: scene('busy'), url, dpr: 2, system });
+  await section(page, 'agents');
+  const row = (name) => page.locator(`.set-pane .set:has(> .t:text-is("Command that starts ${name}"))`);
+  const stored = () => page.evaluate(() => JSON.stringify((window.__fake.records.prefs || []).find((p) => p.id === 'agent_commands')?.value ?? null));
+  for (const [name, program, example] of [['Claude Code', 'claude', system === 'mac' ? 'caffeinate -i claude' : 'claude --verbose'], ['Codex', 'codex', system === 'mac' ? 'caffeinate -i codex' : '']]) {
+    const field = row(name).locator('input');
+    expect(await row(name).count() === 1 && await field.inputValue() === '' && await field.getAttribute('placeholder') === program, `${at}: ${name} has its row, empty, with ${program} in its field`);
+    const hint = await row(name).locator('.hint').textContent();
+    const says = `Leave the field empty and Tasktap starts ${name} as ${program}.${example ? ` Write your own start instead, for example ${example}, and Tasktap adds the task after your words.` : ''} Aliases of your shell do not count: write out what the alias stands for.`;
+    expect(hint === says, `${at}: ${name}'s row says what an empty field does${example ? `, with ${example} for an example` : ', with no example'}: "${hint}"`);
+  }
+  await picture(page, 'agents', system);
+  // A click in the field, the command, Tab: kept.
+  const field = row('Claude Code').locator('input');
+  await click(page, field);
+  await page.keyboard.type('caffeinate -i claude --model opus');
+  await key(page, 'Tab');
+  const kept = JSON.stringify([{ agent: 'claude', command: 'caffeinate -i claude --model opus' }]);
+  expect(await stored() === kept, `${at}: a click in Claude Code's field, a command and Tab keep it (${await stored()})`);
+  // One that holds what Tasktap sets for a run, then Return: refused in the core's sentence, and the one before stays.
+  await field.selectText();
+  await page.keyboard.type('claude --resume abc');
+  await key(page, 'Enter');
+  const err = row('Claude Code').locator('.hint.err');
+  const why = (await err.count()) ? await err.textContent() : '';
+  expect(why === 'Tasktap sets --resume itself for Claude Code: take --resume out of the command.' && await stored() === kept, `${at}: a command with --resume, then Return, is refused under the field and the one before stays: "${why}"`);
+  await picture(page, 'agents-refused', system);
+  // Emptied, the command goes, and with it the refusal.
+  await field.selectText();
+  await key(page, 'Backspace');
+  await key(page, 'Tab');
+  expect(await stored() === '[]' && await err.count() === 0, `${at}: emptied, the command goes and so does the refusal (${await stored()})`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+
+  // A first word Tasktap does not find: the agent stays in sight and says which word.
+  const records = scene('busy');
+  records.agents = records.agents.map((a) => (a.id === 'codex' ? { ...a, installed: false, version: null, signed_in: null, identity: null } : a));
+  records.prefs = [...(records.prefs || []), { id: 'agent_commands', rev: 9, value: [{ agent: 'codex', command: 'op run -- codex' }] }];
+  const lost = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
+  await section(lost, 'agents');
+  const line = lost.locator('.set-pane .line.ag[data-agent=codex]');
+  const said = (await line.count()) ? await line.locator('.x').first().textContent() : '';
+  expect(await line.isVisible() && await line.getAttribute('data-s') === 'off' && said.startsWith('Tasktap finds no program named op for the command of Codex.'), `${at}: Codex, whose command starts with op, which is not found, stays in sight and says so: "${said}"`);
+  expect(await lost.locator('.set-pane .set:has(> .t:text-is("Command that starts Codex")) input').inputValue() === 'op run -- codex', `${at}: its field holds its command`);
+  await picture(lost, 'agents-lost', system);
+  for (const e of lost.errors) failures.push(`${at}: page: ${e}`);
+  await lost.context().close();
+}
+
 // ——— WebKit, by the pointer alone: every control that acts on a click and then takes keys ———
 async function sweep(browser, url) {
   const at = 'mac, the pointer and then keys';
@@ -489,6 +548,7 @@ async function main() {
           await atOnce(browser, server.url, system);
           await noKeys(browser, server.url, system);
           await versions(browser, server.url, system);
+          await starts(browser, server.url, system);
         }
         if (name === 'webkit') await sweep(browser, server.url);
       } finally {

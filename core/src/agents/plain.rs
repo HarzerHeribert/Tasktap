@@ -33,6 +33,8 @@ pub struct Plain {
     pub name: &'static str,
     /// Its command line, word by word: first the program.
     pub command: &'static [&'static str],
+    /// What the person's command for it may not hold ([`Agent::refused`]).
+    pub refused: &'static [&'static str],
     /// The words that name a run's model, put after the program when the
     /// run has one; none for a tool that is not told its model.
     pub model: &'static [&'static str],
@@ -80,6 +82,8 @@ pub const AIDER: Plain = Plain {
         "aider", "--yes-always", "--no-analytics", "--no-check-update",
         "--no-show-release-notes", "--no-detect-urls", "--message={prompt}",
     ],
+    // Where the task goes.
+    refused: &["-m", "--message"],
     model: &["--model", MODEL],
     version: &["--version"],
     // The keys and addresses its documentation names for the providers it
@@ -129,6 +133,10 @@ impl Agent for Plain {
 
     fn program(&self) -> &'static str {
         self.command[0]
+    }
+
+    fn refused(&self) -> &'static [&'static str] {
+        self.refused
     }
 
     fn caps(&self) -> Caps {
@@ -244,6 +252,7 @@ impl Own {
             id: kept(self.0),
             name: kept(self.1),
             command: Box::leak(command.into_boxed_slice()),
+            refused: &[],
             model: &[],
             version: &[],
             variables: &[],

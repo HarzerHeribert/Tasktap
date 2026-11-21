@@ -194,6 +194,12 @@ impl Agent for Codex {
         "codex"
     }
 
+    /// Another folder to work in, its one-task and resuming subcommands; the
+    /// task after `--`.
+    fn refused(&self) -> &'static [&'static str] {
+        &["-C", "--cd", "exec", "resume", "--"]
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             events: true,
@@ -219,7 +225,7 @@ impl Agent for Codex {
         }
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
-        argv.extend(RULES.default.iter().map(|a| (*a).to_owned()));
+        argv.extend(RULES.approval(run.args).iter().map(|a| (*a).to_owned()));
         if let Some(handle) = run.resume {
             argv.extend(["resume".into(), handle.into()]);
         }

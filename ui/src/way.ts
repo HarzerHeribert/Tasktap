@@ -236,6 +236,29 @@ export function ownAgentLacks(name: string, command: string): string {
   return '';
 }
 
+/** The words of a command line as the core splits it (agents/plain.rs `words`): apart by spaces, with single or double
+ *  quotes around one that has spaces; nothing in it is expanded and a backslash is itself. Null: a quote is not closed. */
+export function words(line: string): string[] | null {
+  const all: string[] = [];
+  let word = '', open = '', begun = false;
+  for (const c of line) {
+    if (open) c === open ? (open = '') : (word += c);
+    else if (c === '"' || c === "'") (open = c), (begun = true);
+    else if (/\s/.test(c)) begun && all.push(word), (word = ''), (begun = false);
+    else (word += c), (begun = true);
+  }
+  if (open) return null;
+  if (begun) all.push(word);
+  return all;
+}
+
+/** What an agent's row says where the person starts it their own way and the first word of their command is no program
+ *  Tasktap finds (agents.rs `start`), in place of "not installed": that word as they wrote it. Nothing without one. */
+export function startLost(name: string, command: string): string {
+  const first = words(command)?.[0];
+  return first ? `Tasktap finds no program named ${first} for the command of ${name}.` : '';
+}
+
 /** Words given back to a field, a thought taken back or one the core refused, go before what was typed since. */
 export const back = (words: string, field: string) => (field.trim() ? `${words}\n${field}` : words);
 

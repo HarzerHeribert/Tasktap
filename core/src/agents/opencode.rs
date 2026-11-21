@@ -149,6 +149,11 @@ impl Agent for OpenCode {
         "opencode"
     }
 
+    /// The session it continues and where the task goes.
+    fn refused(&self) -> &'static [&'static str] {
+        &["--session", "--prompt"]
+    }
+
     /// Not there yet: nothing of it has been run on Windows.
     fn supported(&self) -> bool {
         !cfg!(windows)

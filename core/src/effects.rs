@@ -1193,8 +1193,9 @@ fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNot
         Ok(Some((q, session, thought)))
     })
     .ok()??;
+    // Tasktap's own question says what it asks ("Which project is this task for?"), and the task's words.
     let (title, body) = if q.source == QuestionSource::Router {
-        ("Where should this go?".to_owned(), cut(&thought?.text))
+        (cut(&q.prompt), cut(&thought?.text))
     } else {
         let agent = session.as_ref().and_then(|s| crate::agents::find(&s.agent));
         let name = agent.map_or("An agent", |a| a.name());

@@ -1622,7 +1622,7 @@ fn the_routers_question_tells_the_host_where_it_should_go() {
     };
     let told = call::HostNotify::args(request.args).unwrap();
     assert_eq!(told.question, q);
-    assert_eq!(told.title, "Where should this go?");
+    assert_eq!(told.title, "Which project?");
     assert_eq!(told.body, s.w.model.thought(t).text);
     assert_eq!(told.session, None);
 }

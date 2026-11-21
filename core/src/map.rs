@@ -1279,9 +1279,10 @@ struct Walk {
     found: Vec<(PathBuf, Kind)>,
     /// Whether it stopped at [`ENTRIES`] folders with more to read.
     short: bool,
-    /// What its stamp watches: the folders it went through that are no
-    /// project and in none, the named folder first, the nearest first, each
-    /// with its modified time before it was listed.
+    /// What its stamp watches: the named folder, and the folders it went
+    /// through (those it judged at its last level too) that are in no
+    /// project found below the named folder, the nearest first, each with
+    /// its modified time before it was listed or judged.
     watched: Vec<(PathBuf, u64)>,
 }
 
@@ -1322,8 +1323,10 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
     // it is in, and whether a repository lies below it.
     let mut marked: Vec<(PathBuf, Kind, Option<usize>, bool)> = Vec::new();
     // Each folder listed, with its modified time before it was listed and
-    // the marked folder it is in.
+    // the marked folder it is in; and each it judged at its last level and
+    // would have gone through, with its time before it was judged.
     let mut listed: Vec<(PathBuf, u64, Option<usize>)> = Vec::new();
+    let mut last: Vec<(PathBuf, u64, Option<usize>)> = Vec::new();
     let (mut judged, mut short) = (0, false);
     'walk: while let Some((at, depth, under)) = queue.pop_front() {
         let time = match depth {
@@ -1362,6 +1365,10 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
             }
             judged += 1;
             let deeper = depth + 1 < DEPTH;
+            let time = match deeper {
+                true => 0,
+                false => std::fs::metadata(&path).map_or(0, |m| modified(&m)),
+            };
             match rule.judge(&path, true) {
                 kind @ Kind::Top { git: true, .. } => {
                     found.push((path, kind));
@@ -1381,6 +1388,7 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
                 Kind::Top { .. } | Kind::Bare if deeper => {
                     queue.push_back((path, depth + 1, under))
                 }
+                Kind::Top { .. } | Kind::Bare => last.push((path, time, under)),
                 _ => {}
             }
         }
@@ -1402,11 +1410,11 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
     if found.is_empty() && short {
         return Err((LookState::Many, None));
     }
-    // The named folder, and what it went through that is in no project.
-    let inside = |under: Option<usize>| repository || one || under.is_some_and(|u| whole[u]);
+    // The named folder, and what it went through that is in no project
+    // found below it (a repository below one named is never gone through).
     let mut watched: Vec<(PathBuf, u64)> = Vec::new();
-    for (at, time, under) in listed {
-        if watched.is_empty() || !inside(under) {
+    for (at, time, under) in listed.into_iter().chain(last) {
+        if watched.is_empty() || !under.is_some_and(|u| whole[u]) {
             watched.push((at, time));
         }
     }
@@ -1421,12 +1429,13 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
 /// A folder look's stamp: the modified times of the folders it watches as
 /// one value, then those folders, one a line, each relative to the folder
 /// looked in, which is watched first and not written. As long as one line
-/// of the protocol at most.
+/// of the protocol at most; a folder whose name has a control character in
+/// it is not watched.
 fn folder_stamp(folder: &Path, watched: &[(PathBuf, u64)]) -> String {
     let (mut hash, mut list) = (Fnv::new(), String::new());
     for (at, time) in watched {
         let rel = at.strip_prefix(folder).ok().and_then(Path::to_str);
-        let Some(rel) = rel.filter(|r| !r.contains('\n')) else {
+        let Some(rel) = rel.filter(|r| !r.chars().any(char::is_control)) else {
             continue;
         };
         if list.len() + rel.len() >= MAX_LINE {
@@ -1830,16 +1839,18 @@ impl Map {
 /// the modified time of each folder it watches (the history's folder, or
 /// the newest dated folders in it) and of the folders directly in each, so
 /// a session in a folder an agent already had is new. Of a folder to look
-/// in: the modified time of each folder its last walk went through that is
-/// no project and in none (the named folder, its groups, its plain folders;
-/// [`WATCHED`] at most), one `stat` each, which its stamp names: a project
-/// cloned into a group, a new group, a project gone or `git init` in a
-/// plain folder is new; a file in a project is not. Kept with the look
+/// in: the modified time of the named folder and of each folder its last
+/// walk went through, or judged at its last level, that is in no project
+/// found below the named folder (its groups, its plain folders; [`WATCHED`]
+/// at most), one `stat` each, which its stamp names: a project cloned into
+/// a group, a new group, a project gone or `git init` in a plain folder is
+/// new; a file in a project found below it is not. Kept with the look
 /// (`Look::stamp`), so a core that starts again knows it too.
 pub fn stamp(rule: &Rule, look: &Look) -> String {
     if let (None, Some(folder)) = (&look.agent, &look.folder) {
         let folder = Path::new(folder);
-        let rel = (look.stamp.as_deref().into_iter()).flat_map(|s| s.lines().skip(1));
+        // One a line, split at `\n` alone: a folder's name may end in `\r`.
+        let rel = (look.stamp.as_deref().into_iter()).flat_map(|s| s.split('\n').skip(1));
         let watched: Vec<(PathBuf, u64)> = std::iter::once(folder.to_owned())
             .chain(rel.map(|r| folder.join(r)))
             .map(|at| {

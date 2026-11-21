@@ -2073,3 +2073,88 @@ fn the_named_folder_an_agent_was_started_in_is_a_project_of_its_own() {
     read_into(&mut store, &home, &data, &looks);
     assert_eq!(offered(&mut store), [stray.clone(), stray.join("web")]);
 }
+
+/// The stamp a read of `look` alone leaves on it.
+fn read_stamp(home: &Path, data: &Path, look: &Look) -> String {
+    let out = map::read(Input {
+        rule: Rule::new(home, data),
+        data: data.to_owned(),
+        looks: vec![look.clone()],
+        opened: Vec::new(),
+        known: Default::default(),
+    });
+    out.looks[0].4.clone()
+}
+
+// The review's cases rv9 to rv12: what the cheap check notices.
+
+#[cfg(unix)]
+#[test]
+fn a_folder_whose_name_ends_in_a_carriage_return_leaves_the_check_settled() {
+    // rv9: a name with a control character is not watched, on either side.
+    let t = Folder::new("rv-cr");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    init(&git.join("work/harbor"));
+    mkdir(&git.join("odd\r"));
+    mkdir(&git.join("plain"));
+    let mut look = folder_look(&git);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_eq!(Some(&now), look.stamp.as_ref(), "nothing changed");
+}
+
+#[test]
+fn a_repository_cloned_into_a_folder_of_a_named_repository_is_noticed() {
+    // rv10
+    let t = Folder::new("rv-repo");
+    let (home, data) = home_of(&t);
+    let dev = home.join("dev");
+    init(&dev);
+    init(&dev.join("work/a"));
+    let mut look = folder_look(&dev);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    init(&dev.join("work/b"));
+    let (_, _, found) = found_in(&home, &data, &dev);
+    assert_eq!(found, ["", "work/a", "work/b"], "a read finds it");
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_ne!(Some(now), look.stamp, "the check notices it");
+}
+
+#[test]
+fn a_repository_cloned_into_a_folder_of_the_one_named_project_is_noticed() {
+    // rv11
+    let t = Folder::new("rv-one");
+    let (home, data) = home_of(&t);
+    let stray = home.join("stray");
+    write(&stray.join("package.json"), "{}");
+    mkdir(&stray.join("apps"));
+    let mut look = folder_look(&stray);
+    assert_eq!(found_in(&home, &data, &stray).2, [""]);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    init(&stray.join("apps/web"));
+    let (_, _, found) = found_in(&home, &data, &stray);
+    assert_eq!(found, ["apps/web"], "a read finds it");
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_ne!(Some(now), look.stamp, "the check notices it");
+}
+
+#[test]
+fn git_init_in_a_plain_folder_five_down_is_noticed() {
+    // rv12: the last level is judged without being listed, and watched.
+    let t = Folder::new("rv-five");
+    let (home, data) = home_of(&t);
+    let git = home.join("git");
+    init(&git.join("solo"));
+    mkdir(&git.join("a/b/c/d/five"));
+    let mut look = folder_look(&git);
+    look.stamp = Some(read_stamp(&home, &data, &look));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    init(&git.join("a/b/c/d/five"));
+    let (_, _, found) = found_in(&home, &data, &git);
+    assert_eq!(found, ["a/b/c/d/five", "solo"], "a read finds it");
+    let now = map::stamp(&Rule::new(&home, &data), &look);
+    assert_ne!(Some(now), look.stamp, "the check notices it");
+}

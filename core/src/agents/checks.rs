@@ -57,18 +57,39 @@ pub enum Asked {
 /// and one asks its service.
 pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let mut health = found(agent);
-    let program = crate::terminal::find(agent.program()).filter(|_| health.supported);
-    let Some(program) = program else {
+    // Started as the person starts it, their command then its arguments.
+    let start = super::started(agent).ok().filter(|_| health.supported);
+    let Some(start) = start else {
         return health;
     };
     // A command it has not got is not run: the program alone would start it.
     let checks = agent.detect();
     let asked = |args: &'static [&'static str]| match args.is_empty() {
         true => Err(String::new()),
-        false => output(&program, args),
+        false => output(&start, args),
     };
-    if let Ok((_, out)) = asked(checks.version) {
-        health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
+    // A version only where it looks like one, with a number in it; through
+    // the person's command, only where that ended well.
+    let printed = asked(checks.version);
+    let version = printed.as_ref().ok().and_then(|(code, out)| {
+        let version = (checks.version_of)(out)?;
+        let ended = !start.theirs || *code == Some(0);
+        (ended && version.contains(|c: char| c.is_ascii_digit())).then_some(version)
+    });
+    health.version = version.as_deref().map(|v| fit(v, 200));
+    // Their command did not start the agent: it says so, and nothing of a
+    // sign-in, which its program would have answered in the agent's place.
+    if start.theirs && !checks.version.is_empty() && version.is_none() {
+        let said = match &printed {
+            Ok((_, out)) => out.lines().map(str::trim).find(|l| !l.is_empty()),
+            Err(why) => Some(why.as_str()),
+        };
+        let name = agent.name();
+        let said = super::line(said.unwrap_or("it printed nothing"), 200);
+        health.command_fails = Some(format!(
+            "The command of {name} did not start {name}: {said}"
+        ));
+        return health;
     }
     if let Ok((code, out)) = asked(checks.account) {
         let (signed_in, identity) = (checks.account_of)(code, &out);
@@ -79,7 +100,9 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
 }
 
 /// What is known of `agent` with no command of its own run: its name, what
-/// its runs can do, and whether its program is on the PATH. A core puts
+/// its runs can do, and whether its program is on the PATH, or the first
+/// word of the person's command for it, where they start it their own
+/// way ([`super::started`]). A core puts
 /// this as it starts, with what its commands last said ([`Said`]), so a
 /// page names its agents and shows their rings at once.
 pub fn found(agent: &dyn Agent) -> AgentHealth {
@@ -87,6 +110,7 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
     let mut health = AgentHealth {
         id: agent.id().into(),
         name: agent.name().into(),
+        program: agent.program().into(),
         supported: agent.supported(),
         own: agent.own(),
         note: agent.note().map(Into::into),
@@ -103,6 +127,7 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         rev: tasktap_proto::Rev::ZERO,
         checked: tasktap_proto::Time::ZERO,
         installed: false,
+        command_fails: None,
         version: None,
         signed_in: None,
         identity: None,
@@ -112,7 +137,12 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         permissions: caps.permissions,
         questions: caps.questions,
     };
-    health.installed = crate::terminal::find(agent.program()).is_some();
+    let start = super::started(agent);
+    health.installed = start.is_ok();
+    // Their command, refused as it is stored, or one that cannot start.
+    let theirs = !super::command(agent).is_empty();
+    let fails = start.err().filter(|_| theirs);
+    health.command_fails = super::command_refused(agent).or(fails);
     health
 }
 
@@ -246,8 +276,9 @@ pub fn keep(home: &Path, files: &[(&'static str, String)]) -> Result<(), String>
     Ok(())
 }
 
-/// Runs a probe in `cwd` and returns the arguments it adds to the run.
-pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
+/// Runs a probe in `cwd` and returns the arguments it adds to the run;
+/// `theirs` as [`super::Start`] has it.
+pub fn probe(mut probe: Probe, cwd: &Path, theirs: bool) -> Result<Vec<String>, String> {
     let Some((name, args)) = probe.argv.split_first() else {
         return Err("the check names no program".into());
     };
@@ -259,7 +290,7 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
     let program =
         program.ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
     let spawned = crate::sys::Tree::spawn(
-        command(&program, args)
+        command(&program, args, theirs)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -302,7 +333,7 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
         }
     };
     drop(input);
-    end(&mut child, &tree);
+    end(&mut child, &tree, theirs);
     result
 }
 
@@ -320,8 +351,8 @@ pub fn ask(
     (hear, heard): (mpsc::Sender<Asked>, mpsc::Receiver<Asked>),
 ) -> Result<String, Failed> {
     let name = agent.program();
-    let program = crate::terminal::find(name)
-        .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
+    // Started as the person starts it, without their arguments.
+    let start = super::started(agent)?;
     let file = folder.join("schema.json");
     // Written whole or not at all, since another question may read it now.
     if std::fs::read_to_string(&file).ok().as_deref() != Some(schema) {
@@ -334,11 +365,15 @@ pub fn ask(
         file: &file,
     };
     let spawned = crate::sys::Tree::spawn(
-        command(&program, &(how.args)(&schema))
-            .current_dir(folder)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
+        command(
+            &start.program,
+            &[&start.head[..], &(how.args)(&schema)].concat(),
+            start.theirs,
+        )
+        .current_dir(folder)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped()),
     );
     let (mut child, tree) = spawned.map_err(|e| format!("{name} could not run: {e}"))?;
     let (input, mut out, err) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
@@ -393,7 +428,7 @@ pub fn ask(
         )),
     };
     // It has printed everything or is no longer wanted: either way it ends.
-    end(&mut child, &tree);
+    end(&mut child, &tree, start.theirs);
     let printed = printed?;
     if printed.len() as u64 > MAX_ANSWER {
         return Err("its answer is too large".to_owned().into());
@@ -412,21 +447,34 @@ pub fn ask(
     })
 }
 
-/// `program` with `args` in the checks' environment.
-fn command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>]) -> Command {
+/// `program` with `args` in the checks' environment. One that is the
+/// person's command (`theirs`) leads a process group of its own on Mac and
+/// Linux, which [`end`] ends whole: the agent its program started with it.
+fn command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>], theirs: bool) -> Command {
     let mut command = Command::new(program);
     command
         .args(args)
         .env_clear()
         .envs(crate::terminal::environment_of_checks());
+    #[cfg(unix)]
+    if theirs {
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    }
+    #[cfg(windows)]
+    let _ = theirs;
     command
 }
 
-/// Runs `program` with `args`, and returns its exit code and what it
-/// printed on either output, within [`LIMIT`].
-fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String> {
+/// Runs what starts the agent with `args`, and returns its exit code and
+/// what it printed on either output, within [`LIMIT`].
+fn output(start: &super::Start, args: &[&str]) -> Result<(Option<i32>, String), String> {
+    let args = start
+        .head
+        .iter()
+        .map(String::as_str)
+        .chain(args.iter().copied());
     let spawned = crate::sys::Tree::spawn(
-        command(program, args)
+        command(&start.program, &args.collect::<Vec<_>>(), start.theirs)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -461,7 +509,7 @@ fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String
             Ok(part) => text.extend(part),
             Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {
-                end(&mut child, &tree);
+                end(&mut child, &tree, start.theirs);
                 return Err(format!("it did not answer within {} s", LIMIT.as_secs()));
             }
         }
@@ -471,7 +519,7 @@ fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String
             Ok(Some(status)) => break status.code(),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             _ => {
-                end(&mut child, &tree);
+                end(&mut child, &tree, start.theirs);
                 break None;
             }
         }
@@ -480,9 +528,16 @@ fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String
 }
 
 /// Ends the program and, on Windows, what it started: a tool installed as
-/// a batch file is the command prompt running the tool.
-fn end(child: &mut Child, tree: &crate::sys::Tree) {
+/// a batch file is the command prompt running the tool. Elsewhere so does a
+/// program of the person's (`theirs`), by its process group.
+fn end(child: &mut Child, tree: &crate::sys::Tree, theirs: bool) {
     tree.kill();
+    #[cfg(unix)]
+    if theirs {
+        crate::sys::signal_group(child.id(), true);
+    }
+    #[cfg(windows)]
+    let _ = theirs;
     let _ = child.kill();
     let _ = child.wait();
 }

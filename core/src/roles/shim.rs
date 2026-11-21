@@ -170,13 +170,13 @@ fn candidates(folder: &Path, name: &str) -> Vec<PathBuf> {
 }
 
 #[cfg(unix)]
-fn runnable(file: &Path) -> bool {
+pub(crate) fn runnable(file: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(file).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(windows)]
-fn runnable(file: &Path) -> bool {
+pub(crate) fn runnable(file: &Path) -> bool {
     file.is_file()
 }
 
@@ -277,7 +277,7 @@ fn observe(
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Some(mut probe) = agent.probe(&exe, &cwd) {
         probe.argv[0] = real.to_string_lossy().into_owned();
-        match agents::checks::probe(probe, &cwd) {
+        match agents::checks::probe(probe, &cwd, false) {
             Ok(more) => {
                 run.args(more);
             }

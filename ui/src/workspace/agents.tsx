@@ -4,14 +4,16 @@
 // is a switch under its line, off until turned on, with what it allows. The ones that are not installed are folded
 // into one line at the end, and with them the person's own that they removed: such an agent is kept, so that what it
 // ran still says who ran it, until it is added back or forgotten. Last, an agent of the person's own: a name and a
-// command line.
+// command line. Under each agent Tasktap brings, the command that starts it, where the person starts it their own way
+// (a program of theirs around it, arguments of theirs): empty, Tasktap starts it as always. One whose command does not
+// start it stays in sight and says why in the core's words, as one of the person's own does.
 //
 // No agent's program runs as the app starts. Opening this section has the core ask those it has not asked in its
 // life whether they are signed in, as giving an agent its first thought does (calls.rs `look`); "Check now" asks
 // every one.
 import { useEffect, useState } from 'preact/hooks';
 import type { AgentHealth, OwnAgent } from '../../../core/proto/protocol.ts';
-import { HERE } from '../system.ts';
+import { HERE, mac } from '../system.ts';
 import { I, Ring, ago } from '../ui.tsx';
 import { agentState, ownAgentLacks } from '../way.ts';
 import { Row, Switch, setPref } from './form.tsx';
@@ -41,6 +43,35 @@ const mint = () => `own-${[...crypto.getRandomValues(new Uint8Array(10))].map((b
 
 /** Writes the person's own agents as they are now; the core says in a sentence what one of them lacks. */
 const keepOwn = (all: OwnAgent[]) => call('put', { c: 'prefs', id: 'own_agents', patch: all });
+
+/** How the person starts one of Tasktap's agents their own way (`agent_commands`): empty where Tasktap starts it its own
+ *  way. It applies to the starts the core makes itself; what is typed in a shell, Sign in's too, is the shell's. */
+const commandOf = (id: string) => pref('agent_commands').find((c) => c.agent === id)?.command ?? '';
+/** Writes the command of `a` as typed, or none for an empty field: the core's sentence for one it refuses, else none. Its
+ *  length is counted in bytes, as the core counts it. */
+function keepCommand(a: AgentHealth, typed: string): Promise<string> {
+  const command = typed.trim(), rest = pref('agent_commands').filter((c) => c.agent !== a.id);
+  if (new TextEncoder().encode(command).length > 2000) return Promise.resolve(sentence(`The command of ${a.name} is too long, or not one line`));
+  return call('put', { c: 'prefs', id: 'agent_commands', patch: command ? [...rest, { agent: a.id, command }] : rest })
+    .then(() => '', (e: Error) => sentence(e.message));
+}
+/** The row under an agent Tasktap brings: the command that starts it, with its program in the empty field, and in one
+ *  sentence an example of a start of the person's own (on Windows an argument of Claude Code's; none for Codex, which
+ *  has no such harmless one to show). A refusal belongs to what the field holds: it goes with the next command kept,
+ *  and when the field shows the one kept again, as the section is left. */
+function Start({ a }: { a: AgentHealth }) {
+  const [why, say] = useState('');
+  const name = `Command that starts ${a.name}`, p = a.program;
+  const example = mac ? `caffeinate -i ${p}` : a.id === 'claude' ? `${p} --verbose` : '';
+  const hint = <>Write how you start {a.name}{example && <>, such as <code>{example}</code></>}, without shell aliases; leave the field empty for Tasktap's own start.</>;
+  return (
+    <Row name={name} hint={why ? undefined : hint}>
+      <input class="text wide" aria-label={name} placeholder={p} spellcheck={false} autocomplete="off" maxLength={2000} defaultValue={commandOf(a.id)}
+        onChange={(e) => void keepCommand(a, e.currentTarget.value).then(say)} />
+      {why && <p class="hint err" role="alert">{why}</p>}
+    </Row>
+  );
+}
 
 const NAME = 'Name shown in Tasktap', COMMAND = 'Command that runs it';
 /** The form for an agent of the person's own, new (`at` null) or one of theirs to change or remove. */
@@ -82,18 +113,22 @@ export function AgentsPane() {
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Finding your agents…</p>;
   const usual = agent()?.id, allowed = pref('agent_options'), own = pref('own_agents');
-  // Here, or the person's own: one of theirs stays in sight where its program is missing, to be changed.
-  const here = agents.filter((a) => runs(a) || a.own), rest = agents.filter((a) => !runs(a) && !a.own);
+  // Here, or the person's own, or started their own way: such a one stays in sight where its program is missing, to be
+  // changed.
+  const mine = (a: AgentHealth) => a.own || (a.supported && !!commandOf(a.id));
+  const here = agents.filter((a) => runs(a) || mine(a)), rest = agents.filter((a) => !runs(a) && !mine(a));
   // The person's own that they removed: no agents any more, and kept by name for what they ran.
   const gone = own.filter((o) => o.removed);
   const line = (a: AgentHealth) => {
     const off = runs(a) && a.signed_in === false, on = runs(a) && !off;
-    // Of one of the person's own that is here there is nothing to check: only what Tasktap hears of it is said.
-    const state = a.own && runs(a) ? '' : agentState(a, looking.on, ago(a.checked));
+    // Of one of the person's own that is here there is nothing to check: only what Tasktap hears of it is said. Of one
+    // started the person's way whose command does not start it, why, in the core's words.
+    const fails = a.supported && a.command_fails ? sentence(a.command_fails) : '';
+    const state = a.own && runs(a) ? '' : fails || agentState(a, looking.on, ago(a.checked));
     const says = [a.version, state, ...about(a), a.identity].filter(Boolean).join(' · ');
     // What wants the person: one that is signed out, one of their own whose program is missing. One that is simply
     // not here is said quietly.
-    const s = on ? undefined : off || a.own ? 'off' : 'none';
+    const s = on ? undefined : off || mine(a) ? 'off' : 'none';
     return (
       <>
         <div class="line ag" data-s={s} data-agent={a.id}>
@@ -121,6 +156,7 @@ export function AgentsPane() {
             </div>
           );
         })}
+        {!a.own && a.supported && <Start key={a.id} a={a} />}
       </>
     );
   };

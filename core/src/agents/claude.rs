@@ -55,6 +55,10 @@ pub const RULES: Rules = Rules {
     noninteractive: &["-p"],
     policy: &["--permission-mode", "--dangerously-skip-permissions", "--permission-prompt-tool"],
     default: &["--permission-mode", "auto"],
+    // Another conversation, its session's id, the settings its hooks are in,
+    // its model; the task after `--`.
+    #[rustfmt::skip]
+    taken: &["-c", "--continue", "-r", "--resume", "--session-id", "--settings", "--model", "--"],
 };
 
 /// Seconds a hook that asked may wait for the person before Claude Code
@@ -256,7 +260,7 @@ impl Agent for Claude {
             Some(handle) => argv.extend(["--resume".into(), handle.into()]),
             None => argv.extend(["--session-id".into(), run.session.uuid().to_string()]),
         }
-        argv.extend(RULES.default.iter().map(|a| (*a).to_owned()));
+        argv.extend(RULES.approval(run.args).iter().map(|a| (*a).to_owned()));
         argv.extend(["--".into(), run.told(self)]);
         argv
     }

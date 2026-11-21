@@ -552,6 +552,11 @@ pub fn find(program: &str) -> Option<PathBuf> {
     crate::roles::shim::find(program, &process::path(None, None), |_, _| true)
 }
 
+/// The person's home folder, where a terminal with no project starts.
+pub fn home() -> PathBuf {
+    process::home()
+}
+
 /// The environment of a check of an agent's own program: a terminal's,
 /// without how to reach the core.
 pub fn environment_of_checks() -> Vec<(String, std::ffi::OsString)> {

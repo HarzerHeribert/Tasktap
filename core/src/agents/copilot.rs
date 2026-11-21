@@ -63,6 +63,8 @@ pub const RULES: Rules = Rules {
         "--autopilot", "--mode", "--mode=", "--assisted-approval"],
     // Its own default stands: the approvals the person set.
     default: &[],
+    // Where the task goes, the session it continues, its model.
+    taken: &["-i", "--interactive", "--continue", "--resume", "--model"],
 };
 
 /// Seconds a hook that asked may wait for the person before Copilot gives

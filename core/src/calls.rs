@@ -789,6 +789,37 @@ pub fn own_agents(core: &mut Core) {
     });
 }
 
+/// Takes how the person starts the core's agents (the `agent_commands`
+/// preference) as it is now, when the core starts and, with `changed`, when
+/// the preference changed; then it looks again, off this thread, at the
+/// agents whose command changed: by their own commands where this core may
+/// run them by itself, else only whether their program is there. As the
+/// core starts, its first look sees them.
+pub fn agent_commands(core: &mut Core, changed: bool) {
+    let kept = effects::read(core, |tx| tx.pref(tasktap_proto::PrefKey::AgentCommands));
+    let list = match kept.ok().flatten().map(|pref| pref.value) {
+        Some(PrefValue::AgentCommands(list)) => list,
+        _ => Vec::new(),
+    };
+    let agents = crate::agents::set_commands(&list);
+    if !changed || agents.is_empty() {
+        return;
+    }
+    let (looks, asked) = (core.looks, crate::agents::at_start());
+    let look = move || {
+        let detect = |a: &dyn crate::agents::Agent| looks && asked.iter().any(|b| b.id() == a.id());
+        (agents.into_iter())
+            .map(|a| match detect(a) {
+                true => crate::agents::checks::detect(a),
+                false => crate::agents::checks::found(a),
+            })
+            .collect::<Vec<_>>()
+    };
+    aside(core, look, |core, found| {
+        let _ = core.set_agents(found.unwrap_or_default());
+    });
+}
+
 /// Lists the agents once as the core starts, off its thread, so the
 /// `agents` collection is filled before a page asks (design §7): which are
 /// installed, by their programs on the PATH, and what their own commands

@@ -727,6 +727,10 @@ pub enum PrefValue {
     /// and a command line. They follow the core's own in the `agents`
     /// collection.
     OwnAgents(Vec<OwnAgent>),
+    /// How the person starts the core's agents, where they start one their
+    /// own way: a command line each, which stands where the agent's program
+    /// would. An agent that is not here is started as Tasktap starts it.
+    AgentCommands(Vec<AgentCommand>),
     /// The person put Setup away on Home (design/ui-directions/NOTES.md §13):
     /// its one-time offers stay in Settings, and Home shows it no more.
     /// False: Home shows it while one of its steps is not done.
@@ -757,6 +761,21 @@ pub struct OwnAgent {
     /// be added back as it was.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub removed: bool,
+}
+
+/// How the person starts one of the core's agents (design §7): what they
+/// would type in a terminal up to where the task goes. The words before the
+/// agent's program are a program of theirs that runs it, the words after it
+/// their own arguments, and Tasktap's arguments for a run follow. No shell
+/// reads it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AgentCommand {
+    /// The agent, by the id `agents.detect` lists: one Tasktap brings.
+    pub agent: String,
+    /// Its command line, apart by spaces, with quotes around a word that
+    /// has spaces: `caffeinate -i claude --model opus`.
+    pub command: String,
 }
 
 /// A key combination in a portable form: the modifiers held, and the key
@@ -1085,7 +1104,8 @@ words! {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
-        AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey
+        AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey,
+        AgentCommands
     }
 }
 
@@ -1145,6 +1165,7 @@ impl PrefKey {
             PrefKey::QuestionKey => PrefValue::QuestionKey(None),
             PrefKey::YesKey => PrefValue::YesKey(None),
             PrefKey::NoKey => PrefValue::NoKey(None),
+            PrefKey::AgentCommands => PrefValue::AgentCommands(Vec::new()),
         }
     }
 }
@@ -1180,6 +1201,7 @@ impl PrefValue {
             PrefValue::QuestionKey(_) => PrefKey::QuestionKey,
             PrefValue::YesKey(_) => PrefKey::YesKey,
             PrefValue::NoKey(_) => PrefKey::NoKey,
+            PrefValue::AgentCommands(_) => PrefKey::AgentCommands,
         }
     }
 }

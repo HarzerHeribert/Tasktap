@@ -313,6 +313,9 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       if (args.stop) (records.terminals || []).filter((t) => t.project_id === args.id && t.state === 'running').forEach(end);
       return reply(id, null);
     }
+    // A command of an agent that holds what Tasktap sets for its runs is refused in the core's sentence, and nothing is
+    // stored.
+    if (name === 'put' && args.c === 'prefs' && args.id === 'agent_commands' && startRefused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: startRefused(args.patch) } });
     // A key the rule of a shortcut refuses is refused in the core's sentence, and nothing is stored.
     if (name === 'put' && args.c === 'prefs' && args.id === 'talk_key' && args.patch && refused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: refused(args.patch) } });
     if (name === 'put' && args.c === 'prefs') {
@@ -367,6 +370,17 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
   const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
   const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
   const answers = () => ({ question: keyOf('question'), yes: keyOf('yes'), no: keyOf('no'), takes });
+  /** Why the commands that start Claude Code and Codex cannot be, as the core's `agents::judge` says it, in small: an
+   *  argument after the last word that is the agent's program that Tasktap sets itself, alone or with its value. */
+  const startRefused = (all) => {
+    const sets = { claude: ['Claude Code', ['-p', '--print', '-c', '--continue', '-r', '--resume', '--session-id', '--settings', '--model', '--']], codex: ['Codex', ['-C', '--cd', 'e', 'exec', 'review', 'resume', '-m', '--model', '--']] };
+    for (const { agent, command } of all) {
+      const [name, flags] = sets[agent] ?? [agent, []], words = command.split(/\s+/), at = words.lastIndexOf(agent);
+      const flag = at < 0 ? null : flags.find((f) => words.slice(at + 1).some((w) => w === f || (f.length > 2 && f.startsWith('--') && w.startsWith(`${f}=`))));
+      if (flag) return `Tasktap sets ${flag} itself for ${name}: take ${flag} out of the command`;
+    }
+    return null;
+  };
   /** Why `key` cannot be the key `which` beside Tasktap's own window, as the core's `own_key` says it. */
   const sys = win ? 'windows' : 'mac';
   const own = (which, key) => {
@@ -645,7 +659,7 @@ function fixtures({ question = true } = {}) {
     { id: id(402), rev: 43, thought_id: id(7), session_id: id(207), turn: 1, kind: 'failure', summary: 'The upgrade stopped: two plugins still require the old major and no compatible release exists.' },
   ];
   const agent = (n, version) => ({
-    id: n, name: { claude: 'Claude Code', codex: 'Codex' }[n] ?? n, supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: NOW, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true,
+    id: n, name: { claude: 'Claude Code', codex: 'Codex' }[n] ?? n, program: n, supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: NOW, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true,
     permissions: 'core', questions: 'core',
   });
   return {

@@ -60,6 +60,8 @@ pub const RULES: Rules = Rules {
     policy: &["--auto"],
     // Its own default stands: the permissions the person configured.
     default: &[],
+    // The session it continues, where the task goes.
+    taken: &["--continue", "--session", "--prompt"],
 };
 
 /// The plugin, with a placeholder where this program's path goes.

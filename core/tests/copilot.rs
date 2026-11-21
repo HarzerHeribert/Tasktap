@@ -63,6 +63,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/copilot"),
         allowed: &[],
+        args: &[],
     }
 }
 

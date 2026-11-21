@@ -121,6 +121,11 @@ pub enum PrefPatch {
     ),
     SetupHidden(bool),
     UpdateChecks(bool),
+    /// Refused by the core unless each is as [`crate::records::AgentCommand`] says.
+    AgentCommands(
+        #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+        Vec<crate::records::AgentCommand>,
+    ),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
@@ -186,6 +191,7 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::OwnAgents(v) => PrefValue::OwnAgents(v),
             PrefPatch::SetupHidden(v) => PrefValue::SetupHidden(v),
             PrefPatch::UpdateChecks(v) => PrefValue::UpdateChecks(v),
+            PrefPatch::AgentCommands(v) => PrefValue::AgentCommands(v),
         }
     }
 }
@@ -495,6 +501,9 @@ pub struct AgentHealth {
     pub id: String,
     /// Its name, as every sentence about it says it.
     pub name: String,
+    /// The program that starts it, as a person types it: what the person's
+    /// command for it names (the `agent_commands` preference).
+    pub program: String,
     /// It runs on this system. One that does not yet is listed, and runs nothing.
     pub supported: bool,
     /// The revision of the change that last put the row.
@@ -512,8 +521,14 @@ pub struct AgentHealth {
     /// What the person can let it do beyond its default (the
     /// `agent_options` preference).
     pub options: Vec<AgentOption>,
-    /// Its program is on the PATH the core's terminals get.
+    /// Its program is on the PATH the core's terminals get; where the
+    /// person starts it their own way, the first word of their command is,
+    /// or names a file that may be run.
     pub installed: bool,
+    /// Why the person's command for it does not start it, as a sentence:
+    /// Tasktap finds no program by its first word, this build refuses it, or
+    /// asked for the agent's version it did not start the agent.
+    pub command_fails: Option<String>,
     /// As it reports its version.
     pub version: Option<String>,
     /// Whether it is signed in; none when it could not be told.

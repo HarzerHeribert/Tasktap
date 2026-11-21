@@ -29,6 +29,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>) -> Run<'a> {
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/aider"),
         allowed: &[],
+        args: &[],
     }
 }
 

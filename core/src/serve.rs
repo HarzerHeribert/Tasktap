@@ -217,6 +217,7 @@ async fn serve(opts: Options) -> io::Result<()> {
     // and then once a day while this core runs.
     crate::effects::keep(&mut core.borrow_mut(), true);
     crate::calls::own_agents(&mut core.borrow_mut());
+    crate::calls::agent_commands(&mut core.borrow_mut(), false);
     if opts.detect {
         crate::calls::agents_at_start(&core.borrow());
     }

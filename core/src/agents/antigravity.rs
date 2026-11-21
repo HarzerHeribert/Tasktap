@@ -52,6 +52,9 @@ pub const RULES: Rules = Rules {
     policy: &["--mode", "--dangerously-skip-permissions"],
     // Its own default stands: the mode the person set, `auto` where it has one.
     default: &[],
+    // Where the task goes, the settings its hooks are in, the conversation it
+    // continues, its model.
+    taken: &["-i", "--prompt-interactive", "--settings", "--conversation", "--model"],
 };
 
 /// The model a headless question asks, the smallest fast one it lists

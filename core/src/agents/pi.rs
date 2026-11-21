@@ -54,6 +54,9 @@ pub const RULES: Rules = Rules {
     // It asks for no approval: there is no policy to state, and none to add.
     policy: &[],
     default: &[],
+    // The session it continues or forks, whether a project's own code is
+    // read (the person's switch), its model; the task after `--`.
+    taken: &["--session", "--fork", "--approve", "--no-approve", "--model", "--"],
 };
 
 /// The option that lets a run read its project's own `.pi`.

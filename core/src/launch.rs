@@ -35,6 +35,9 @@ const INDIRECT: &str =
 pub struct Prepared {
     agent: &'static dyn Agent,
     argv: Vec<String>,
+    /// The person's command for the agent, word by word, as it was when the
+    /// run was prepared: a run keeps the command it was started with.
+    command: Vec<String>,
     probe: Option<Probe>,
     /// The agent's folder in the data folder, and the files it reads there.
     home: PathBuf,
@@ -58,6 +61,7 @@ pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, 
     let hook =
         crate::roles::program().map_err(|e| format!("Tasktap cannot find its own program: {e}"))?;
     let home = agents::home(data, agent);
+    let command = agents::command(agent);
     let run = Run {
         session: l.session,
         cwd: Path::new(&l.cwd),
@@ -68,6 +72,7 @@ pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, 
         hook: &hook,
         home: &home,
         allowed,
+        args: agents::theirs(agent.program(), &command),
     };
     let argv = agent.launch(&run);
     let probe = agent.probe(&hook, Path::new(&l.cwd));
@@ -75,6 +80,7 @@ pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, 
     Ok(Prepared {
         agent,
         argv,
+        command,
         probe,
         home,
         files,
@@ -83,53 +89,53 @@ pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, 
 }
 
 impl Prepared {
-    /// What finds the run's program on the PATH its terminal will have
-    /// and then runs its check, if it has one, on a thread that may block:
-    /// the program, and the arguments the check adds. A program that is not
-    /// there fails the launch before anything starts.
+    /// What finds the run's programs on the PATH its terminal will have,
+    /// as the person's command for the agent names them, and then runs its
+    /// check, if it has one, on a thread that may block: the run's command
+    /// line ([`agents::Start::run`]). A program that is not there fails the
+    /// launch before anything starts.
     pub fn look(
         &mut self,
         l: &Launch,
-    ) -> impl FnOnce() -> Result<(PathBuf, Vec<String>), String> + Send + 'static {
-        let name = self.argv.first().cloned().unwrap_or_default();
+    ) -> impl FnOnce() -> Result<Vec<String>, String> + Send + 'static {
+        let (agent, command) = (self.agent, std::mem::take(&mut self.command));
+        let launched = std::mem::take(&mut self.argv);
         let (probe, cwd) = (self.probe.take(), PathBuf::from(&l.cwd));
         let (home, files) = (self.home.clone(), std::mem::take(&mut self.files));
         move || {
             // The files its hooks are read from, before anything reads them.
             agents::checks::keep(&home, &files)?;
-            let program = terminal::find(&name)
-                .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
+            let (name, program) = (agent.name(), agent.program());
+            let start = agents::start(name, program, &command, terminal::find)?;
+            // The check is one of Tasktap's own questions to the agent, started
+            // as the person starts it where they have a command for it.
             let more = match probe {
-                Some(probe) => agents::checks::probe(probe, &cwd)?,
+                Some(mut probe) => {
+                    if !command.is_empty() {
+                        probe.argv.splice(..1, start.asks());
+                    }
+                    agents::checks::probe(probe, &cwd, start.theirs)?
+                }
                 None => Vec::new(),
             };
-            Ok((program, more))
+            Ok(start.run(more, launched))
         }
     }
 }
 
 /// Starts a prepared run in a new terminal and returns that terminal, which
 /// the caller stores in the same step, before anything else runs (design
-/// §3). `program` is where its program was found, and `more` are the
-/// arguments its check added, which follow the program. It takes the
+/// §3). `argv` is its command line as its look found it. It takes the
 /// session's id, as the session takes the attempt's, so one attempt never
 /// starts two. A failure leaves nothing running.
 pub fn start(
     core: &mut Core,
     l: &Launch,
     prepared: Prepared,
-    program: PathBuf,
-    more: Vec<String>,
+    argv: Vec<String>,
     token: &Secret,
 ) -> Result<Terminal, String> {
-    let Prepared {
-        agent,
-        mut argv,
-        env,
-        ..
-    } = prepared;
-    argv[0] = program.to_string_lossy().into_owned();
-    argv.splice(1..1, more);
+    let Prepared { agent, env, .. } = prepared;
     let id = TerminalId::try_from(l.session.uuid()).map_err(|e| e.to_string())?;
     let (known, project) = effects::read(core, |tx| Ok((tx.terminal(id)?, tx.project(l.project)?)))
         .map_err(|e| e.to_string())?;

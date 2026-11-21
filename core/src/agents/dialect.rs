@@ -81,6 +81,8 @@ pub struct Dialect {
     pub id: &'static str,
     pub name: &'static str,
     pub program: &'static str,
+    /// What the person's command for it may not hold ([`Agent::refused`]).
+    pub refused: &'static [&'static str],
     /// What each of its hook events says, by name. One not here says nothing.
     pub events: &'static [(&'static str, Says)],
     /// The field a turn's start has its prompt in; none: it names no prompt.
@@ -131,6 +133,16 @@ pub const QWEN: Dialect = Dialect {
     id: "qwen",
     name: "Qwen Code",
     program: "qwen",
+    // Its one-question mode, the conversation it continues, where the task
+    // goes, its model.
+    refused: &[
+        "-p",
+        "--prompt",
+        "--resume",
+        "--prompt-interactive",
+        "-m",
+        "--model",
+    ],
     events: QWEN_EVENTS,
     prompt: "prompt",
     call: "tool_use_id",
@@ -216,6 +228,9 @@ pub const GOOSE: Dialect = Dialect {
     id: "goose",
     name: "Goose",
     program: "goose",
+    // Its one-task subcommand, the session it continues, where the task goes,
+    // its model.
+    refused: &["run", "--resume", "--session-id", "--text", "--model"],
     events: GOOSE_EVENTS,
     prompt: "message",
     call: "tool_call_id",
@@ -304,6 +319,18 @@ pub const CRUSH: Dialect = Dialect {
     id: "crush",
     name: "Crush",
     program: "crush",
+    // Its one-task subcommand, the folders it keeps its sessions in and works
+    // in, the session it continues, its model; the task after `--`.
+    refused: &[
+        "run",
+        "--data-dir",
+        "-c",
+        "--cwd",
+        "-s",
+        "-m",
+        "--model",
+        "--",
+    ],
     events: CRUSH_EVENTS,
     prompt: "",
     call: "tool_use_id",
@@ -360,6 +387,10 @@ pub const DROID: Dialect = Dialect {
     id: "droid",
     name: "Droid",
     program: "droid",
+    // Its one-task subcommand, the settings file its hooks are in, its level
+    // of what it may do (the person's switch), the session it continues, its
+    // model; the task after `--`.
+    refused: &["exec", "--settings", "--auto", "-s", "-m", "--model", "--"],
     events: DROID_EVENTS,
     prompt: "prompt",
     call: "",
@@ -495,6 +526,10 @@ impl Agent for Dialect {
 
     fn program(&self) -> &'static str {
         self.program
+    }
+
+    fn refused(&self) -> &'static [&'static str] {
+        self.refused
     }
 
     fn caps(&self) -> Caps {

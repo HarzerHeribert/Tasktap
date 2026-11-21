@@ -20,8 +20,7 @@ const OLD = ['Key to put a thought in', 'Delete finished thoughts after', 'Wait 
   'Thoughts and history', "A service's key", 'Looked', 'Where your agents have worked', 'Folders Tasktap looks in', 'Workspace'];
 /** Words a person does not use (the checklist's rule): placing may stay, its row says what it is. */
 const WORDS = /\b(briefs?|briefed|sessions?|harness|router|worktrees?|isolated?|cards?|look|looks|looked|looking)\b/i;
-const SECTIONS = ['thoughts', 'agents', 'projects', 'voice', 'terminal', 'about'];
-const MB = 574_000_000;
+const SECTIONS = ['thoughts', 'agents', 'projects', 'voice', 'terminal', 'about'];const MB = 574_000_000;
 
 /** An agent's switch as the core words it, from its own source: what the row shows. */
 function option(file, id) {
@@ -39,11 +38,11 @@ function states() {
   const agents = () => {
     const r = scene('busy'), now = Date.now(), base = r.agents[0];
     const add = (o) => r.agents.push({ ...base, rev: 6, identity: null, version: '1.0.0', ...o });
-    add({ id: 'pi', name: 'Pi', options: [option('core/src/agents/pi.rs', 'PROJECT')] });
-    add({ id: 'droid', name: 'Droid', options: [option('core/src/agents/dialect.rs', 'commands')], note: 'It runs one task and ends; a follow-up goes on in a new run.' });
-    add({ id: 'opencode', name: 'OpenCode', signed_in: false, checked: now - 3 * 864e5 });
-    add({ id: 'goose', name: 'Goose', installed: false, signed_in: null, version: null });
-    add({ id: 'own-abc', name: 'My agent', own: true, checks: false, signed_in: null });
+    add({ id: 'pi', name: 'Pi', program: 'pi', options: [option('core/src/agents/pi.rs', 'PROJECT')] });
+    add({ id: 'droid', name: 'Droid', program: 'droid', options: [option('core/src/agents/dialect.rs', 'commands')], note: 'It runs one task and ends; a follow-up goes on in a new run.' });
+    add({ id: 'opencode', name: 'OpenCode', program: 'opencode', signed_in: false, checked: now - 3 * 864e5 });
+    add({ id: 'goose', name: 'Goose', program: 'goose', installed: false, signed_in: null, version: null });
+    add({ id: 'own-abc', name: 'My agent', program: 'my-agent', own: true, checks: false, signed_in: null });
     r.prefs = [...r.prefs.filter((p) => p.id !== 'own_agents'), { id: 'own_agents', rev: 7, value: [{ id: 'own-abc', name: 'My agent', command: 'my-agent {prompt}', removed: false }, { id: 'own-old', name: 'Old one', command: 'old {prompt}', removed: true }] }];
     return r;
   };

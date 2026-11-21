@@ -66,6 +66,9 @@ pub const RULES: Rules = Rules {
         "--dangerously-bypass-approvals-and-sandbox", "--sandbox", "-s",
         "approval_policy=", "approvals_reviewer=", "sandbox_mode="],
     default: &["--approve-for-me"],
+    // Another folder to work in, its resuming subcommand, its model; the task
+    // after `--`.
+    taken: &["-C", "--cd", "resume", "-m", "--model", "--"],
 };
 
 /// Seconds a hook that asked may wait for the person; Codex shows its own
@@ -219,7 +222,7 @@ impl Agent for Codex {
         }
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
-        argv.extend(RULES.default.iter().map(|a| (*a).to_owned()));
+        argv.extend(RULES.approval(run.args).iter().map(|a| (*a).to_owned()));
         if let Some(handle) = run.resume {
             argv.extend(["resume".into(), handle.into()]);
         }

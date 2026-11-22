@@ -1029,7 +1029,7 @@ fn the_question_is_an_agents_and_what_chatgpt_cannot_answer_passes_to_the_next()
     assert_eq!(sent, agent);
     // One question for both, as route.rs builds it: with what the terms of
     // smart placing send.
-    for field in ["\"earlier\"", "\"top\"", "\"view\"", "\"folder\""] {
+    for field in ["\"earlier\"", "\"top\"", "\"view\"", "`new`"] {
         assert!(sent.contains(field), "{field} in {sent}");
     }
 

@@ -570,14 +570,16 @@ const OWN_KEYS = (() => {
 const TERMS = {
   route: {
     instructions: fs.readFileSync(path.join(root, 'core/src/route/instructions.md'), 'utf8'),
+    // As core/src/route.rs says them (`SENDS`, `TERMS`).
     sends: [
-      'the task, as you said or typed it',
-      'of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by and one line about it',
-      'of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working',
+      "the task, as you said or typed it, and the project or session you were looking at in Tasktap's window",
+      'of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, up to 5 earlier tasks (80 characters each) and up to 15 file names at its top',
+      'of up to 8 sessions in them: the name, the first and the last request (180 characters), the agent, whether it works, waits or is finished, how long ago it last ran and its last answer (160 characters)',
       'of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)',
+      'never a text that looks like a key, a token or a password',
     ],
     // In Tasktap's order, as core/src/route.rs proposes it (`COSTS`): ChatGPT first, listed whether or not it is signed in.
-    terms: 3,
+    terms: 4,
     tools: [
       { agent: 'chatgpt', model: 'gpt-6.2-sol', pays: 'plan', ms: 4000 },
       { agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }, { agent: 'codex', model: 'gpt-6-luna', pays: 'plan', ms: 4700 },

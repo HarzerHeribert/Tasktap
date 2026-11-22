@@ -123,6 +123,15 @@ test('with nothing its words name or describe, the question leads with a folder 
     assert.ok(![r.name, r.dim, r.title ?? ''].some((x) => x.includes('·') || x.includes('not open yet')), r.name);
 });
 
+test('a new project a model proposed leads the question with its place, and a folder there already by its name', () => {
+  const create = (exists: boolean) => asked({ places: [], known: true, create: { name: 'tide-notes', place: '~/projects', exists } }).map((r) => [r.does, r.name, r.dim, r.title ?? ''].join(' / '));
+  assert.deepEqual(create(false).slice(0, 2), ['create / New project tide-notes / in ~/projects / Sending the task makes the folder tide-notes in ~/projects and starts the task there.', 'folder / Open or create a folder… /  / ']);
+  assert.deepEqual(create(true)[0], 'create / tide-notes / in ~/projects / Sending the task opens the folder tide-notes in ~/projects.');
+  // Still nine rows at most, each on its number.
+  const earshot = { name: 'earshot', why: '', fresh: false, session: false };
+  assert.equal(asked({ places: Array(9).fill(earshot), known: true, create: { name: 'x', place: '~', exists: false } }).length, 9);
+});
+
 test('a task\'s words in a name or a tooltip are cut after 300 characters, never inside a character', () => {
   assert.equal(short('fix the export'), 'fix the export');
   const long = 'é'.repeat(299) + '😀😀';

@@ -28,7 +28,8 @@ const stateOf = (t: Thought): State =>
 function Row({ t }: { t: Thought }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const live = t.status === 'working' || t.status === 'routed';
-  const fact = t.status === 'routed' ? 'Starting soon' : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : unheard(t) ? endedSays(t) : resultOf(t)?.summary;
+  // Placed and held: it starts once its hold ends, or waits for Return where none runs (a model was torn).
+  const fact = t.status === 'routed' ? (t.hold_until ? 'Starting soon' : 'Waits for you') : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : unheard(t) ? endedSays(t) : resultOf(t)?.summary;
   return (
     <button type="button" class="row" data-status={t.status} title={[t.text, fact].filter(Boolean).join('\n')} disabled={!t.session_id}
       onClick={() => t.session_id && peek(t.session_id)}>

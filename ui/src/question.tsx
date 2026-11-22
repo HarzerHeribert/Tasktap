@@ -42,8 +42,9 @@ export function routerRows(q: Question): (Asked & { label: string; act: () => vo
       : r.does === 'other' ? () => ((other.thought = thought), redraw())
         : r.does === 'scratch' ? () => send([...records.projects.values()].find((p) => p.kind === 'scratch')?.id)
           : r.does === 'folder' ? () => void openFolder(thought)
-            : () => void reply(q, { kind: 'deny' });
-  return asked({ places, known: knowsAny() }).map((r) => ({ ...r, label: r.name, act: act(r) }));
+            : r.does === 'create' ? () => void create(q)
+              : () => void reply(q, { kind: 'deny' });
+  return asked({ places, known: knowsAny(), create: q.create }).map((r) => ({ ...r, label: r.name, act: act(r) }));
 }
 
 /** Tasktap knows a project a task could go to: a folder open, or one it found and has not opened. */
@@ -71,6 +72,21 @@ async function openFolder(thought: string) {
     const chosen = await call('host.pick', { folder: true, ...(at ? { at } : {}) });
     const added = chosen ? await call('project.add', { id: uuid7(), folder: chosen }) : undefined;
     if (added) await call('thought.update', { id: thought, project_id: added });
+  } catch (e) {
+    fail(e);
+  } finally {
+    picking = false;
+  }
+}
+
+/** A new project a model proposed, its row's one key: the folder is made (or, there already, taken as it is), opens
+ *  as a workspace as "Open or create a folder…" opens one, and the task goes there. Once at a time, as that row. */
+async function create(q: Question) {
+  if (picking || !q.create || !q.thought_id) return;
+  picking = true;
+  try {
+    const added = await call('project.add', { id: uuid7(), folder: q.create.folder, ...(q.create.exists ? {} : { create: true }) });
+    await call('thought.update', { id: q.thought_id, project_id: added });
   } catch (e) {
     fail(e);
   } finally {

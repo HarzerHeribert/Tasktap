@@ -922,6 +922,7 @@ pub struct AddProject {
     /// Make the folder first, inside a folder that is there: a new project
     /// a model proposed and the person said yes to.
     #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub create: bool,
 }
 

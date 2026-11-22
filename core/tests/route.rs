@@ -2022,12 +2022,12 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
             .instructions
             .contains("Add nothing the person did not say")
     );
-    assert_eq!(terms.sends.len(), 6);
+    assert_eq!(terms.sends.len(), 5);
     // In the words the interface uses (docs/projects-design.md, "Words"):
     // projects, and nothing is "routed".
     assert_eq!(
         terms.sends[1],
-        "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, the titles of up to 5 earlier tasks there (80 characters each) and the names of up to 15 files at its top level"
+        "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, up to 5 earlier tasks (80 characters each) and up to 15 file names at its top"
     );
     let said = terms.sends.join(" ").to_lowercase();
     for word in ["folder", "repositor", "rout"] {

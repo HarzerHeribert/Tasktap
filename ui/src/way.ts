@@ -4,7 +4,7 @@
 // by a model is on, what a ring says of its agent,
 // the time a recording shows, where heard words go in a field, and what a field holds while its thought is sent. The
 // pages draw these and decide nothing themselves.
-import type { ChatGpt, PlaceTool, RouteBy, Thought } from '../../core/proto/protocol.ts';
+import type { ChatGpt, Place, PlaceTool, RouteBy, Thought } from '../../core/proto/protocol.ts';
 
 /** The two letters of an agent the app has no mark for, from its id, which is what a person types to start it: the
  *  initials of its first two words, or the first two letters of its one. */
@@ -46,13 +46,45 @@ const plain = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').tr
  *  them): then both are shown, since both are sent. */
 export const briefOf = (t: Pick<Thought, 'text' | 'brief'>) => (t.brief && plain(t.brief) !== plain(t.text) ? t.brief : null);
 
-/** How much of the hold is left at `now`, as a share of all of it (it counts from the capture), and in milliseconds;
- *  null where nothing is held or the end is still open because a brief is being written. */
-export function hold(t: T, now: number): { share: number; ms: number } | null {
+/** How much of the hold is left at `now`, as a share of all of it, and in milliseconds; null where nothing is held or
+ *  the end is still open because a brief is being written. All of it is the person's hold (`whole`, in milliseconds)
+ *  from the moment the decision was there: a model's from its answer, a pick's from the capture (core state.rs
+ *  `routed`), so a decision that took a while still shows its whole hold. */
+export function hold(t: T, now: number, whole: number): { share: number; ms: number } | null {
   if (step(t) !== 'held' || !t.hold_until) return null;
-  const ms = Math.max(0, t.hold_until - now), all = Math.max(1, t.hold_until - t.created);
+  const ms = Math.max(0, t.hold_until - now), all = Math.max(1, Math.min(t.hold_until - t.created, whole));
   return { share: Math.min(1, ms / all), ms };
 }
+
+/** A decision that waits for a key: placed and held with no time running (a model was torn between places, core
+ *  state.rs `TORN_STARTS`, or Tasktap started again meanwhile). Return starts it where it is. */
+export const waits = (t: T) => step(t) === 'held' && !t.hold_until;
+
+/** What a page knows of the places a decision names, and how a name is cut short on a key. */
+export type Names = { project: (id: string) => string; session: (id: string) => string; of: (session: string) => string | undefined; cut: (name: string) => string };
+/** A thought's place on its decision line, in words (design §8, "The decision"): the project's name, and how the task
+ *  goes there, "continuing" the session it follows up or "new run" ("cuegrid, continuing Fix the flaky export test"). */
+export function decided(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id'>, names: Names): { name: string; how: string } {
+  const name = names.project(t.project_id ?? t.card_id ?? '');
+  return { name, how: t.session_id ? `continuing ${names.session(t.session_id)}` : 'new run' };
+}
+/** The other places a decision offers, each on its own key from 2, at most two (with Return's, three): the other way of
+ *  going beside a model's decision (a new run for a follow-up, and back), or the others it was torn between, the
+ *  likelier first. One alone stands in the line, as its key says it (`label`): in the same project only the way, "New
+ *  run" or "Continue" (`title`: which session), elsewhere the project's or the session's name, cut short. Two stand
+ *  as rows under it, each in the decision's own words (`words`). */
+export function offers(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id' | 'route'>, names: Names): { key: string; to: Place; label: string; title: string; words: { name: string; how: string } }[] {
+  const here = t.project_id ?? t.card_id;
+  return (t.route?.others ?? []).slice(0, 2).map((to, i) => {
+    const session = 'session' in to ? to.session : undefined, project = 'project' in to ? to.project : 'card' in to ? to.card : session && names.of(session);
+    const name = session ? names.session(session) : names.project(project ?? '');
+    const label = project !== here ? names.cut(name) : session ? 'Continue' : 'New run';
+    const words = decided({ session_id: session ?? null, project_id: project ?? null, card_id: null }, names);
+    return { key: String(i + 2), to, label, title: session ? `Continue ${name}` : `A new run in ${words.name}`, words };
+  });
+}
+/** How `thought.update` names a place. */
+export const placeOf = (to: Place) => ('project' in to ? { project_id: to.project } : 'session' in to ? { session_id: to.session } : { card_id: to.card });
 
 /** Why a model was not asked about a thought, as the core said it; none where that was an agreement to older terms
  *  (core route.rs `valid`): that is said once, in Setup's placing step ("Agree again"), not on every thought. */
@@ -83,22 +115,6 @@ export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string)
   }
 }
 
-/** Who placed a thought, in the few words of its one line under the Composer ("Starting in cuegrid · placed by Claude
- *  Code · Undo", NOTES §13); the whole of it (`placed`) is behind that line's disclosure. */
-export function placedBy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string {
-  switch (t.placed) {
-    case 'model':
-      return `placed by ${t.route && t.route.by !== 'local' ? agent(t.route.by) : 'a model'}`;
-    case 'name':
-      return 'named in it';
-    case 'picked':
-      return 'your choice';
-    case 'answer':
-      return 'you chose it';
-    default:
-      return '';
-  }
-}
 
 /** Why a thought waits in For later: the core's four reasons, in plain words. */
 export function laterWhy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string {
@@ -203,15 +219,17 @@ export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'wai
 /** What the placing sheet says above the button that signs in with ChatGPT: where a task goes, and the model that
  *  finds its project. */
 export const chatgptOffer = (model: string) =>
-  `Sign in with ChatGPT and a task that names no project goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
+  `Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
 
 /** What Setup's placing step says: by whom tasks are placed (`asks`, then `more`), that the terms changed, that nobody
  *  who could place is signed in (`anyone`: ChatGPT or an agent), that the person skipped it, or what it is for. */
+/** What Setup and Settings say while an agreement is to what was sent before (`placing`: `again`). */
+export const AGAIN = 'Placing now sends more. Agree again to keep it on.';
 export function placingSays(state: 'off' | 'on' | 'again', asks: string | null, more: number, answered: boolean, anyone: boolean): string {
   if (state === 'on' && asks) return `By ${asks}${more > 0 ? `, then ${more} more` : ''}`;
-  if (state === 'again') return 'The terms changed. Agree again to keep it on.';
+  if (state === 'again') return AGAIN;
   if (!anyone) return 'Sign in with ChatGPT, or sign an agent in under Settings › Agents';
-  return answered ? 'Skipped' : 'For tasks that name no project';
+  return answered ? 'Skipped' : 'For tasks you do not place';
 }
 
 /** Why an agent stands where it does in Tasktap's order, or why it is passed over now: its plan at its usage limit

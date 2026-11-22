@@ -67,7 +67,7 @@ async function main(out, dist) {
         order: [kids.findIndex((k) => k.matches('ul.sends')), offer, kids.findIndex((k) => k.matches('.ranks'))], offer: kids[offer]?.textContent };
     });
     expect(sign.first === 'ChatGPT' && sign.button === 'Sign in with ChatGPT', `ChatGPT's row comes first, with its button: ${JSON.stringify(sign)}`);
-    expect(sign.offer === 'Sign in with ChatGPT and a task that names no project goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.', `what signing in does: "${sign.offer}"`);
+    expect(sign.offer === 'Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.', `what signing in does: "${sign.offer}"`);
     expect(sign.order[0] >= 0 && sign.order[0] < sign.order[1] && sign.order[1] < sign.order[2], `what is sent, then that, then the button: ${sign.order}`);
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f .key')?.textContent)) === 'Allow', 'Return allows');
     await fits(page, 'the sheet');
@@ -94,7 +94,7 @@ async function main(out, dist) {
     await shoot(page, out, 'placing-own-order');
     await press(page, 'Enter');
     await page.waitForTimeout(300);
-    const agreed = '{"agents":[{"agent":"agy","model":"gemini-3.8-flash-low","on":true},{"agent":"codex","model":"gpt-6-luna","on":false},{"agent":"claude","model":"haiku","on":true}],"terms":3}';
+    const agreed = '{"agents":[{"agent":"agy","model":"gemini-3.8-flash-low","on":true},{"agent":"codex","model":"gpt-6-luna","on":false},{"agent":"claude","model":"haiku","on":true}],"terms":4}';
     expect(await stored(page) === agreed, `Return writes the agreement in that order: ${await stored(page)}`);
     expect(await page.evaluate(() => !document.querySelector('.sheet')), 'and the sheet goes');
 
@@ -153,14 +153,14 @@ async function main(out, dist) {
     await page.evaluate(() => window.__ws.open({ kind: 'placing' }));
     await page.waitForTimeout(500);
     const again = await page.evaluate(() => document.querySelector('.sheet .terms > p.warn')?.textContent ?? '');
-    expect(again.startsWith('You agreed before to Claude Code alone.'), `an agreement to the terms before is asked again: "${again}"`);
+    expect(again.startsWith('You agreed before to what was sent then. Placing now sends more'), `an agreement to the terms before is asked again: "${again}"`);
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f .key')?.textContent)) === 'Agree again', 'Return agrees again');
     expect(await rows(page) === '1Claude Code, 2Codex, 3Antigravity', `with Tasktap's order proposed: ${await rows(page)}`);
     await fits(page, 'the sheet asked again');
     await shoot(page, out, 'placing-again');
     await press(page, 'Enter');
     await page.waitForTimeout(300);
-    expect(JSON.parse(await stored(page)).terms === 3, 'agreed again, to these terms');
+    expect(JSON.parse(await stored(page)).terms === 4, 'agreed again, to these terms');
     for (const e of page.errors) failures.push(`page: ${e}`);
     await page.context().close();
 
@@ -190,7 +190,7 @@ async function main(out, dist) {
     await shoot(page, out, 'placing-chatgpt-waiting');
     const prefs = (rev, values) => page.evaluate(([r, v]) => window.__fake.push({ t: 'change', rev: r, sets: [{ c: 'prefs', put: Object.entries(v).map(([id, value]) => ({ id, value, rev: r })) }] }), [rev, values]);
     // Signed in: the core agreed to ChatGPT's row alone and put it first.
-    await prefs(500, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 3 } });
+    await prefs(500, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } });
     await page.waitForTimeout(300);
     expect(await rows(page) === '1ChatGPT, Claude Code off, Codex off, Antigravity off', `signed in, ChatGPT alone places: ${await rows(page)}`);
     const signed = await page.evaluate(() => ({ x: document.querySelector('.sheet .rank .x')?.textContent, sign: !!document.querySelector('.sheet .rank.sign'),
@@ -214,7 +214,7 @@ async function main(out, dist) {
       [{ state: 'no_model', model: null, name: null, error: null }, 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.'],
       // OpenAI signed Tasktap out: the core keeps ChatGPT's row for the next sign-in.
       [{ state: 'signed_out', model: null, name: null, error: null }, 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.',
-        { route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 3 } }],
+        { route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } }],
     ];
     for (const [i, [value, said, more]] of ends.entries()) {
       await prefs(600 + i, { chatgpt: value, ...more });
@@ -233,7 +233,7 @@ async function main(out, dist) {
     await page.waitForTimeout(300);
     expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'placing', 'its button opens the placing sheet');
     // Signed in, Settings' group signs out where its other actions are.
-    await prefs(700, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 3 } });
+    await prefs(700, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } });
     await page.evaluate(() => window.__ws.open({ kind: 'settings', at: 'projects' }));
     await page.waitForTimeout(400);
     expect(await rows(page, '.settings') === '1ChatGPT, Claude Code off, Codex off, Antigravity off', `Settings shows ChatGPT first: ${await rows(page, '.settings')}`);
@@ -258,7 +258,7 @@ async function main(out, dist) {
     expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'placing', 'and its action opens the placing sheet');
     const alone = await page.evaluate(() => ({ rows: document.querySelectorAll('.sheet .rank').length, sign: document.querySelector('.sheet .rank.sign .btn')?.textContent,
       sends: document.querySelectorAll('.sheet ul.sends li').length, foot: !!document.querySelector('.sheet .rank-f'), acts: document.querySelector('.sheet .sh-f').textContent }));
-    expect(alone.rows === 1 && alone.sign === 'Sign in with ChatGPT' && alone.sends === 4 && !alone.foot && !alone.acts.includes('Allow'), `ChatGPT alone, with what is sent: ${JSON.stringify(alone)}`);
+    expect(alone.rows === 1 && alone.sign === 'Sign in with ChatGPT' && alone.sends === 5 && !alone.foot && !alone.acts.includes('Allow'), `ChatGPT alone, with what is sent: ${JSON.stringify(alone)}`);
     await fits(page, 'the sheet with nobody signed in');
     await shoot(page, out, 'placing-chatgpt-alone');
     // Settings › Projects leads there too.
@@ -269,13 +269,84 @@ async function main(out, dist) {
     for (const e of page.errors) failures.push(`page: ${e}`);
     await page.context().close();
 
-    // A task ChatGPT placed says so on its line under the Composer.
+    // A task ChatGPT placed: its line under the Composer says the decision, behind its disclosure who placed it.
     const held = flow(scene('normal'), 'held'), t = held.thoughts[held.thoughts.length - 1];
     t.route = { ...t.route, by: 'chatgpt', model: 'gpt-6.2-sol' };
     page = await open(browser, { label: 'workspace', records: held, url: server.url, dpr: 2 });
     await page.waitForTimeout(500);
-    const by = await page.evaluate(() => document.querySelector('.way .way-by')?.textContent);
-    expect(by === 'placed by ChatGPT', `its line says who placed it: "${by}"`);
+    const decisionSaid = await page.evaluate(() => document.querySelector('.way .way-to')?.textContent);
+    expect(decisionSaid === 'cuegrid, new run', `its line says the decision: "${decisionSaid}"`);
+    await page.evaluate(() => document.querySelector('.way .way-more')?.click());
+    await page.waitForTimeout(150);
+    const by = await page.evaluate(() => document.querySelector('.way .way-n')?.textContent ?? '');
+    expect(by.startsWith('Placed by ChatGPT'), `behind its disclosure, who placed it: "${by}"`);
+    for (const e of page.errors) failures.push(`page: ${e}`);
+    await page.context().close();
+
+    // Smart placing (design §8, "The decision"), in the notch: the line under its Composer for a follow-up, for a new
+    // run and for a model torn between places. The line names the project and how the task goes there, with no dot;
+    // the other places stand on keys from 2, which place it anew; the hold runs where the decision is sure, and stands
+    // still where it waits for a key. Then a new project a model proposed, leading its question, made by its one key.
+    const GEO = { do: 'geometry', width: 185, height: 32, cutout: true, compact: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 2, corner: 10, offset: 0, available: 700, collapsed: false };
+    const decision = (kind, edit) => {
+      const r = flow(scene('normal'), kind);
+      edit(r.thoughts[r.thoughts.length - 1], r.ids);
+      return r;
+    };
+    const cases = [
+      ['decision-continue', decision('followup-model', (t, ids) => (t.route = { ...t.route, others: [{ project: ids.projects.cuegrid }] })),
+        /^cuegrid, continuing Make the rehearsal timer readable on mobile\b.*\b2 New run ⌘Z Undo$/, true, (ids) => ({ project_id: ids.projects.cuegrid })],
+      ['decision-new-run', decision('held', (t, ids) => (t.route = { ...t.route, others: [{ session: ids.timer.session }] })),
+        /^cuegrid, new run\b.*\b2 Continue ⌘Z Undo$/, true, (ids) => ({ session_id: ids.timer.session })],
+      ['decision-torn', decision('held', (t, ids) => ((t.hold_until = null), (t.route = { ...t.route, others: [{ project: ids.projects.fieldnotes }, { session: ids.timer.session }] }))),
+        /^cuegrid, new run\b.*\bBrief ⌘Z Undo$/, false, (ids) => ({ session_id: ids.timer.session }), '3'],
+    ];
+    for (const [name, r, said, runs, wants, key = '2'] of cases) {
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 2, viewport: { width: 560, height: 420 } });
+      await page.evaluate(() => (document.documentElement.style.background = 'radial-gradient(110% 85% at 12% 0%,#41607c 0%,transparent 58%),#172433'));
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(800);
+      await page.focus('#capture-input');
+      await page.waitForTimeout(150);
+      const seen = await page.evaluate(() => {
+        const w = document.querySelector('.way'), h = w?.querySelector('.way-h');
+        return { line: h?.innerText.replace(/\s+/g, ' ').trim() ?? '', still: w?.querySelector('.way-hold')?.hasAttribute('data-open') ?? null, ret: !!h?.querySelector(':scope > kbd'),
+          over: h ? h.scrollWidth - h.clientWidth : -1, rows: [...(w?.querySelectorAll('.qa.rows > .ans') ?? [])].map((a) => a.innerText.replace(/\s+/g, ' ').trim()) };
+      });
+      expect(said.test(seen.line) && !seen.line.includes('·'), `${name}: the decision line says "${seen.line}"`);
+      expect(seen.still === !runs && seen.ret === !runs, `${name}: its hold ${runs ? 'runs' : 'stands still, Return\'s key first'} (still ${seen.still}, Return's key ${seen.ret})`);
+      expect(seen.over <= 0, `${name}: the line fits the notch (${seen.over} px over)`);
+      const rowsWanted = name === 'decision-torn' ? ['2 fieldnotes new run', '3 cuegrid continuing Make the rehearsal timer readable on mobile'] : [];
+      expect(JSON.stringify(seen.rows) === JSON.stringify(rowsWanted), `${name}: the other places as rows ${JSON.stringify(seen.rows)}`);
+      await page.evaluate(() => document.fonts.ready);
+      await page.locator('.capture').screenshot({ path: path.join(out, `${name}.png`) });
+      await page.keyboard.press(key);
+      await page.waitForTimeout(200);
+      const moved = await page.evaluate(() => window.__fake.updated ?? null), want = wants(r.ids);
+      expect(!!moved && Object.entries(want).every(([k, v]) => moved[k] === v), `${name}: ${key} places it anew there: ${JSON.stringify(moved)}`);
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+
+    // The new project a model proposed leads the question, with its place; its key makes the folder and sends the task.
+    const asked = flow(scene('normal'), 'asked'), q = asked.questions[0];
+    Object.assign(q, { choices: [], places: [], notes: [], prompt: 'Which project is this task for?', create: { name: 'tide-notes', place: '~/projects', folder: '/Users/example/projects/tide-notes', exists: false } });
+    Object.assign(asked.thoughts.find((t) => t.id === q.thought_id), { text: 'start a little app for the tide tables at the harbour, just a page with today and tomorrow', brief: 'Start a small app that shows the tide tables at the harbour for today and tomorrow.' });
+    page = await open(browser, { label: 'workspace', records: asked, url: server.url, dpr: 2, viewport: { width: 1180, height: 900 } });
+    await page.waitForSelector('.hq.open [data-question]');
+    await page.waitForTimeout(500);
+    await page.mouse.move(2, 2);
+    const rowsSaid = await page.evaluate(() => [...document.querySelectorAll('.hq.open [data-question] .ans')].map((a) => a.innerText.replace(/\s+/g, ' ').trim()));
+    expect(/^1 ?New project tide-notes in ~\/projects$/.test(rowsSaid[0] ?? '') && /Open or create a folder/.test(rowsSaid[1] ?? ''), `the new project leads the question: ${JSON.stringify(rowsSaid)}`);
+    await page.evaluate(() => document.fonts.ready);
+    const b = await page.locator('.hq.open').boundingBox();
+    await page.screenshot({ path: path.join(out, 'new-project-card.png'), clip: { x: b.x - 16, y: b.y - 8, width: b.width + 32, height: b.height + 8 } });
+    await page.evaluate(() => document.querySelector('.hq.open [data-question] .ans')?.click());
+    await page.waitForTimeout(400);
+    const made = await page.evaluate(() => ({ calls: window.__fake.calls.filter((c) => c === 'project.add' || c === 'thought.update'), updated: window.__fake.updated ?? null,
+      project: (window.__fake.records.projects || []).find((p) => p.folder === '/Users/example/projects/tide-notes')?.id ?? null }));
+    expect(made.calls.join() === 'project.add,thought.update' && !!made.updated?.project_id, `its key makes the folder and sends the task there: ${JSON.stringify(made)}`);
     for (const e of page.errors) failures.push(`page: ${e}`);
     await page.context().close();
   } finally {

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
-  agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
-  placed, placedBy, places, placing, placingSays, proposed, ranked, ring, step,
+  agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
+  offers, placed, placeOf, places, placing, placingSays, proposed, ranked, ring, step, waits,
 } from './way.ts';
 
 test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
@@ -24,17 +24,17 @@ test('ChatGPT\'s row of placing is a button until it is signed in, waits for the
   assert.equal(out({ state: 'signed_out' }), 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.');
   assert.equal(out({ state: 'no_model' }), 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.');
   // What the sheet says above the button: where the task goes, and the model that finds its project.
-  assert.equal(chatgptOffer('gpt-6.2-sol'), 'Sign in with ChatGPT and a task that names no project goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.');
+  assert.equal(chatgptOffer('gpt-6.2-sol'), 'Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.');
 });
 
 test('Setup\'s placing step is always there, and with nobody signed in it says how to sign someone in', () => {
   assert.equal(placingSays('off', null, 0, false, false), 'Sign in with ChatGPT, or sign an agent in under Settings › Agents');
   assert.equal(placingSays('off', null, 0, true, false), 'Sign in with ChatGPT, or sign an agent in under Settings › Agents');
-  assert.equal(placingSays('off', null, 0, false, true), 'For tasks that name no project');
+  assert.equal(placingSays('off', null, 0, false, true), 'For tasks you do not place');
   assert.equal(placingSays('off', null, 0, true, true), 'Skipped');
   assert.equal(placingSays('on', 'ChatGPT', 0, true, true), 'By ChatGPT');
   assert.equal(placingSays('on', 'ChatGPT', 2, true, true), 'By ChatGPT, then 2 more');
-  assert.equal(placingSays('again', null, 0, true, true), 'The terms changed. Agree again to keep it on.');
+  assert.equal(placingSays('again', null, 0, true, true), 'Placing now sends more. Agree again to keep it on.');
 });
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
@@ -93,7 +93,7 @@ test('the two letters of a ring are no two agents alike', () => {
   assert.deepEqual([...lettersOf(['agy', 'aider', 'amp'], true).values()], ['A', 'I', 'M']);
 });
 
-const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, lead: null, ms: 2100, ...o });
+const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, lead: null, ms: 2100, others: [], ...o });
 const thought = (o: Partial<Thought> = {}) => ({
   phase: 'captured', status: 'captured', mode: 'ask', route: null, placed: null, project_id: null, text: 'make the header stay on one line', brief: null, hold_until: null, created: 1000, ...o,
 }) as Thought;
@@ -121,15 +121,35 @@ test('the brief shows only when it says the words differently', () => {
   assert.equal(briefOf({ text: 'äh, also der Header, der soll, nee, der muss einzeilig bleiben', brief: 'Der Header muss einzeilig bleiben.' }), 'Der Header muss einzeilig bleiben.');
 });
 
-test('the hold is a share of its whole length from the capture, and follows the record when it moves', () => {
+test('the hold is a share of its whole length from the decision, and follows the record when it moves', () => {
   const t = thought({ phase: 'routed', status: 'routed', created: 1000, hold_until: 6000, route: route() });
-  assert.deepEqual(hold(t, 3500), { share: 0.5, ms: 2500 });
-  assert.deepEqual(hold(t, 9000), { share: 0, ms: 0 });
-  // A brief arrived late: the core moved the end, and the share is of the new whole.
-  assert.deepEqual(hold({ ...t, hold_until: 8000 }, 6000), { share: 2000 / 7000, ms: 2000 });
+  assert.deepEqual(hold(t, 3500, 5000), { share: 0.5, ms: 2500 });
+  assert.deepEqual(hold(t, 9000, 5000), { share: 0, ms: 0 });
+  // A model answered after 3 s: the whole hold of 5 s counts from its answer, and runs from the start.
+  assert.deepEqual(hold({ ...t, hold_until: 9000 }, 4000, 5000), { share: 1, ms: 5000 });
+  // A brief arrived late: the core moved the end to 2 s from then, of the 5 s hold.
+  assert.deepEqual(hold({ ...t, hold_until: 8000 }, 6000, 5000), { share: 2000 / 5000, ms: 2000 });
   // While the brief is still written the end is open; nothing depletes.
-  assert.equal(hold({ ...t, route: route({ pending: true }) }, 3500), null);
-  assert.equal(hold(thought(), 3500), null);
+  assert.equal(hold({ ...t, route: route({ pending: true }) }, 3500, 5000), null);
+  assert.equal(hold(thought(), 3500, 5000), null);
+});
+
+test('the decision line names the project and how the task goes there, and offers the other places on 2 and 3', () => {
+  const names = { project: (id: string) => ({ p1: 'cuegrid', p2: 'folio' })[id] ?? '?', session: (id: string) => ({ s1: 'Fix the flaky export test', s2: 'Login' })[id] ?? '?', of: (id: string) => ({ s1: 'p1', s2: 'p2' })[id], cut: (s: string) => (s.length > 17 ? `${s.slice(0, 16)}…` : s) };
+  const held = (o: Partial<Thought>) => ({ ...thought({ phase: 'routed', status: 'routed', hold_until: 6000, ...o }), session_id: null, card_id: null, ...o }) as Thought;
+  const follow = held({ project_id: 'p1', session_id: 's1', route: route({ others: [{ project: 'p1' }] }) });
+  assert.deepEqual(decided(follow, names), { name: 'cuegrid', how: 'continuing Fix the flaky export test' });
+  // The other way of going, in the same project, says only the way; and back.
+  assert.deepEqual(offers(follow, names), [{ key: '2', to: { project: 'p1' }, label: 'New run', title: 'A new run in cuegrid', words: { name: 'cuegrid', how: 'new run' } }]);
+  const run = held({ project_id: 'p1', route: route({ others: [{ session: 's1' }] }) });
+  assert.deepEqual(decided(run, names), { name: 'cuegrid', how: 'new run' });
+  assert.deepEqual(offers(run, names).map((o) => [o.label, o.title]), [['Continue', 'Continue Fix the flaky export test']]);
+  // Torn: no time runs, it waits for a key; the places elsewhere say their names, two at most.
+  const torn = held({ project_id: 'p1', hold_until: null, route: route({ others: [{ project: 'p2' }, { session: 's2' }, { project: 'p3' }] }) });
+  assert.equal(waits(torn), true);
+  assert.equal(waits(run), false);
+  assert.deepEqual(offers(torn, names).map((o) => [o.key, o.label, `${o.words.name}, ${o.words.how}`]), [['2', 'folio', 'folio, new run'], ['3', 'Login', 'folio, continuing Login']]);
+  assert.deepEqual([placeOf({ project: 'p2' }), placeOf({ session: 's2' }), placeOf({ card: 'c1' })], [{ project_id: 'p2' }, { session_id: 's2' }, { card_id: 'c1' }]);
 });
 
 test('how it came by its place is told from the core\'s word for it, never from who is named in its route', () => {
@@ -160,18 +180,6 @@ test('how it came by its place is told from the core\'s word for it, never from 
   // Every word the core has is told from: a new one fails here before it reads as nothing.
   const words: Record<NonNullable<Thought['placed']>, true> = { picked: true, name: true, model: true, follow_up: true, answer: true, kept: true, kept_answer: true, kept_name: true, kept_model: true };
   assert.equal(Object.keys(words).length, 9);
-});
-
-test('the one line under the Composer says who placed a thought in a few words; the rest is behind it', () => {
-  const by = (placed_: Thought['placed'], r: Routing | null = route()) => placedBy(thought({ placed: placed_, route: r }), name);
-  assert.equal(by('model'), 'placed by Claude Code');
-  assert.equal(by('model', route({ by: 'local', model: null })), 'placed by a model');
-  assert.equal(by('name'), 'named in it');
-  assert.equal(by('picked'), 'your choice');
-  assert.equal(by('answer'), 'you chose it');
-  // A follow-up says so in its place's name; nothing more is said where nothing is known.
-  assert.equal(by('follow_up'), '');
-  assert.equal(by(null, null), '');
 });
 
 test('why a thought waits in For later: the four reasons, whatever its route says', () => {

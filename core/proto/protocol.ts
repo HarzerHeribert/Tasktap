@@ -52,7 +52,7 @@ export type AddProject = { id: ProjectId, folder: string, name?: string | null,
  * Make the folder first, inside a folder that is there: a new project
  * a model proposed and the person said yes to.
  */
-create: boolean, };
+create?: boolean, };
 
 /**
  * `session.adopt`: an agent a person started by hand in a Tasktap shell

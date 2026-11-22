@@ -102,12 +102,11 @@ pub const SCHEMA: &str = concat!(
 
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
-    "the task, as you said or typed it",
-    "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, the titles of up to 5 earlier tasks there (80 characters each) and the names of up to 15 files at its top level",
-    "of up to 8 sessions in them: the name, the first and the last request (180 characters each), the agent, whether it is working, waits on a question or is finished, how long ago its last turn was, and what its agent last answered (160 characters)",
+    "the task, as you said or typed it, and the project or session you were looking at in Tasktap's window",
+    "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, up to 5 earlier tasks (80 characters each) and up to 15 file names at its top",
+    "of up to 8 sessions in them: the name, the first and the last request (180 characters), the agent, whether it works, waits or is finished, how long ago it last ran and its last answer (160 characters)",
     "of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)",
-    "which project or session you were looking at in Tasktap's window when you said the task",
-    "never a text that looks like a key, a token or a password: the project or session it belongs to is sent without it",
+    "never a text that looks like a key, a token or a password",
 ];
 
 /// The version of what is sent and to whom, which an agreement names

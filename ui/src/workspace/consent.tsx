@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
-import { type Rank, agreement, chatgptOffer, chatgptRow, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
+import { AGAIN, type Rank, agreement, chatgptOffer, chatgptRow, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
 import { CHATGPT, agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
@@ -136,15 +136,15 @@ export const FINDING = 'Finding the project for a task';
 
 /** Settings › Projects, first: while placing is agreed to, the same group as its sheet, changed in place, and the way
  *  to what is sent; else that only thoughts naming their project are placed, and the way to agree. What it says is
- *  what the core does: names first, on this machine; a model, once agreed to, for a thought that names no single
- *  project, and for every long one, which it summarises for the agent (state.rs `routed`, `wordy`). */
+ *  what the core does: a model, once agreed to, decides every task the person did not place, from what more it is
+ *  sent since the terms of smart placing (route.rs `TERMS`); without one, names on this machine. */
 export function Finding() {
   const { tools, agreed, rows, set, reset, state } = useRanks();
   const sheet = () => open({ kind: 'placing', back: true });
   const on = rows.filter((r) => r.on).map((r) => agentName(r.agent)), c = chatgptRow(pref('chatgpt'));
   if (agreed && tools.length)
     return (
-      <Row name={FINDING} hint={on.length ? `Names in your words come first; ${on.length > 1 ? 'the first of these to answer' : on[0]} places the rest, and reads every long task for its summary.`
+      <Row name={FINDING} hint={on.length ? `Tasks you do not place go where they belong: ${on.length > 1 ? 'the first of these to answer' : on[0]} decides from earlier tasks and what your agents last answered.`
         : 'Every agent here is switched off, so only tasks that name their project are placed; Tasktap asks you about the rest.'}>
         <Ranks rows={rows} set={set} lead={<SignIn sign={sheet} says />} />
         <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
@@ -156,7 +156,7 @@ export function Finding() {
   return (
     <Row name={FINDING} hint={c.says ?? (state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
       : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ', until you sign in with ChatGPT, or an agent under Agents' : ''}.`)}>
-      {state === 'again' ? <span class="v warn">The terms changed. Agree again to keep it on.</span> : <span class="v">Off: only tasks that name their project</span>}
+      {state === 'again' ? <span class="v warn">{AGAIN}</span> : <span class="v">Off: only tasks that name their project</span>}
       <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : tools.length > 0 ? 'Let your agents help…' : 'Sign in with ChatGPT…'}</button>
     </Row>
   );
@@ -192,15 +192,14 @@ export function PlacingSheet({ back }: { back?: boolean }) {
     : agreed ? [{ k: '⌘⌫', label: 'Turn off', kind: 'danger', do: () => put(null) }, { k: 'esc', label: 'Close', do: done }]
       : [{ k: '↩', label: state === 'again' ? 'Agree again' : 'Allow', kind: 'primary', do: () => void write(rows).then(done, fail) },
         { k: 'esc', label: records.prefs.has('route_by') ? 'Close' : 'Not now', do: no }];
-  const before = by?.agents.filter((p) => p.on).map((p) => agentName(p.agent)) ?? [];
   return (
     <Frame size="md" title={FINDING} acts={acts}>
       <div class="terms">
-        {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Now your agents are asked one after another, so until you agree again, only tasks that name their project are placed.</p>}
-        <p>Give a task without naming its project, and one of your own agents finds where the task belongs; for a long task that agent also writes a summary for the agent that runs the task. Your own words always go along.</p>
+        {state === 'again' && <p class="warn">You agreed before to what was sent then. Placing now sends more, so until you agree again, only tasks that name their project are placed.</p>}
+        <p>Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent at work there goes on. Your own words always go along.</p>
         {!t ? <p>Asking what is sent…</p> : (
           <>
-            <p>Each such task goes to the first agent below that answers, one at a time, under the sign-in it already has. It is sent:</p>
+            <p>Each such task goes to the first agent below that answers, one at a time, under the sign-in it already has. To place each task well, that agent is now sent more than before:</p>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
             {c.state !== 'in' && asks && <p>{chatgptOffer(asks)}</p>}
             {c.says && <p class={c.state === 'out' ? 'warn' : undefined} role={c.state === 'out' ? 'alert' : 'status'}>{c.says}</p>}
@@ -212,7 +211,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
                 <span class="hint">{MOVES}</span>
               </div>
             )}
-            <p class="hint">A short task that names its project is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
+            <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long one is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
           </>

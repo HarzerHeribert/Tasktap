@@ -23,7 +23,7 @@ import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from '
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
-import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placedBy, placing, step } from './way.ts';
+import { back, briefOf, clock, decided, first, hold, laterWhy, leave, type Names, offers, onWay, placed, placeOf, placing, step, waits } from './way.ts';
 
 /** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
  *  line with the key held to talk where talking is set up, the line about a second task while one runs. A line rolls in
@@ -137,8 +137,9 @@ export function where(pick = picked(), route = hinted(), usualId = cap.usual): {
   if (route?.confidence === 'clear' && 'session' in route.to) return { to: '', by: 'router', why: 'follows' };
   if (route?.confidence === 'clear') return { to: routedProject(route) ?? '', by: 'router', why: route.said ? 'said' : 'named' };
   if (route) return { to: '', by: 'router', why: 'asked' };
-  if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
+  // With a model the person lets place tasks, it decides also in a workspace: it is told which one is in view.
   if (all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
+  if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
   // The one place there is, when it is a folder the person opened: a project Tasktap only knows of is never a default.
   if (pick === undefined && all.length === 1 && records.projects.get(all[0]!)?.kind === 'folder') return { to: all[0]!, by: 'pick', why: 'only' };
   return { to: '', by: 'router', why: cap.draft.trim() ? 'ask' : 'words' };
@@ -153,7 +154,10 @@ function chipSays(w: ReturnType<typeof where>, route: Route | undefined, back: b
     fresh: unopened(w.to), agent: modelPlaces() ? agentName(first(pref('route_by'), placers())) : undefined, back, key: spell('⌘K'),
   });
 }
-const named = (w: ReturnType<typeof where>, current = cap.current): Partial<CaptureArgs> => (w.by === 'router' ? { current } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' });
+/** What a capture says of its place: the session and the workspace in view for the router (none in the notch, which
+ *  sets neither), a pick's place, or a note. */
+const named = (w: ReturnType<typeof where>, current = cap.current, view = cap.usual): Partial<CaptureArgs> =>
+  w.by === 'router' ? { current, ...(view ? { view } : {}) } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' };
 
 /** The thoughts on their way, newest first: being placed, or placed and held. Undo still takes each back. */
 export const going = () => [...records.thoughts.values()].filter((t) => onWay(t)).sort((a, b) => b.created - a.created);
@@ -229,7 +233,7 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.update', { id, ...placeArgs(w.to) });
     } else {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
-      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current), ...(by ? { agent: by } : {}) });
+      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual), ...(by ? { agent: by } : {}) });
     }
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by } });
     page.error = '';
@@ -489,7 +493,7 @@ function Hearing({ d, raised, said }: { d: Dictation | undefined; raised: boolea
 /** The hold as a line that runs out: as long as what is left, from the share that is left, by the clock and not by
  *  frames. It starts again when the core moves the hold's end, and stands whole while that end is still open. */
 function Hold({ t }: { t: Thought }) {
-  const h = useMemo(() => hold(t, Date.now()), [t.hold_until, t.route?.pending]);
+  const h = useMemo(() => hold(t, Date.now(), pref('hold') * 1000), [t.hold_until, t.route?.pending]);
   return <i class="way-hold" key={t.hold_until ?? 0} data-open={!h || undefined} style={h ? { '--from': String(h.share), '--ms': `${Math.round(h.ms)}ms` } : undefined} />;
 }
 
@@ -516,25 +520,51 @@ function Told({ t }: { t: Thought }) {
   );
 }
 
-/** A thought on its way, with the way to take it back. The newest is `open`: one line (NOTES §13, the review's R12):
- *  where it starts, who placed it, the rest behind one quiet disclosure, and Undo. Any other is its first line. */
+/** What the decision line knows of the places it names. */
+const names: Names = { project: projectName, session: sessionName, of: (id) => records.sessions.get(id)?.project_id, cut: (s) => keyName16(s) };
+/** The decision's other places (way.ts `offers`): the newest thought on its way, its keys 2 and 3 while the field is
+ *  empty, as the question at the Composer has its digits. */
+const offersNow = () => {
+  const t = waiting();
+  return t && step(t) === 'held' ? offers(t, names) : [];
+};
+const placeAnew = (t: Thought, to: Parameters<typeof placeOf>[0]) => void call('thought.update', { id: t.id, ...placeOf(to) }).catch(fail);
+function offerKey(e: KeyboardEvent): boolean {
+  const t = waiting(), o = offersNow().find((x) => x.key === e.key);
+  if (!t || !o || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return false;
+  e.preventDefault();
+  placeAnew(t, o.to);
+  return true;
+}
+
+/** A thought on its way, with the way to take it back. The newest is `open`: one line (NOTES §13, the review's R12),
+ *  its decision (design §8): the project and how the task goes there, a session continued or a new run; the other
+ *  places on their keys (the other way of going, or the places a model was torn between); the rest behind one quiet
+ *  disclosure; and Undo. One that waits for a key (`waits`: no time runs) says Return's key first. Any other is its
+ *  first line. */
 function Going({ t, open }: { t: Thought; open: boolean }) {
-  const at = step(t), by = placedBy(t, agentName);
+  const at = step(t), d = decided(t, names), keys = open && at === 'held' ? offers(t, names) : [], rows = keys.length > 1;
   return (
     <section class="way" data-step={at} data-thought={t.id} aria-label="On its way">
       <Hold t={t} />
       <p class="way-h">
         {at === 'placing' ? <><Mark s="working" label="" /><b>Placing…</b></> : (
-          <><I n={t.session_id ? 'term' : 'arrow'} />
-            {t.session_id ? <b>Follow-up: {sessionName(t.session_id)}</b> : <span class="way-to">Starting in <b>{projectName(t.project_id ?? t.card_id)}</b></span>}
-            {t.card_id && <em class="way-new">new here</em>}
-            {open && by && <span class="way-by">{by}</span>}</>
+          <>{open && waits(t) ? <Key k="↩" cap /> : <I n={t.session_id ? 'term' : 'arrow'} />}
+            <span class="way-to"><b>{d.name}</b>, {d.how}</span>
+            {t.card_id && <em class="way-new">new here</em>}</>
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
         {open && at !== 'placing' && <More t={t} />}
+        {!rows && keys.map((o) => <button type="button" class="act" key={o.key} data-offer={o.key} title={o.title} onClick={() => placeAnew(t, o.to)}>{!cap.draft && <Key k={o.key} cap />}<span>{o.label}</span></button>)}
         {/* ⌘Z is the field's own undo while it holds words: then the cap is not shown. */}
         <button type="button" class="act" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
       </p>
+      {/* Two other places: as the question's rows, each on its key, in the decision's words. */}
+      {rows && (
+        <div class="qa rows">
+          {keys.map((o) => <button type="button" class="ans" key={o.key} data-offer={o.key} title={o.title} onClick={() => placeAnew(t, o.to)}>{!cap.draft && <Key k={o.key} cap />}<span>{o.words.name}</span><i>{o.words.how}</i></button>)}
+        </div>
+      )}
       {open && <Told t={t} />}
     </section>
   );
@@ -577,7 +607,7 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
     return () => clearTimeout(timer);
   });
   const line = (words: ComponentChildren, more?: ComponentChildren) => <p class="cap-said" role="status"><span>{words}</span>{more}</p>;
-  const at = step(t), by = t ? placedBy(t, agentName) : '';
+  const at = step(t);
   // Where a thought started is said once, for a few seconds: after that its row says it, and nothing stands under the
   // Composer. (What still needs the person stays: a question, a failure, why it waits, and Undo while it can be undone.)
   const began = at === 'started' && sent ? (told.id === sent.id ? told : (told = { id: sent.id, at: Date.now() })).at : 0;
@@ -606,7 +636,7 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
             <button type="button" class="act" onClick={() => void undo('later')}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
           </>)
             : at === 'failed' ? line(`${why(t)} in ${projectName(t.project_id)}.`)
-              : fresh ? <>{line(<>Started in <b>{projectName(t.project_id)}</b>{t.card_id && <i>new here</i>}{by && <i>{by}</i>}</>, <More t={t} />)}<Told t={t} /></> : null
+              : fresh ? <>{line(<>Started in <b>{projectName(t.project_id)}</b></>, <More t={t} />)}<Told t={t} /></> : null
       )}
     </div>
   );
@@ -840,6 +870,8 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
               if (sends) return (e.preventDefault(), !e.repeat && answers(q) && chosenRow(q).act());
               if (answerKey(q, e)) return;
             }
+            // The decision's other places, on their keys while the field is empty.
+            if (!q && !cap.draft && offerKey(e)) return;
             if (sends) e.repeat ? e.preventDefault() : void send(e, hooks);
             else if (hit('⌘K', e)) {
               // The list, from the field: where it goes, chosen without the pointer.

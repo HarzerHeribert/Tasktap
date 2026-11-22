@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
   agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, onThisMachine, ownMark, ownOffer, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
-  offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
+  middle, offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
 } from './way.ts';
 
 test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
@@ -339,4 +339,12 @@ test('the own model: an address on this machine says the task does not leave it'
 test('the own model has the mark of the server its address names, else a plain one', () => {
   for (const a of ['http://127.0.0.1:11434/v1', 'http://studio.lan:11434/v1', 'https://ollama.example.com/v1', 'http://10.0.0.5/ollama/v1']) assert.equal(ownMark(a), 'ollama', a);
   for (const a of ['http://127.0.0.1:1234/v1', 'https://api.example.com/v1', 'http://[::1]:8080/v1', 'http://10.0.0.5:114340/v1']) assert.equal(ownMark(a), 'own', a);
+});
+
+test('a project name too long for its column is cut in the middle', () => {
+  assert.equal(middle('cuegrid'), 'cuegrid');
+  assert.equal(middle('a'.repeat(24)), 'a'.repeat(24));
+  const cut = middle('harbormaster-tide-tables-backend-v2');
+  assert.equal([...cut].length, 24);
+  assert.equal(cut, 'harbormaster…-backend-v2');
 });

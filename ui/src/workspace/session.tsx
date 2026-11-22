@@ -31,7 +31,7 @@ function answered(q: Question): string {
 /** One turn: the thought, then what was asked and what came back, in their order. One set of columns for every line:
  *  the time, the mark, the words. */
 function Turn({ t, s, questions, results }: { t: Thought; s: Session; questions: Question[]; results: TurnResult[] }) {
-  const brief = briefOf(t), how = placed(t, agentName);
+  const brief = briefOf(t), how = placed(t, agentName), r = t.route, by = r && r.by !== 'local' ? `${agentName(r.by)}${r.model ? `, ${r.model}` : ''}` : '';
   const events = [...questions.map((q) => ({ at: madeAt(q.id), q })), ...results.map((r) => ({ at: madeAt(r.id), r }))].sort((a, b) => a.at - b.at);
   const runs = s.thought_id === t.id && t.status === 'working';
   return (
@@ -39,7 +39,7 @@ function Turn({ t, s, questions, results }: { t: Thought; s: Session; questions:
       <time>{when(t.created)}</time>{t.source === 'voice' ? <I n="mic" /> : <span />}
       <p class="tn-t">{t.text}</p>
       {brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
-      {how && <p class="way-n">{how}</p>}
+      {by ? <p class="way-w"><span>Placed by</span>{by}{t.placed === 'model' && r?.quote ? `, because you said “${r.quote}”` : ''}</p> : how && <p class="way-n">{how}</p>}
       {events.map((e) => 'q' in e ? (
         <>
           <time>{clock(e.at)}</time><Mark s="asks" label="" />
@@ -96,8 +96,8 @@ export function SessionSheet({ id }: { id: string }) {
         <div class="line">
           <Glyph agent={s.agent} />
           <span class="t">{agentName(s.agent)}</span>
-          <span class="x"><span class="sx-s"><Mark s={c.s} label="" />{c.words}</span>{c.activity && c.s === 'working' ? ` · ${c.activity}` : ''}</span>
-          <span class="x">{plural(s.turn, 'turn', 'turns')}{s.model ? ` · ${s.model}` : ''}</span>
+          <span class="x"><span class="sx-s"><Mark s={c.s} label="" />{c.words}</span>{c.activity && c.s === 'working' && <span class="sx-m">{c.activity}</span>}</span>
+          <span class="x">{plural(s.turn, 'turn', 'turns')}{s.model && <span class="sx-m">{s.model}</span>}</span>
         </div>
         <div class="line">
           <I n={w ? 'bg' : 'folder'} />

@@ -172,7 +172,7 @@ export function Answer({ k, label, primary = false, danger = false, onClick, cls
 /** "3 files +14 −3". */
 export function Diffstat({ w }: { w: Pick<Workdir, 'files' | 'insertions' | 'deletions'> }) {
   return (
-    <span class="diff" title={`${w.files} ${w.files === 1 ? 'file' : 'files'} changed, ${w.insertions} lines added, ${w.deletions} removed`}>
+    <span class="diff">
       {w.files} {w.files === 1 ? 'file' : 'files'} <i class="p">+{w.insertions}</i> <i class="m">−{w.deletions}</i>
     </span>
   );

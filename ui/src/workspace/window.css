@@ -382,7 +382,9 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hr-m>.hr-x{flex:0 1 auto;min-width:0;color:var(--fg2)}
 /* A task's row: the project at the right of the title, in one column for every row, and then the time. Under the title
    only what there is to say: how it failed, or the first line of its answer, quietly. */
-.hr.task{grid-template-columns:var(--lead) minmax(0,1fr) round(120px * var(--ts),1px) 48px}
+.hr.task{grid-template-columns:var(--lead) minmax(0,1fr) calc(var(--pj,10) * 1ch + var(--sp3)) 48px;cursor:pointer}
+.hr.task:hover{background:var(--fill)}
+.hr.task:hover .hr-t{color:var(--fg)}
 .hr.task .hr-t{grid-area:1/2}
 .hr-p{grid-area:1/3;min-width:0;padding-right:var(--sp3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg3)}
 .hr.task .hr-x{grid-area:2/2/auto/5;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg3)}
@@ -398,9 +400,42 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 /* Saved for later: no agent has it, so its mark leads it. What to do with it stands beside its words, there when the
    row is pointed at, has the keyboard or was just saved. */
 .hr.later :is(.hr-t,.hr-m){grid-column:2/3}
+.sx-m{margin-left:var(--sp3);color:var(--fg3)}
 .later .hr-a{grid-area:1/3/3/4;align-self:center;padding:0 6px 0 var(--sp3);visibility:hidden}
 .later:is(:hover,:focus-within,.new) .hr-a{visibility:visible}
 /* the second layer, in place: a single line that opens */
+/* A result not yet opened is a card (card.tsx), on the Composer's raised material: its rim is the lit edge, faint at rest
+   and bright under the pointer and with the keyboard, as the Composer's is, and the card is one target: a click on it
+   anywhere but on a button opens the result. The first answer, Open, stands as a filled key. The same content, with no
+   actions, is the peek of a row: a popover under it or over it, never on it, that takes neither pointer nor keyboard. */
+.hr.card{position:relative;display:block;grid-column:1/-1;margin:var(--sp2) 0;padding:var(--sp3) var(--sp4);border:0;border-radius:var(--r4);background:var(--surface);box-shadow:var(--surface-edge);cursor:pointer;transition:background var(--t-fast)}
+.hr.card::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--edge,var(--lit));opacity:.3;transition:opacity var(--t-sheet);pointer-events:none;
+  mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
+.hr.card:is(:hover,:focus-visible,:focus-within){background:var(--surface-lit)}
+.hr.card:is(:hover,:focus-visible,:focus-within)::after{opacity:.9}
+.hr.card:focus-visible{outline:0}
+.hr.card .hr-a{padding:var(--sp3) 0 0;cursor:default}
+.hr.card .btn.pri{background:rgb(255 255 255/.16);box-shadow:none}
+.hr.card .btn.pri:hover{background:rgb(255 255 255/.26)}
+.cd{display:grid;gap:var(--sp2);min-width:0}
+.cd p,.cd-a{margin:0}
+.cd-t{font:var(--f-label);color:var(--fg)}
+.cd-a{font:var(--f-text);color:var(--fg2)}
+.cd-a.fail{color:var(--fail)}
+.cl{position:relative;overflow:hidden;max-height:calc(var(--n) * round(18px * var(--ts),1px));overflow-wrap:anywhere}
+.cl-l.li{padding-left:1.4em;text-indent:-1.4em}
+.w.b{font-weight:600;color:var(--fg)}
+.w.i{font-style:italic}
+.w.code{font-family:var(--mono);font-size:.92em;color:var(--fg)}
+.w.m{display:inline-block;width:1.4em;text-indent:0;color:var(--fg3)}
+.cd-f{display:flex;align-items:center;gap:var(--sp3);min-width:0;font:var(--f-small);color:var(--fg3);white-space:nowrap}
+.cd-g{display:inline-flex;flex:none}
+.cd-p{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cd-f time,.cd-f .diff{font:var(--f-num);flex:none}
+.cd-peek{position:absolute;z-index:4;padding:var(--sp3) var(--sp4);border-radius:var(--r4);background:var(--surface-lit);box-shadow:var(--surface-edge);pointer-events:none}
+@media(prefers-reduced-motion:no-preference){
+  .cd-peek{animation:arrive var(--t-fast) linear both}
+}
 .folds{margin-top:34px}
 .fold-h{display:grid;grid-template-columns:var(--lead) round(72px * var(--ts),1px) auto minmax(0,1fr) 48px;align-items:baseline;align-content:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);
   border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2);white-space:nowrap;text-align:left}

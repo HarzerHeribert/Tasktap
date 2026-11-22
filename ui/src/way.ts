@@ -103,6 +103,14 @@ export const fallback = (t: Pick<Thought, 'route'>) => {
   return f && /^the agreement /.test(f) ? null : f;
 };
 
+/** A name too long for its column, cut in the middle so that its start and its end stay: at most `most` characters. */
+export const middle = (name: string, most = 24) => {
+  const all = [...name];
+  if (all.length <= most) return name;
+  const head = Math.ceil((most - 1) / 2);
+  return `${all.slice(0, head).join('')}…${all.slice(all.length - (most - 1 - head)).join('')}`;
+};
+
 /** How a thought came by its place, in a few words, from the core's word for it. "Placed by" only where the match on
  *  names or a model placed it. Where the person decided (a pick, a follow-up to the session they were in, an answer to
  *  where it should go) `route` only says who wrote the brief. Why a model was not used is the core's sentence, as it is;

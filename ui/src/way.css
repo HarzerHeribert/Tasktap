@@ -68,7 +68,7 @@
 :is(.way-b,.way-w)>span{display:block;margin-bottom:1px;font:var(--f-cap);color:var(--fg3);-webkit-user-select:none;user-select:none}
 /* What a model called the work, beside the word Brief: the name its session will have. */
 .way-b>span b{color:var(--fg2)}
-.way-b>span b::before{content:"·";margin:0 6px;color:var(--fg3)}
+.way-b>span b{margin-left:var(--sp3)}
 .way-n{margin-top:var(--sp2);font:var(--f-cap);color:var(--fg3);text-wrap:pretty}
 .way.failed .way-h>b{font:var(--f-text);text-wrap:pretty}
 .way.failed .way-h .btn{margin-left:auto}

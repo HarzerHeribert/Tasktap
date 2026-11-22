@@ -32,7 +32,7 @@ const { scene, flow } = require('./instrument-fixtures.cjs');
 // Lists: the rows that are siblings, and the parts of a row whose edges must agree.
 const LISTS = [
   { list: '.hrs', row: ':scope > .hr.run', parts: { mark: '.st', label: '.hr-t', fact: '.hr-x, .hr-m', time: 'time' } },
-  { list: '.hrs', row: ':scope > .hr.res', parts: { mark: '.st', label: '.hr-t', fact: '.hr-x, .hr-m', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.res:not(.card)', parts: { mark: '.st', label: '.hr-t', fact: '.hr-x, .hr-m', time: 'time' } },
   { list: '.hrs', row: ':scope > .hr.later', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
   { list: '.hrs', row: ':scope > .hr.ask', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
   { list: '.folds', row: ':scope > .fold > .fold-h', parts: { mark: '.i', name: 'b', count: '.fold-c', time: 'time' } },
@@ -614,7 +614,7 @@ async function main() {
       });
       // Every row's time, by the column it stands in (its left edge): one right edge in each.
       const times = {};
-      for (const t of document.querySelectorAll('.hx .hr time')) if (t.offsetParent) (times[Math.round(t.closest('.hr').getBoundingClientRect().left)] ??= new Set()).add(Math.round(t.getBoundingClientRect().right));
+      for (const t of document.querySelectorAll('.hx .hr:not(.card) time')) if (t.offsetParent) (times[Math.round(t.closest('.hr').getBoundingClientRect().left)] ??= new Set()).add(Math.round(t.getBoundingClientRect().right));
       return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), finish: r('.home .finish') },
         mid: cap ? cap.left + cap.width / 2 : null, capW: cap?.width ?? null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows,
         times: Object.values(times).map((e) => [...e].sort((a, b) => a - b)) };

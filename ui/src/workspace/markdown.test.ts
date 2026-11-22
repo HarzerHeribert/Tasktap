@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { type Block, type Inline, firstLine, inline, parse, plain } from './markdown.ts';
+import { type Block, type Inline, firstLine, inline, lines, parse, plain } from './markdown.ts';
 
 /** A line's parts back as one string, with what each is: `b(…)`, `i(…)`, `code(…)`, `a(text→target)`. */
 const flat = (s: Inline[]): string => s.map((x) => (typeof x === 'string' ? x : x.t === 'code' ? `code(${x.s})` : x.t === 'a' ? `a(${flat(x.s)}→${x.to})` : `${x.t}(${flat(x.s)})`)).join('');
@@ -72,4 +72,12 @@ test('the first line of an answer as plain words', () => {
 
 test('a whole answer as plain words in one run', () => {
   assert.equal(plain('**Test Witness** passes.\n\nFiles changed: `4`.'), 'Test Witness passes. Files changed: 4.');
+});
+
+test('an answer as the words of its lines, each with how it is set', () => {
+  const l = lines('**Test** passes, run `npm test`.\n\n- one\n- *two* files\n1. first');
+  assert.deepEqual(l[0]!.map((w) => `${w.s}|${w.k ?? ''}|${w.sp ? 1 : 0}`), ['Test|b|0', 'passes,||1', 'run||1', 'npm|code|1', 'test|code|1', '.||0']);
+  assert.deepEqual(l.slice(1).map((r) => r.map((w) => w.s).join(' ')), ['• one', '• two files', '1. first']);
+  assert.deepEqual(lines('a  b\n\nc', false).map((r) => r.map((w) => w.s)), [['a', 'b'], ['c']]);
+  assert.ok(lines('word '.repeat(500)).flat().length <= 161);
 });

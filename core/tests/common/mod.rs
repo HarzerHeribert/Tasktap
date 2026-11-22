@@ -822,6 +822,7 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         agent: None,
         model: None,
         current: None,
+        view: None,
     }
 }
 
@@ -1148,6 +1149,7 @@ impl Scene {
             id: ProjectId::mint(),
             folder: folder.to_str().unwrap().into(),
             name: None,
+            create: false,
         };
         let project = w.ok::<call::ProjectAdd>(&add);
         let mut scene = Scene {
@@ -1176,6 +1178,7 @@ impl Scene {
             id: ProjectId::mint(),
             folder: folder.to_str().unwrap().into(),
             name: None,
+            create: false,
         };
         self.w.ok::<call::ProjectAdd>(&add)
     }

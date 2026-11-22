@@ -47,6 +47,11 @@ const SUMMARY: usize = 200;
 /// Hex digits of a launch attempt's id, from its random end, that name a
 /// new worktree and its branch.
 const NAME: usize = 12;
+/// Whether a thought a model was torn about starts after the hold in the
+/// place it named first, as one it was sure of does. It does not (the
+/// owner's measurement of 2026-11-22: its first offer was the right one 44
+/// times in 69): it waits for the person's key on the decision line.
+const TORN_STARTS: bool = false;
 const SETTLING: &str = "its changes are being kept or discarded; try again once that is done";
 /// The activity line a turn starts with.
 pub const TURN_STARTED: &str = "Started on the prompt";
@@ -211,6 +216,22 @@ pub enum Route {
         candidates: Vec<Candidate>,
         brief: Option<String>,
     },
+    /// A model was torn between these places, the likeliest first: the
+    /// thought goes to the first, and the others stand beside it on the
+    /// decision line, each on a key of its own (`Routing::others`).
+    Torn {
+        candidates: Vec<Candidate>,
+        brief: Option<String>,
+    },
+    /// A model proposes a new project: a router question offers it first,
+    /// then `candidates`, the places such a question offers. Nothing is
+    /// made before the person says yes.
+    Create {
+        prompt: String,
+        project: tasktap_proto::NewProject,
+        candidates: Vec<Candidate>,
+        brief: Option<String>,
+    },
     /// Nowhere to send it, or a note: it stays captured as an idea.
     Unknown,
 }
@@ -247,6 +268,8 @@ pub enum Effect {
     Route {
         thought: ThoughtId,
         current: Option<SessionId>,
+        /// The workspace in view when the thought was said (`Capture::view`).
+        view: Option<ProjectId>,
         by: Option<RouteBy>,
         picked: Option<Destination>,
     },
@@ -626,6 +649,76 @@ impl Machine<'_, '_> {
                 let now = self.now;
                 self.route(some(thought)?, to, None, now, Placed::Picked)
             }
+            // placed anew while it is held (a key of the decision line, or a
+            // place picked): its hold starts again from now. The places the
+            // line offered stay offered, the one it was in among them.
+            (E::Pick { to, .. }, _, Some(P::Routed), ..) => {
+                let mut t = some(thought)?;
+                if t.hold_until.take().is_some() {
+                    self.effects.push(Effect::Unhold(t.id));
+                }
+                let was = match (t.session_id, t.project_id, t.card_id) {
+                    (Some(s), ..) => Some(Destination::Session(s)),
+                    (None, Some(p), _) => Some(Destination::New(p)),
+                    (None, None, c) => c.map(Destination::Card),
+                };
+                if let Some(route) = t.route.as_mut() {
+                    let place: tasktap_proto::Place = to.into();
+                    let mut offered: Vec<_> = was.map(Into::into).into_iter().collect();
+                    offered.append(&mut route.others);
+                    if offered.contains(&place) {
+                        route.others = offered.into_iter().filter(|p| *p != place).collect();
+                    }
+                }
+                let now = self.now;
+                self.route(t, to, None, now, Placed::Picked)
+            }
+            // a model torn between places: to the first, the others beside it.
+            (
+                E::Routed {
+                    route: Route::Torn { candidates, brief },
+                    mut how,
+                    current,
+                    ..
+                },
+                _,
+                Some(P::Captured),
+                ..,
+            ) if routing(&thought) => {
+                let mut places = candidates.into_iter().map(|c| c.to);
+                let first = places
+                    .next()
+                    .ok_or(Error::Invalid("a torn route has no place"))?;
+                how.others = places.map(Into::into).collect();
+                let t = some(thought)?;
+                let (id, brief) = (t.id, brief.unwrap_or_else(|| t.text.clone()));
+                self.routed(t, first, brief, how, current)?;
+                self.torn(id)
+            }
+            // a model proposes a new project: the person is asked.
+            (
+                E::Routed {
+                    route:
+                        Route::Create {
+                            prompt,
+                            project,
+                            candidates,
+                            brief,
+                        },
+                    how,
+                    ..
+                },
+                _,
+                Some(P::Captured),
+                ..,
+            ) if routing(&thought) => self.ask_router(
+                some(thought)?,
+                prompt,
+                candidates,
+                brief,
+                how,
+                Some(project),
+            ),
             // route ambiguous: stays captured, a router question opens, also
             // with no place to offer (the person's own answers remain: a
             // folder, the Scratchpad, another project, keep for later).
@@ -644,7 +737,7 @@ impl Machine<'_, '_> {
                 Some(P::Captured),
                 ..,
             ) if routing(&thought) => {
-                self.ask_router(some(thought)?, prompt, candidates, brief, how)
+                self.ask_router(some(thought)?, prompt, candidates, brief, how, None)
             }
             // route unknown (a scripted router's): an idea.
             (E::Routed { how, .. }, _, Some(P::Captured), ..) if routing(&thought) => {
@@ -1044,7 +1137,7 @@ impl Machine<'_, '_> {
             None => {
                 let mut t = t;
                 let by = self.consent()?;
-                self.ask(&mut t, c.current, by, None);
+                self.ask(&mut t, (c.current, c.view), by, None);
                 self.save(t)
             }
         }
@@ -1065,7 +1158,7 @@ impl Machine<'_, '_> {
     fn ask(
         &mut self,
         t: &mut Thought,
-        current: Option<SessionId>,
+        (current, view): (Option<SessionId>, Option<ProjectId>),
         by: Option<RouteBy>,
         picked: Option<Destination>,
     ) {
@@ -1080,6 +1173,7 @@ impl Machine<'_, '_> {
         self.effects.push(Effect::Route {
             thought: t.id,
             current,
+            view,
             by,
             picked,
         });
@@ -1119,12 +1213,15 @@ impl Machine<'_, '_> {
             true => None,
             false => Some(brief),
         };
+        // A model's decision is shown for the whole hold from the moment
+        // it is there; the match on names decides as the thought is captured.
+        let since = match how.by == LOCAL {
+            true => t.created,
+            false => self.now,
+        };
         t.route = Some(how);
         match self.target(to) {
-            Ok(_) => {
-                let since = t.created;
-                self.route(t, to, brief, since, placed)
-            }
+            Ok(_) => self.route(t, to, brief, since, placed),
             Err(Error::Gone) => {
                 let route = t.route.as_mut().expect("set above");
                 route.fallback = Some("the folder or session it found is gone".into());
@@ -1132,6 +1229,24 @@ impl Machine<'_, '_> {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// A thought a model was torn about, placed in its first place: it
+    /// waits there for the person's key on the decision line (↩ starts it,
+    /// another key places it anew) unless [`TORN_STARTS`], when its hold
+    /// runs as a sure decision's does. The one place the two differ.
+    fn torn(&mut self, id: ThoughtId) -> Result<()> {
+        if TORN_STARTS {
+            return Ok(());
+        }
+        let Some(mut t) = self.tx.thought(id)? else {
+            return Ok(());
+        };
+        if t.phase == P::Routed && t.hold_until.take().is_some() {
+            self.effects.push(Effect::Unhold(id));
+            return self.save(t);
+        }
+        Ok(())
     }
 
     /// The brief of a thought the person picked the destination of
@@ -1283,7 +1398,7 @@ impl Machine<'_, '_> {
         let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
         let wordy = brief.is_none() && t.brief.is_none() && !crate::route::short(&t.text);
         if let (true, false, Some(by)) = (wordy, failed, self.consent()?) {
-            self.ask(&mut t, None, Some(by), Some(to));
+            self.ask(&mut t, (None, None), Some(by), Some(to));
         }
         // Picked while the router's question was still open: that question is moot.
         let id = t.id;
@@ -1317,6 +1432,7 @@ impl Machine<'_, '_> {
         candidates: Vec<Candidate>,
         brief: Option<String>,
         how: Routing,
+        create: Option<tasktap_proto::NewProject>,
     ) -> Result<()> {
         t.route = Some(how);
         t.brief = brief.or(t.brief);
@@ -1341,6 +1457,7 @@ impl Machine<'_, '_> {
             reply_via: ReplyVia::Core,
             state: Q::Open,
             answer: None,
+            create,
         };
         self.tx.insert_question(&q, &key)?;
         self.effects.push(Effect::Notify(id));
@@ -1747,6 +1864,7 @@ impl Machine<'_, '_> {
             reply_via: ReplyVia::Terminal,
             state: Q::Open,
             answer: None,
+            create: None,
         };
         Ok((question, key))
     }

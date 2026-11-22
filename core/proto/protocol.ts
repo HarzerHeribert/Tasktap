@@ -47,7 +47,12 @@ export type AddLook = { id: LookId, folder?: string | null, agent?: string | nul
  * `project.add`. The reply is the id of the project that holds the folder,
  * which is an older one when the folder was already added.
  */
-export type AddProject = { id: ProjectId, folder: string, name?: string | null, };
+export type AddProject = { id: ProjectId, folder: string, name?: string | null,
+/**
+ * Make the folder first, inside a folder that is there: a new project
+ * a model proposed and the person said yes to.
+ */
+create: boolean, };
 
 /**
  * `session.adopt`: an agent a person started by hand in a Tasktap shell
@@ -247,14 +252,20 @@ source?: QuestionSource | null, } & ({ "kind": "confirm" } | { "kind": "choice",
 export type AskKey = { request: string, };
 
 /**
- * `thought.update`: assigns a note to a project.
+ * `thought.update`: sends a thought to a project, or on to a session: a
+ * note, a thought a router asks about, or one placed and still held,
+ * which is placed anew.
  */
 export type Assign = { id: ThoughtId,
 /**
  * A workspace; or, in its place, `card_id`: a project Tasktap knows
  * that is not open, which opens when the thought starts there.
  */
-project_id?: ProjectId, card_id?: CardId, };
+project_id?: ProjectId, card_id?: CardId,
+/**
+ * Or a session that can take a follow-up: the thought continues it.
+ */
+session_id?: SessionId, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -311,7 +322,13 @@ model?: string | null,
  * sends the thought on to unless its text names another project. Not
  * a pick: unlike `session_id`, the router still decides (design §8).
  */
-current?: SessionId | null, };
+current?: SessionId | null,
+/**
+ * The workspace in view when the thought was said in Tasktap's window
+ * (the one its capture sheet was opened in), which a model is told
+ * of. Not a pick either.
+ */
+view?: ProjectId | null, };
 
 /**
  * What Tasktap knows of one folder that is, or holds a copy of, a
@@ -1043,6 +1060,14 @@ export type MotionPalette = "chrome" | "chromatic" | "warm" | "cool" | "custom";
 export type MotionStyle = "slats" | "glyphs" | "resonator";
 
 /**
+ * A new project a model proposed: a folder `name` in `place`, the folder
+ * where most of the person's projects are, as the person writes it (`~`
+ * for their home); `folder`, the whole path. Where that folder is there
+ * already (`exists`), it is offered as the folder it is.
+ */
+export type NewProject = { name: string, place: string, folder: string, exists: boolean, };
+
+/**
  * The editable fields of a note; a missing one is left as it is.
  */
 export type NotePatch = { text?: string | null, strokes?: Array<Array<[number, number]>> | null, };
@@ -1329,7 +1354,12 @@ places: Array<Place> | null,
  * few words ("named in it", "invoices, export"), or empty. None for
  * every other question, and in a row older than the field.
  */
-notes: Array<string> | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+notes: Array<string> | null,
+/**
+ * Of a router's question: the new project a model proposed for the
+ * thought, which the question offers first; none for every other.
+ */
+create: NewProject | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -1538,7 +1568,13 @@ lead: string | null,
 /**
  * Milliseconds the answer took.
  */
-ms: number | null, };
+ms: number | null,
+/**
+ * The other places a model was torn between, after the one the
+ * thought went to, the likelier first: the decision line offers each
+ * on a key of its own (design §8, "The decision").
+ */
+others: Array<Place>, };
 
 /**
  * Rows put whole, and ids of rows that stopped being live.

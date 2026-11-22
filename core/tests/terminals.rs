@@ -1540,6 +1540,7 @@ fn a_terminal_may_belong_to_no_project_and_a_closed_project_starts_none() {
         id: p,
         folder: folder.0.to_string_lossy().into_owned(),
         name: None,
+        create: false,
     };
     w.ok::<call::ProjectAdd>(&add);
     let mut inside = fixture(&["print 1", "serve"]);

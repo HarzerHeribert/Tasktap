@@ -124,6 +124,11 @@ pub struct Routing {
     pub lead: Option<String>,
     /// Milliseconds the answer took.
     pub ms: Option<u32>,
+    /// The other places a model was torn between, after the one the
+    /// thought went to, the likelier first: the decision line offers each
+    /// on a key of its own (design §8, "The decision").
+    #[serde(default)]
+    pub others: Vec<crate::args::Place>,
 }
 
 words! {
@@ -493,6 +498,10 @@ pub struct Question {
     /// every other question, and in a row older than the field.
     #[serde(default)]
     pub notes: Option<Vec<String>>,
+    /// Of a router's question: the new project a model proposed for the
+    /// thought, which the question offers first; none for every other.
+    #[serde(default)]
+    pub create: Option<NewProject>,
     pub prompt: String,
     pub detail: Option<String>,
     pub reply_via: ReplyVia,
@@ -502,6 +511,19 @@ pub struct Question {
 
 words! {
     pub enum QuestionSource { Agent, Permission, Router }
+}
+
+/// A new project a model proposed: a folder `name` in `place`, the folder
+/// where most of the person's projects are, as the person writes it (`~`
+/// for their home); `folder`, the whole path. Where that folder is there
+/// already (`exists`), it is offered as the folder it is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct NewProject {
+    pub name: String,
+    pub place: String,
+    pub folder: String,
+    pub exists: bool,
 }
 
 /// The kind of a question, with the choices only a `choice` question has.

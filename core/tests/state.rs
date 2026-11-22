@@ -89,6 +89,7 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         agent: None,
         model: None,
         current: None,
+        view: None,
     }
 }
 
@@ -116,6 +117,7 @@ fn question(s: &Session, via: ReplyVia) -> Question {
         reply_via: via,
         state: QuestionState::Open,
         answer: None,
+        create: None,
     }
 }
 
@@ -313,6 +315,7 @@ impl World {
             [Effect::Route {
                 thought: id,
                 current: None,
+                view: None,
                 by: None,
                 picked: None,
             }]
@@ -431,6 +434,7 @@ fn row_capture_makes_a_captured_thought_and_asks_the_router() {
         [Effect::Route {
             thought: id,
             current: None,
+            view: None,
             by: None,
             picked: None,
         }]
@@ -3610,6 +3614,7 @@ fn row_capture_asks_a_model_only_with_the_persons_consent() {
         [Effect::Route {
             thought: id,
             current: None,
+            view: None,
             by: Some(consent()),
             picked: None,
         }]
@@ -3632,14 +3637,14 @@ fn row_capture_asks_a_model_only_with_the_persons_consent() {
 }
 
 #[test]
-fn row_route_clear_holds_from_the_capture_and_records_how_it_was_routed() {
+fn row_route_clear_holds_from_the_decision_and_records_how_it_was_routed() {
     let mut w = World::new("since");
     w.consents();
     let id = w.asked(SPOKEN);
-    let captured_at = w.now;
-    // The model took 3 s of the 5 the hold lasts: 2 s are left.
+    // The model took 3 s: the whole hold of 5 s counts from its answer, the
+    // moment its decision is shown.
     w.tick(3000);
-    let until = time(captured_at + 5000);
+    let until = time(w.now + 5000);
     let route = w.clear(BRIEF);
     assert_eq!(
         w.answers(id, route.clone()).unwrap(),
@@ -3656,12 +3661,11 @@ fn row_route_clear_holds_from_the_capture_and_records_how_it_was_routed() {
         w.answers(id, route.clone()),
         Err(Error::Ignored(Ignored::State))
     ));
-    // One that left less of the hold than it takes to read the route, or
-    // took longer than the hold: the hold ends 2 s after it arrived.
+    // However long the model took, the whole hold is there after it answered.
     for took in [3001, 4000, 7000] {
         let late = w.asked(SPOKEN);
         w.tick(took);
-        let until = time(w.now + 1000 * u64::from(READ_HOLD));
+        let until = time(w.now + 5000);
         assert_eq!(
             w.answers(late, route.clone()).unwrap(),
             [Effect::Hold {
@@ -3722,11 +3726,11 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
         attempt: AttemptId::mint(),
     };
     assert_eq!(w.ignored(ended), Ignored::State);
-    // Before the time to read is over the hold has not ended.
+    // Before the hold from the answer is over it has not ended.
     let id = w.asked(SPOKEN);
     w.tick(9000);
     w.answers(id, route).unwrap();
-    w.tick(1999);
+    w.tick(4999);
     let early = Event::HoldEnded {
         thought: id,
         attempt: AttemptId::mint(),
@@ -4061,6 +4065,7 @@ fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in()
             Effect::Route {
                 thought: id,
                 current: None,
+                view: None,
                 by: Some(consent()),
                 picked: Some(to),
             },
@@ -4370,6 +4375,7 @@ mod dictations {
             agent: None,
             model: None,
             current: None,
+            view: None,
         }))
     }
 

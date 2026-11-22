@@ -384,6 +384,11 @@ pub struct Capture {
     /// a pick: unlike `session_id`, the router still decides (design §8).
     #[serde(default)]
     pub current: Option<SessionId>,
+    /// The workspace in view when the thought was said in Tasktap's window
+    /// (the one its capture sheet was opened in), which a model is told
+    /// of. Not a pick either.
+    #[serde(default)]
+    pub view: Option<ProjectId>,
 }
 
 /// `route.hint`: where a capture would go, asked while it is typed (the
@@ -398,7 +403,9 @@ pub struct Hint {
     pub current: Option<SessionId>,
 }
 
-/// `thought.update`: assigns a note to a project.
+/// `thought.update`: sends a thought to a project, or on to a session: a
+/// note, a thought a router asks about, or one placed and still held,
+/// which is placed anew.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Assign {
@@ -411,6 +418,10 @@ pub struct Assign {
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
     pub card_id: Option<CardId>,
+    /// Or a session that can take a follow-up: the thought continues it.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub session_id: Option<SessionId>,
 }
 
 /// `thought.start`. The attempt is committed before anything is spawned, so
@@ -908,6 +919,10 @@ pub struct AddProject {
     pub folder: String,
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub name: Option<String>,
+    /// Make the folder first, inside a folder that is there: a new project
+    /// a model proposed and the person said yes to.
+    #[serde(default)]
+    pub create: bool,
 }
 
 /// `terminal.open`: attaches to terminal `id` and replies with a stream of

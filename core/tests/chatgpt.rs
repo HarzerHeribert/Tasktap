@@ -672,6 +672,7 @@ impl Placing {
                 id: ProjectId::mint(),
                 folder: folder.to_str().unwrap().into(),
                 name: None,
+                create: false,
             };
             w.ok::<call::ProjectAdd>(&add)
         };
@@ -1026,9 +1027,14 @@ fn the_question_is_an_agents_and_what_chatgpt_cannot_answer_passes_to_the_next()
         body["input"][0]["content"].as_str().unwrap()
     );
     assert_eq!(sent, agent);
+    // One question for both, as route.rs builds it: with what the terms of
+    // smart placing send.
+    for field in ["\"earlier\"", "\"top\"", "\"view\"", "\"folder\""] {
+        assert!(sent.contains(field), "{field} in {sent}");
+    }
 
     // ChatGPT alone: what it could not answer is said where an agent's is,
-    // and the names place the thought.
+    // and the person is asked where the task goes.
     p.agree(&["chatgpt"]);
     let cases = [
         (

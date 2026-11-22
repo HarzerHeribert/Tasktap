@@ -789,6 +789,38 @@ impl<'s> Tx<'s> {
         self.all(Table::Thoughts, clause, [key(&session)?])
     }
 
+    /// A session's thoughts, the first first: the task it began with, and
+    /// its latest turn last.
+    pub fn turns(&self, session: SessionId) -> Result<Vec<Thought>> {
+        self.all(
+            Table::Thoughts,
+            "WHERE session_id = ?1 ORDER BY id",
+            [key(&session)?],
+        )
+    }
+
+    /// The thoughts that ran somewhere, or are held to, the newest first, at
+    /// most `limit`: where each task went in the end, after a switch, an
+    /// Undo or an answer, which is what a project's earlier tasks are
+    /// (design §8, "What a model is shown").
+    pub fn ran(&self, limit: usize) -> Result<Vec<Thought>> {
+        let clause = "WHERE phase IN ('routed', 'working', 'done', 'failed') \
+                      ORDER BY id DESC LIMIT ?1";
+        self.all(Table::Thoughts, clause, [limit as i64])
+    }
+
+    /// The summary of a thought's latest result, when it has one.
+    pub fn summary(&self, thought: ThoughtId) -> Result<Option<String>> {
+        let mut latest = self.db.prepare_cached(
+            "SELECT data ->> 'summary' FROM results WHERE thought_id = ?1 ORDER BY id DESC LIMIT 1",
+        )?;
+        match latest.query_row([key(&thought)?], |r| r.get(0)) {
+            Ok(summary) => Ok(summary),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// The live thoughts that went to a session and are working or ended,
     /// the last written first, each with the summary of its latest result:
     /// the recent exchanges a router is given (design §8).

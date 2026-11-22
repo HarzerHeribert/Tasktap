@@ -482,6 +482,7 @@ fn a_slow_folder_check_holds_up_no_other_client() {
         id: ProjectId::mint(),
         folder: data.0.to_str().unwrap().into(),
         name: None,
+        create: false,
     };
     a.send(&call::ProjectAdd::request(CallId(100), &add))
         .unwrap();

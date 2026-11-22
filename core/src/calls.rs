@@ -365,11 +365,12 @@ fn event<C: Call<Result = ()>>(
 /// `thought.update`: sends a thought to a workspace, or to a project
 /// Tasktap knows that opens when the thought starts there.
 fn update(cx: &mut Cx, a: tasktap_proto::Assign) -> Result<(), Error> {
-    let to = match (a.project_id, a.card_id) {
-        (Some(project), None) => Destination::New(project),
-        (None, Some(card)) => Destination::Card(card),
+    let to = match (a.project_id, a.card_id, a.session_id) {
+        (Some(project), None, None) => Destination::New(project),
+        (None, Some(card), None) => Destination::Card(card),
+        (None, None, Some(session)) => Destination::Session(session),
         _ => {
-            let why = "a task goes to one project: a workspace or a project Tasktap knows";
+            let why = "a task goes to one place: a workspace, a project Tasktap knows or a session";
             return Err(Error::new(Code::Invalid, why));
         }
     };
@@ -423,7 +424,13 @@ fn revoke(cx: &mut Cx, args: Ref<DeviceId>) -> Result<(), Error> {
 /// another folder is `conflict`.
 fn add_project(cx: &mut Cx, args: AddProject) -> Option<Control> {
     let folder = args.folder.clone();
+    let create = args.create;
     let look = move || {
+        // A new project the person said yes to: its folder first, inside
+        // one that is there, as a folder panel makes one.
+        if create {
+            let _ = std::fs::create_dir(&folder);
+        }
         // The folder as a person knows it: canonical, and on Windows without
         // the `\\?\` a canonical path begins with there, which no person
         // types and few programs take. It is the path the pages show, the

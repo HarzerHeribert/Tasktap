@@ -137,6 +137,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         reply_via: ReplyVia::Core,
         state: Q::Open,
         answer: None,
+        create: None,
     };
     match effects::run(core, Event::Ask { question, key }) {
         Ok(_) | Err(Refusal::State(state::Error::Ignored(Ignored::Repeat))) => {}

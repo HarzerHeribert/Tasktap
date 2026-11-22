@@ -209,6 +209,7 @@ fn every_call_round_trips() {
         agent: None,
         model: Some("sonnet".into()),
         current: Some(id(4)),
+        view: None,
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -216,6 +217,7 @@ fn every_call_round_trips() {
             id: id(1),
             project_id: Some(id(2)),
             card_id: None,
+            session_id: None,
         },
         (),
         seen,
@@ -456,6 +458,7 @@ fn every_call_round_trips() {
         id: id(2),
         folder: "/Users/someone/tasktap".into(),
         name: None,
+        create: false,
     };
     round_trip::<call::ProjectAdd>(add, id(2), seen);
     round_trip::<call::ProjectScan>(Empty {}, (), seen);
@@ -557,6 +560,7 @@ fn every_call_round_trips() {
         agent: None,
         model: None,
         current: None,
+        view: None,
     };
     for (target, stream) in [
         (
@@ -1357,6 +1361,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         title: Some("Login redirect".into()),
         lead: None,
         ms: Some(2300),
+        others: Vec::new(),
     };
     let routed = Thought {
         route: Some(route),
@@ -1367,7 +1372,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         wire["route"],
         json!({"by": "claude", "model": "haiku", "pending": false, "fallback": null,
                "quote": "that thing from before", "title": "Login redirect", "lead": null,
-               "ms": 2300})
+               "ms": 2300, "others": []})
     );
     // A route stored before a model gave titles reads with none.
     let mut untitled = wire["route"].clone();

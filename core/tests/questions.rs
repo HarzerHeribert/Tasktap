@@ -171,6 +171,7 @@ fn undo_cancels_the_hold_and_start_launches_at_once_and_only_once() {
         card_id: None,
         id: t,
         project_id: Some(s.project),
+        session_id: None,
     };
     s.w.ok::<call::ThoughtUpdate>(&pick);
     let th = s.w.model.thought(t);
@@ -247,6 +248,7 @@ fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
         id: ProjectId::mint(),
         folder: folder.to_str().unwrap().into(),
         name: None,
+        create: false,
     };
     let route = clear(w.ok::<call::ProjectAdd>(&add));
     w.ok::<call::FixtureScript>(&tasktap_proto::FixtureScript {
@@ -367,6 +369,7 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
         card_id: None,
         id: idea,
         project_id: Some(s.project),
+        session_id: None,
     };
     s.w.ok::<call::ThoughtUpdate>(&pick);
     let th = s.w.model.thought(idea);
@@ -418,12 +421,14 @@ fn a_capture_repeats_by_id_and_calls_that_do_not_fit_are_refused() {
         card_id: None,
         id,
         project_id: Some(s.project),
+        session_id: None,
     };
     assert_eq!(code(s.w.call::<call::ThoughtUpdate>(&pick)), Code::Conflict);
     let nowhere = Assign {
         card_id: None,
         id: idea,
         project_id: Some(ProjectId::mint()),
+        session_id: None,
     };
     assert_eq!(code(s.w.call::<call::ThoughtUpdate>(&nowhere)), Code::Gone);
 }
@@ -667,6 +672,7 @@ fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
         id: ProjectId::mint(),
         folder: folder.to_str().unwrap().into(),
         name: None,
+        create: false,
     };
     let project = w.ok::<call::ProjectAdd>(&add);
 
@@ -1474,6 +1480,7 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
         id,
         folder: folder.to_str().unwrap().into(),
         name: name.map(Into::into),
+        create: false,
     };
     assert_eq!(w.ok::<call::ProjectAdd>(&add(id, &folder, None)), id);
     let p = w.model.projects[&id].clone();

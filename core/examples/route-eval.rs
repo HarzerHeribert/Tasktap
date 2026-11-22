@@ -234,6 +234,10 @@ impl World {
                     state: s.state,
                     thought: None,
                     task: s.task.clone(),
+                    first: String::new(),
+                    summary: String::new(),
+                    ago: None,
+                    asks: false,
                 };
                 (s.key.clone(), followed)
             })
@@ -300,6 +304,9 @@ impl World {
             sessions: self.sessions.iter().map(|(_, s)| s.clone()).collect(),
             recent: self.recent.clone(),
             words: Default::default(),
+            view: None,
+            earlier: Vec::new(),
+            top: Vec::new(),
         }
     }
 
@@ -322,10 +329,16 @@ impl World {
                 (right, self.named(*to), brief.clone())
             }
             (Route::Clear { to, brief, .. }, _) => (false, self.named(*to), brief.clone()),
+            (Route::Create { project, .. }, _) => (
+                false,
+                format!("new project {}", project.name),
+                String::new(),
+            ),
             (
                 Route::Ambiguous {
                     candidates, brief, ..
-                },
+                }
+                | Route::Torn { candidates, brief },
                 expect,
             ) => {
                 let has = |name: &String| candidates.iter().any(|c| c.to == self.place(name));

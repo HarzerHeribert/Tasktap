@@ -276,6 +276,7 @@ fn main() {
         fn add(&mut self, route: Route, want: Destination) {
             self.n += 1;
             match route {
+                Route::Torn { .. } | Route::Create { .. } => unreachable!("a model's answer"),
                 Route::Clear { to, said, .. } if to == want => {
                     self.right += 1;
                     self.led += usize::from(matches!(said, Some(Said::Leads { .. })));
@@ -423,6 +424,7 @@ fn main() {
         .collect();
     for (i, text) in thoughts.iter().enumerate() {
         let ends = match place(text.clone()) {
+            Route::Torn { .. } | Route::Create { .. } => unreachable!("a model's answer"),
             Route::Clear {
                 said: Some(Said::Leads { why, words }),
                 ..

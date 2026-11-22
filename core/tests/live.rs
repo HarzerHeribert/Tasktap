@@ -239,6 +239,7 @@ impl Live {
             id: tasktap_proto::ProjectId::mint(),
             folder: folder.to_str().unwrap().into(),
             name: None,
+            create: false,
         };
         let project = w.ok::<call::ProjectAdd>(&add);
         let target = PutTarget::Prefs(PrefPatch::Hold(0));

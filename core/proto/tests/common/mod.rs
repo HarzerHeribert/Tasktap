@@ -75,6 +75,7 @@ pub fn question() -> Question {
         reply_via: ReplyVia::Core,
         state: QuestionState::Answered,
         answer: Some(answer()),
+        create: None,
     }
 }
 
@@ -282,6 +283,7 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                     agent: Some("claude".into()),
                     model: None,
                     current: None,
+                    view: None,
                 },
             )),
         ),

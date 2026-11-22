@@ -195,6 +195,8 @@ fn main() {
             tally.led += u32::from(led);
             let nowhere = NOWHERE.contains(&kind);
             let outcome = match (&route, target) {
+                // What a model alone answers; the match on names never does.
+                (Route::Torn { .. } | Route::Create { .. }, _) => unreachable!("a model's answer"),
                 (Route::Clear { to, .. }, Some(want)) if *to == want && !nowhere => {
                     tally.right += 1;
                     "right"
@@ -254,6 +256,7 @@ fn main() {
             };
             if each {
                 let label = |r: &Route| match r {
+                    Route::Torn { .. } | Route::Create { .. } => unreachable!("a model's answer"),
                     Route::Ambiguous { candidates, .. } => {
                         let c: Vec<String> = candidates
                             .iter()

@@ -744,3 +744,15 @@ button.line.pj{grid-template-columns:28px 190px minmax(0,1fr) auto}
   .pj-k{grid-template-columns:128px minmax(0,1fr)}
 }
 /* ——— end of Projects ——— */
+
+/* A workspace's own window (sidebar.tsx Workspace): the icon that opens it stands in the row's trailing place while the
+   pointer or keyboard focus is on the row, over the count, which gives way; a workspace that is out shows the same icon
+   always, after its name. Its row brings the window forward: the row is the target, the mark only says it. */
+.row.w>.pop{position:absolute;right:8px;top:calc((var(--row-h) - 20px) / 2);display:inline-grid;place-items:center;width:20px;height:20px;border-radius:2px;color:var(--fg2);opacity:0;pointer-events:none}
+.row.w>.pop .i{width:12px;height:12px}
+.row.w:is(:hover,:focus-within)>.pop{opacity:.75;pointer-events:auto}
+.row.w>.pop:hover{opacity:1;background:var(--line2);color:var(--fg)}
+.row.w:not(.out):is(:hover,:focus-within)>.name{padding-right:28px}
+.row.w.out .name{grid-template-columns:minmax(0,1fr) auto auto}
+.row.w .mark{display:inline-grid;place-items:center;align-self:center;margin-left:8px;color:var(--fg2)}
+.row.w .mark .i{width:12px;height:12px}

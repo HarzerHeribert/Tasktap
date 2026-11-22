@@ -32,10 +32,20 @@ export type Sheet =
   | { kind: 'send'; thought: string }
   | { kind: 'session'; id: string };
 
+/** The workspace this window is for, when it is a workspace's own window (`?project=`, host/src/workspace.rs): it shows
+ *  that workspace and nothing else, with no sidebar and no Home. */
+const ONLY = new URLSearchParams(location.search).get('project');
+/** The host's name for this window. */
+export const windowLabel = ONLY ? `ws-${ONLY}` : 'workspace';
+
 export const ui = {
   /** 'home', 'earlier', a project id, or LOOSE. */
-  view: 'home',
-  sidebar: true,
+  view: ONLY ?? 'home',
+  only: ONLY,
+  /** The workspaces that are out, each in a window of its own: this page lets them go, and a click on their rows brings
+   *  their windows forward. */
+  out: new Set<string>(),
+  sidebar: !ONLY,
   /** The sidebar is sliding in or out: it is shown until it has. */
   slide: '' as '' | 'in' | 'out',
   /** The region that answers focus entering it, for the second it does (main.tsx greet). */
@@ -154,7 +164,8 @@ export function reconcile() {
     if (writes.has(id) || inflight.get(id) || row.rev <= (ours.get(id) ?? 0)) continue;
     layouts.set(id, L.normalize(row.tree));
   }
-  for (const project of [...workspaces().map((p) => p.id), LOOSE]) {
+  // A page keeps the arrangement of the workspaces it shows, and never of one that is out in another window.
+  for (const project of [...workspaces().map((p) => p.id), LOOSE].filter((p) => (ui.only ? p === ui.only : !ui.out.has(p)))) {
     const known = new Set([...records.terminals.values()].filter((t) => (t.project_id ?? LOOSE) === project).map((t) => t.id));
     for (const id of ui.starting.keys()) known.add(id);
     const beside = previewsOf(project);
@@ -231,6 +242,8 @@ export function current() {
 }
 
 export function show(view: string) {
+  if (ui.only && view !== ui.only) return;
+  if (ui.out.has(view)) return void call('host.window', { do: 'front', project: view }).catch(fail);
   ui.peek = false;
   // Arriving on Home: the open question has the keyboard if something asks, else the capture line.
   if (view === 'home') page.focus = openQuestions().length ? '.hx .hq.open [data-question]' : '#capture-input';
@@ -377,11 +390,14 @@ export function restore(project: string, id: string) {
 }
 
 /** Shows a session's terminal (the notch's Open, a Home row): its tab is selected or opened. */
-export function focusSession(at: string) {
+export function focusSession(at: string, via = at) {
   const s = records.sessions.get(at);
   const id = s?.terminal_id ?? at;
   if (!records.terminals.has(id)) return false;
   const project = projectOf(id);
+  // A workspace that is out shows it in its own window, which is brought forward at it.
+  if (ui.out.has(project)) return (void call('host.window', { do: 'front', project, at: via }).catch(fail), true);
+  if (ui.only && project !== ui.only) return false;
   setLayout(project, L.open(layout(project), id));
   show(project);
   focusTerminal(id);
@@ -471,3 +487,27 @@ export function readSoon(t: Thought | undefined) {
     window.setTimeout(() => records.thoughts.get(t.id)?.read === false && void call('thought.read', { id: t.id }).catch(() => {}), 1200);
 }
 
+
+/** A workspace goes out into a window of its own, which stands where the content area is, so that its terminals keep
+ *  their size (host/src/workspace.rs `pop`). */
+export function popOut(project: string) {
+  if (ui.only || project === LOOSE) return;
+  const side = document.querySelector('.side')?.getBoundingClientRect().width ?? 0;
+  void call('host.window', { do: 'pop', project, w: Math.round(innerWidth - side), h: Math.round(innerHeight) }).catch(fail);
+}
+
+/** The host says which workspaces are out, and which came back (`back`). A workspace that went out is let go: its
+ *  terminals close their streams and keep their screens, and the page shows another view if it was in this one. One that
+ *  came back is shown again, and its terminals resume where they were. */
+export function applyOut(out: string[], back?: string | null) {
+  const before = ui.out;
+  ui.out = new Set(out);
+  if (ui.only) return;
+  for (const project of out) {
+    if (before.has(project)) continue;
+    for (const id of [...L.tabs(layout(project)), ...layout(project).background]) engines.get(id)?.detach();
+    if (ui.view === project) show(workspaces().find((p) => !ui.out.has(p.id))?.id ?? 'home');
+  }
+  if (back && before.has(back) && !ui.out.has(back)) show(back);
+  redraw();
+}

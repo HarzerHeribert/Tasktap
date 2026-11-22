@@ -206,14 +206,17 @@ impl Situation {
 // ---------------------------------------------------------------------------------------------
 // The situation as the system and the pages tell it.
 
+#[derive(Default)]
 struct State {
     /// The app is the active one, as the system said last (the Mac's activate and resign notices).
     active: bool,
-    /// The workspace window has the keyboard, as it said last.
+    /// One of the workspace windows has the keyboard, as it said last.
     key: bool,
-    /// Some of the workspace window is on screen, as the Mac says it (native.rs `watch_seen`); Windows asks it with the
+    /// The workspace window that has the keyboard, or had it last: the one the rule, the keys and the menu speak of.
+    last: String,
+    /// The windows of which none is on screen, as the Mac says it (native.rs `watch_seen`); Windows asks it with the
     /// window in front (edge.rs).
-    seen: bool,
+    unseen: Vec<String>,
     /// A check's run says where the window is instead of the system, which never puts a passive run in front.
     told: Option<bool>,
     /// While the window's own dialog is open (the folder chooser) the window stays as it was.
@@ -222,7 +225,8 @@ struct State {
     full: bool,
     told_full: Option<bool>,
     open: bool,
-    shows: Shows,
+    /// What each workspace window shows, by its label.
+    shows: Vec<(String, Shows)>,
     question: Option<Asks>,
     /// What the pages were told last.
     sent: Value,
@@ -231,14 +235,15 @@ struct State {
 static STATE: Mutex<State> = Mutex::new(State {
     active: false,
     key: false,
-    seen: true,
+    last: String::new(),
+    unseen: Vec::new(),
     told: None,
     paused: false,
     front: false,
     full: false,
     told_full: None,
     open: false,
-    shows: Shows::Closed,
+    shows: Vec::new(),
     question: None,
     sent: Value::Null,
 });
@@ -247,10 +252,25 @@ fn with<T>(f: impl FnOnce(&mut State) -> T) -> T {
     f(&mut STATE.lock().unwrap())
 }
 
+/// Whether the window that has the keyboard can be seen.
+fn seen_now(st: &State) -> bool {
+    !st.unseen.contains(&st.last)
+}
+
+/// The window that has the keyboard, or had it last.
+pub fn last() -> String {
+    with(|st| st.last.clone())
+}
+
+/// What the window that has the keyboard shows.
+fn shows_of(st: &State) -> Shows {
+    st.shows.iter().find(|(label, _)| *label == st.last).map_or(Shows::Closed, |(_, s)| s.clone())
+}
+
 pub fn situation() -> Situation {
     with(|st| Situation {
         front: st.front,
-        shows: st.shows.clone(),
+        shows: shows_of(st),
         question: st.question.clone(),
         full: st.told_full.unwrap_or(st.full),
         open: st.open,
@@ -263,9 +283,9 @@ pub fn front() -> bool {
     with(|st| st.front)
 }
 
-/// What both pages are told: where Tasktap is, and where the waiting question is.
+/// What both pages are told: where Tasktap is, the window it is in (`window`), and where the waiting question is.
 fn verdict(s: &Situation) -> Value {
-    json!({"do": "where", "front": s.front, "full": s.full, "notch": s.notch(),
+    json!({"do": "where", "front": s.front, "window": last(), "full": s.full, "notch": s.notch(),
         "place": s.question().map(Place::word), "question": s.question.as_ref().map(|q| q.id.clone())})
 }
 
@@ -287,39 +307,56 @@ fn changed(app: &AppHandle) {
     }
 }
 
-/// The system's account of the window changed: the app became active or stopped being it (`active`), or the
-/// workspace window took the keyboard or lost it (`key`). Windows tells both at once, from the window in front.
-pub fn told(app: &AppHandle, active: Option<bool>, key: Option<bool>) {
+/// The system's account of the windows changed: the app became active or stopped being it (`active`), or a workspace
+/// window took the keyboard or none has it (`window`: its label, or none). Windows tells both at once, from the window
+/// in front.
+pub fn told(app: &AppHandle, active: Option<bool>, window: Option<Option<&str>>) {
     let moved = with(|st| {
         st.active = active.unwrap_or(st.active);
-        st.key = key.unwrap_or(st.key);
-        let front = st.told.unwrap_or(st.active && st.key && st.seen);
-        let moved = !st.paused && front != st.front;
-        if moved {
+        if let Some(window) = window {
+            st.key = window.is_some();
+            if let Some(label) = window {
+                st.last = label.to_owned();
+            }
+        }
+        let front = st.told.unwrap_or(st.active && st.key && seen_now(st));
+        if !st.paused {
             st.front = front;
         }
-        moved
+        !st.paused
     });
     if moved {
         changed(app);
     }
 }
 
-/// Whether any of the workspace window can be seen (the Mac): a window on another Space, minimised or hidden is not in
-/// front, whatever has the keyboard.
-pub fn seen(app: &AppHandle, seen: bool) {
-    if with(|st| std::mem::replace(&mut st.seen, seen)) != seen {
+/// Whether any of a window can be seen (the Mac): a window on another Space, minimised or hidden is not in front,
+/// whatever has the keyboard.
+pub fn seen(app: &AppHandle, label: &str, seen: bool) {
+    let was = with(|st| {
+        let was = seen_now(st);
+        st.unseen.retain(|l| l != label);
+        if !seen {
+            st.unseen.push(label.to_owned());
+        }
+        was != seen_now(st)
+    });
+    if was {
         told(app, None, None);
     }
 }
 
-/// The workspace window is gone: nothing of it is in front, and it shows nothing.
-pub fn closed(app: &AppHandle) {
+/// A workspace window is gone: it shows nothing, and if it had the keyboard, nothing of Tasktap is in front until
+/// another window says it has it.
+pub fn closed(app: &AppHandle, label: &str) {
     with(|st| {
-        st.key = false;
-        st.shows = Shows::Closed;
-        if st.told.is_none() {
-            st.front = false;
+        st.shows.retain(|(l, _)| l != label);
+        st.unseen.retain(|l| l != label);
+        if st.last == label {
+            st.key = false;
+            if st.told.is_none() {
+                st.front = false;
+            }
         }
     });
     changed(app);
@@ -329,7 +366,7 @@ pub fn closed(app: &AppHandle) {
 pub fn tell(app: &AppHandle, front: Option<bool>) {
     with(|st| {
         st.told = front;
-        st.front = front.unwrap_or(st.active && st.key && st.seen);
+        st.front = front.unwrap_or(st.active && st.key && seen_now(st));
     });
     changed(app);
 }
@@ -359,9 +396,16 @@ pub fn opened(app: &AppHandle, open: bool) {
     }
 }
 
-/// What the workspace window shows, from its page.
-pub fn shows(app: &AppHandle, shows: Shows) {
-    if with(|st| std::mem::replace(&mut st.shows, shows.clone())) != shows {
+/// What a workspace window shows, from its page.
+pub fn shows(app: &AppHandle, label: &str, shows: Shows) {
+    let before = with(|st| match st.shows.iter_mut().find(|(l, _)| l == label) {
+        Some((_, was)) => Some(std::mem::replace(was, shows.clone())),
+        None => {
+            st.shows.push((label.to_owned(), shows.clone()));
+            None
+        }
+    });
+    if before.as_ref() != Some(&shows) {
         changed(app);
     }
 }
@@ -373,9 +417,9 @@ pub fn question(app: &AppHandle, question: Option<Asks>) {
     }
 }
 
-/// `host.where {shows?, terminals?}` from a page: with `shows`, what the workspace window shows now ("home",
-/// "new-task", "terminals" with the sessions shown, or "elsewhere"). The reply is what the pages are told.
-pub fn call(app: &AppHandle, args: &Value) -> Value {
+/// `host.where {shows?, terminals?}` from the page of the window `label`: with `shows`, what that window shows now
+/// ("home", "new-task", "terminals" with the sessions shown, or "elsewhere"). The reply is what the pages are told.
+pub fn call(app: &AppHandle, label: &str, args: &Value) -> Value {
     if let Some(word) = args.get("shows").and_then(Value::as_str) {
         let terminals = || {
             let all = args.get("terminals").and_then(Value::as_array);
@@ -383,6 +427,7 @@ pub fn call(app: &AppHandle, args: &Value) -> Value {
         };
         shows(
             app,
+            label,
             match word {
                 "home" => Shows::Home,
                 "new-task" => Shows::NewTask,
@@ -397,8 +442,8 @@ pub fn call(app: &AppHandle, args: &Value) -> Value {
 /// What a check may know.
 pub fn state() -> Value {
     let s = situation();
-    let (active, key, seen, told) = with(|st| (st.active, st.key, st.seen, st.told));
-    json!({"front": s.front, "active": active, "key": key, "seen": seen, "told": told, "full": s.full, "open": s.open,
+    let (active, key, seen, told) = with(|st| (st.active, st.key, seen_now(st), st.told));
+    json!({"front": s.front, "window": last(), "active": active, "key": key, "seen": seen, "told": told, "full": s.full, "open": s.open,
         "notch": s.notch(), "shows": format!("{:?}", s.shows), "place": s.question().map(Place::word),
         "question": s.question.as_ref().map(|q| q.id.clone())})
 }
@@ -410,6 +455,32 @@ mod tests {
     const MAC: System = System::Mac;
     const WINDOWS: System = System::Windows { tab: true };
     const NO_TAB: System = System::Windows { tab: false };
+
+    fn window(last: &str, shows: &[(&str, Shows)], unseen: &[&str]) -> State {
+        State {
+            last: last.into(),
+            shows: shows.iter().map(|(l, s)| ((*l).to_owned(), s.clone())).collect(),
+            unseen: unseen.iter().map(|l| (*l).to_owned()).collect(),
+            ..State::default()
+        }
+    }
+
+    #[test]
+    fn the_rule_hears_of_the_window_that_has_the_keyboard_and_of_no_other() {
+        let both = [("workspace", Shows::Home), ("ws-a", terminals(&["s"]))];
+        assert_eq!(shows_of(&window("ws-a", &both, &[])), terminals(&["s"]));
+        assert_eq!(shows_of(&window("workspace", &both, &[])), Shows::Home);
+        // Its window gone, or none yet: nothing is shown.
+        assert_eq!(shows_of(&window("ws-b", &both, &[])), Shows::Closed);
+        assert_eq!(shows_of(&window("", &[], &[])), Shows::Closed);
+    }
+
+    #[test]
+    fn a_window_out_of_sight_hides_nothing_unless_it_is_the_one_that_has_the_keyboard() {
+        assert!(seen_now(&window("ws-a", &[], &["workspace"])));
+        assert!(!seen_now(&window("ws-a", &[], &["ws-a"])));
+        assert!(seen_now(&window("", &[], &["ws-a"])));
+    }
 
     fn asks(session: Option<&str>, terminal: bool, confirm: bool) -> Option<Asks> {
         Some(Asks { id: "q".into(), session: session.map(str::to_owned), terminal, confirm })

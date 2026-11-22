@@ -234,7 +234,6 @@ async fn bridge_host(webview: tauri::Webview, app: AppHandle, frame: String) -> 
 }
 
 /// `page` is the window whose page asks.
-#[cfg_attr(not(windows), allow(unused_variables))]
 fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
     let call: Value = serde_json::from_str(frame).unwrap_or_default();
     let (id, args) = (call["id"].clone(), &call["args"]);
@@ -251,7 +250,7 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         "host.ready" => {
             // Said even when the fallback showed the window already: when the page's word came, and before what.
             log(json!({"event": "page-ready", "ms": since_start()}));
-            workspace::ready(app, "ready");
+            workspace::ready(app, page, "ready");
             Ok(Value::Null)
         }
         // The system's own folder panel, or the folder a check names instead. `at`: the folder it opens in, where the
@@ -261,7 +260,7 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             // The window's own folder panel: while it is open the window counts as in front still.
             #[cfg(not(windows))]
             Err(_) => {
-                presence::pause(page == workspace::LABEL);
+                presence::pause(workspace::is_window(page));
                 let chosen = native::pick_folder(args["at"].as_str());
                 presence::pause(false);
                 Ok(json!(chosen))
@@ -270,7 +269,7 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             #[cfg(windows)]
             Err(_) => {
                 edge::picking(true);
-                presence::pause(page == workspace::LABEL);
+                presence::pause(workspace::is_window(page));
                 let chosen = native::pick_folder(
                     app.get_webview_window(page).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize),
                     args["at"].as_str(),
@@ -280,7 +279,7 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
                 chosen.map(|folder| json!(folder))
             }
         },
-        "host.window" => workspace::window(app, args["do"].as_str().unwrap_or_default()),
+        "host.window" => workspace::window(app, page, args),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.power" => Ok(json!(native::low_power())),
         // What each key prints in the keyboard layout in use, by its place: a Mac's web view cannot say (keys.ts
@@ -304,7 +303,7 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         // Whether Tasktap opens when the computer starts, as the system says; or set (login.rs).
         "host.login" => login::call(args),
         // Where Tasktap shows itself; with `shows`, what the workspace window shows now (presence.rs).
-        "host.where" => Ok(presence::call(app, args)),
+        "host.where" => Ok(presence::call(app, page, args)),
         // New versions: what is known, a look (About is shown), or the install the person asked for (update.rs).
         "host.update" => update::call(app, args),
         // Windows: which display the tab hangs on, or none.
@@ -554,9 +553,12 @@ fn command(app: &AppHandle, line: &str) {
             let workspace = workspace.and_then(|w| w.ns_window().ok()).map(|w| native::ns_window_number(w as usize));
             #[cfg(windows)]
             let workspace = workspace.and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize);
+            // The labels of the windows that are open, for a check of the windows of workspaces that are out.
+            let mut windows: Vec<_> = app.webview_windows().into_keys().filter(|l| workspace::is_window(l)).collect();
+            windows.sort();
             log(
                 json!({"event": "state", "notch": notch::state(), "question": *app.state::<Host>().question.lock().unwrap(),
-                "workspace": workspace, "where": presence::state()}),
+                "workspace": workspace, "windows": windows, "where": presence::state()}),
             )
         }
         // `snapshot <page> <file>`: the page as it is drawn, as PNG.

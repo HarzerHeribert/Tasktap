@@ -107,13 +107,14 @@ fn no_browser_keys(window: &WebviewWindow) {
 /// Dresses the window once it is made: dark menus, no browser's keys, the frame's hairline, and either the caption
 /// buttons' window (the page's top row is the title bar) or the system's title bar in the page's colours.
 pub fn dress(app: &AppHandle, window: &WebviewWindow) {
+    let label = window.label().to_owned();
     dark_menus();
     no_browser_keys(window);
     let Ok(frame) = window.hwnd() else { return };
     let frame = frame.0 as HWND;
     colour(frame, DWMWA_BORDER_COLOR as u32, LINE);
     if own() {
-        buttons(app, frame);
+        buttons(app, &label, frame);
     } else {
         colour(frame, DWMWA_CAPTION_COLOR as u32, GROUND);
         colour(frame, DWMWA_TEXT_COLOR as u32, TEXT);
@@ -124,13 +125,15 @@ pub fn dress(app: &AppHandle, window: &WebviewWindow) {
 /// codes, 0 for none), and whether the pointer's leaving is asked for.
 struct Buttons {
     app: AppHandle,
+    /// The window whose page draws the buttons.
+    label: String,
     over: u32,
     down: u32,
     tracked: bool,
 }
 
 /// Says to the page what its caption buttons are to show (ui/src/workspace/chrome.tsx).
-fn tell(app: &AppHandle, frame: HWND, over: u32, down: u32) {
+fn tell(app: &AppHandle, label: &str, frame: HWND, over: u32, down: u32) {
     let name = |hit: u32| match hit {
         HTMINBUTTON => "minimize",
         HTMAXBUTTON => "maximize",
@@ -139,11 +142,7 @@ fn tell(app: &AppHandle, frame: HWND, over: u32, down: u32) {
     };
     // SAFETY: asks one thing of a window that is open.
     let max = unsafe { IsZoomed(frame) } != 0;
-    let _ = app.emit_to(
-        crate::workspace::LABEL,
-        "ui",
-        json!({"do": "caption", "over": name(over), "down": name(down), "max": max}),
-    );
+    let _ = app.emit_to(label, "ui", json!({"do": "caption", "over": name(over), "down": name(down), "max": max}));
 }
 
 /// Puts the buttons' window where the page draws them: the top right corner, three buttons wide.
@@ -160,7 +159,7 @@ fn place(frame: HWND, buttons: HWND) {
     }
 }
 
-fn buttons(app: &AppHandle, frame: HWND) {
+fn buttons(app: &AppHandle, label: &str, frame: HWND) {
     let name = wide("TASKTAP_CAPTION_BUTTONS");
     // SAFETY: the class and the window are made with valid, NUL-terminated names that outlive the calls; the
     // window takes ownership of the boxed `Buttons` in WM_CREATE and frees it in WM_NCDESTROY; the frame's
@@ -173,7 +172,13 @@ fn buttons(app: &AppHandle, frame: HWND) {
         class.hInstance = instance;
         class.lpszClassName = name.as_ptr();
         RegisterClassExW(&class);
-        let data = Box::into_raw(Box::new(Buttons { app: app.clone(), over: 0, down: 0, tracked: false }));
+        let data = Box::into_raw(Box::new(Buttons {
+            app: app.clone(),
+            label: label.to_owned(),
+            over: 0,
+            down: 0,
+            tracked: false,
+        }));
         // It draws nothing, and the web view under it is drawn over whatever its siblings are: the page's buttons
         // show, and the pointer meets this window first. (Tauri's resize border along the top edge is such a window.)
         let child = CreateWindowExW(
@@ -218,7 +223,7 @@ unsafe extern "system" fn frame_proc(
         place(frame, child);
         let data = GetWindowLongPtrW(child, GWLP_USERDATA) as *const Buttons;
         if let Some(data) = data.as_ref() {
-            tell(&data.app, frame, data.over, data.down);
+            tell(&data.app, &data.label, frame, data.over, data.down);
         }
     }
     result
@@ -236,7 +241,7 @@ unsafe extern "system" fn buttons_proc(child: HWND, message: u32, w: WPARAM, l: 
     let say = |data: &mut Buttons, over: u32, down: u32| {
         if (data.over, data.down) != (over, down) {
             (data.over, data.down) = (over, down);
-            tell(&data.app, frame, over, down);
+            tell(&data.app, &data.label, frame, over, down);
         }
     };
     match message {

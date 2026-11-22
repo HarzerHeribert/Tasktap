@@ -33,8 +33,8 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, agentName, answerKey, askGlobalKeys, call, client, closeTab, copy, core, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
-  open, openQuestions, page, paste, pref, records, recordsFailed, recordsIn, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
+  LOOSE, agentName, answerKey, applyOut, askGlobalKeys, call, client, closeTab, copy, core, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
+  open, openQuestions, page, paste, popOut, pref, windowLabel, records, recordsFailed, recordsIn, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
 import { SECTIONS, shown } from './settings.tsx';
@@ -51,6 +51,8 @@ const NARROW = 800;
 export function command(id: string) {
   const c = current();
   const pane = c?.pane;
+  // Home and Settings, and opening a folder, are the main window's: a workspace's own window asks for them there.
+  if (ui.only && (id === 'open-workspace' || id === 'settings')) return void call('host.window', { do: 'menu', id }).catch(fail);
   switch (id) {
     case 'new-task':
       // A thought begun in a workspace goes to its folder unless the person, a session it follows or a model say
@@ -63,6 +65,8 @@ export function command(id: string) {
       return c ? void newTerminal(c.project, { into: pane }) : open({ kind: 'open-workspace' });
     case 'open-workspace':
       return open({ kind: 'open-workspace' });
+    case 'pop-out':
+      return c && popOut(c.project);
     // Settings opens where it was last, and stays as it is when it is open already.
     case 'appearance':
     case 'settings':
@@ -90,7 +94,7 @@ export function command(id: string) {
     case 'reset':
       return c?.id && textSizeBy(c.id, id === 'bigger' ? 1 : id === 'smaller' ? -1 : 0);
     case 'sidebar':
-      return toggleSidebar();
+      return !ui.only && toggleSidebar();
     case 'focus':
       return c && setLayout(c.project, L.toggleFocus(layout(c.project)));
     case 'back':
@@ -214,7 +218,7 @@ function Bar({ project }: { project: string | null }) {
   return (
     <header class={`bar${project || ui.view === 'earlier' ? '' : ' bare'}`} data-tauri-drag-region>
       {/* Room for the window's buttons, and the way back to the sidebar: there while it is away, and on its way. */}
-      {!side && <span class="lead">{!mac && <MenuButton run={command} />}<button type="button" class="ib" title={tip('Show sidebar', '⌃⌘S')} aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
+      {!side && <span class="lead">{!mac && <MenuButton run={command} />}{!ui.only && <button type="button" class="ib" title={tip('Show sidebar', '⌃⌘S')} aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button>}</span>}
       {project ? (
         <span class="crumb" data-tauri-drag-region>
           <b>{p?.name ?? 'Sign-in terminals'}</b>{p && <span class="path">{shownPath(p.folder)}</span>}
@@ -225,7 +229,7 @@ function Bar({ project }: { project: string | null }) {
           <b class="sub">Earlier</b>
         </span>
       ) : <span class="crumb" data-tauri-drag-region>{!side && <b>Home</b>}</span>}
-      {where.place === 'line' && <AsksLine />}
+      {where.place === 'line' && ui.active && <AsksLine />}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title={tip('Split right', '⌘D')} aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
@@ -290,6 +294,7 @@ function Rail() {
   );
 }
 
+let leaving = false;
 function App() {
   const [, tick] = useState(0);
   onRedraw(() => tick((n) => n + 1));
@@ -301,6 +306,10 @@ function App() {
     settleFocus();
     tellShows(project);
   });
+  // A workspace's own window is named for its workspace, and goes when the workspace is closed.
+  const name = ui.only ? records.projects.get(ui.only)?.name : undefined;
+  useLayoutEffect(() => void (name && call('host.window', { do: 'title', text: name }).catch(() => {})), [name]);
+  useLayoutEffect(() => void (ui.only && ui.ready && !project && !leaving && ((leaving = true), call('host.window', { do: 'close' }).catch(() => {}))));
   // The terminals follow their preferences at once and as they change, from this window or another.
   useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height'), pref('terminal_bold_bright'), pref('terminal_contrast')]);
   // As it slides the sidebar's edge sheds its wake along its foot, where no row is. Opening, the wake lies on the
@@ -403,12 +412,14 @@ function tellShows(project: string | null) {
 function followWhere(w: Partial<Where>) {
   const was = ui.active;
   if (!heardWhere(w)) return;
-  ui.active = where.front;
-  document.documentElement.classList.toggle('inactive', !where.front);
+  // In use only where it is the window that has the keyboard, or had it last: another of Tasktap's windows is not.
+  const here = where.front && (!where.window || where.window === windowLabel);
+  ui.active = here;
+  document.documentElement.classList.toggle('inactive', !here);
   redraw();
-  if (where.front && !was) (greet(region || 'main'), refresh());
+  if (here && !was) (greet(region || 'main'), refresh());
 }
-void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string; over?: string; down?: string; max?: boolean }>('ui', ({ payload }) => {
+void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string; over?: string; down?: string; max?: boolean; out?: string[]; back?: string | null }>('ui', ({ payload }) => {
   if (payload.do === 'focus' && payload.at) arrive(payload.at);
   // What the pointer does on the caption buttons, and whether the window is maximised (Windows).
   else if (payload.do === 'caption') captionSaid(payload);
@@ -422,6 +433,8 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   else if (payload.do === 'where') followWhere(payload as unknown as Partial<Where>);
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
+  // The workspaces that are out in windows of their own, and the one that came back (main window).
+  else if (payload.do === 'windows') applyOut(payload.out ?? [], payload.back);
   // What the host knows of new versions (update.tsx).
   else if (payload.do === 'update') updateSaid(payload as unknown as HostUpdate);
 });
@@ -449,6 +462,13 @@ void call('host.where', {}).then(followWhere, () => {});
 let visible = false;
 const ready = () => void (visible || ((visible = true), call('host.ready', {}).catch(() => {})));
 setTimeout(ready, 1500);
+// A workspace's own window appears with its terminal's screen in it, as the main window does with Home.
+const settled = async () => {
+  const id = ui.only ? current()?.id : undefined;
+  for (let waited = 0; id && !engines.get(id)?.attached && waited < 1000; waited += 25) await new Promise((done) => setTimeout(done, 25));
+};
+// Which workspaces are out, for the marks on their rows (the main window) and for a workspace to be let go of.
+if (!ui.only) void call('host.window', { do: 'out' }).then((out) => applyOut(out ?? []), () => {});
 void client
   .sub(['thoughts', 'projects', 'cards', 'looks', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations', 'previews'], records)
   .then(() => {
@@ -461,7 +481,7 @@ void client
     firstStart();
     redraw();
     // Once that render is laid out (a timer, not a frame: a hidden window draws none).
-    setTimeout(ready);
+    setTimeout(() => void settled().then(ready));
     void loadTerms();
   })
   .catch((e) => (recordsFailed(e), fail(e), ready()));

@@ -36,7 +36,7 @@ export function menus(run: Run): Item[] {
   const does = (text: string, id: string): Item => ({ text, key: COMMANDS[id], do: () => run(id) });
   const edits = (text: string, key: string, what: Parameters<typeof edit>[0]): Item => ({ text, key, do: () => edit(what, run) });
   return [
-    { text: 'File', items: [does('New Task', 'new-task'), does('New Terminal', 'new-terminal'), does('Open Workspace…', 'open-workspace'), '-', does('Close Tab', 'close-tab'),
+    { text: 'File', items: [does('New Task', 'new-task'), does('New Terminal', 'new-terminal'), does('Open Workspace…', 'open-workspace'), does('Open Workspace in New Window', 'pop-out'), '-', does('Close Tab', 'close-tab'),
       { text: 'Close Window', key: '⌥F4', do: () => windowDoes('close') }] },
     { text: 'Edit', items: [edits('Undo', '⌃Z', 'undo'), edits('Redo', '⌃Y', 'redo'), '-', edits('Cut', '⌃X', 'cut'), edits('Copy', '⌃C', 'copy'), edits('Paste', '⌃V', 'paste'),
       edits('Select All', '⌃A', 'selectAll'), '-', does('Find in Terminal…', 'find')] },

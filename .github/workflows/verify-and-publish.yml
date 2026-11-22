@@ -140,6 +140,8 @@ jobs:
         run: node scripts/projects-shots.cjs "$RUNNER_TEMP/pages/projects" --check --sizes
       - name: Placing by a model, its sheet and its order
         run: node scripts/placing-check.cjs "$RUNNER_TEMP/pages/placing"
+      - name: A workspace in a window of its own, its row and its page
+        run: node scripts/windows-check.cjs "$RUNNER_TEMP/pages/windows"
       - name: Closing a terminal asks only when something runs
         run: node scripts/closing-check.cjs --pictures "$RUNNER_TEMP/pages/closing"
       - uses: actions/upload-artifact@v4

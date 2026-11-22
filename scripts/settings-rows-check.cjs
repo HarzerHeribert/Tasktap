@@ -299,8 +299,8 @@ async function answerKeys(browser, url, system) {
   await talkTries(mac ? 'Meta+KeyA' : 'Control+KeyA', `A text field uses ${mac ? '⌘A' : 'Ctrl+A'} for Select all.`, `${mac ? '⌘A' : 'Ctrl+A'}, a text field's own`);
   await talk.locator('.rec').focus();
   await key(page, 'Enter');
-  await key(page, 'Control+Shift+KeyM');
-  expect(await stored('talk_key') === JSON.stringify({ control: true, alt: false, shift: true, meta: false, code: 'KeyM' }), `${at}: a free key held to talk is stored through the host`);
+  await key(page, 'Control+Shift+KeyU');
+  expect(await stored('talk_key') === JSON.stringify({ control: true, alt: false, shift: true, meta: false, code: 'KeyU' }), `${at}: a free key held to talk is stored through the host`);
   for (const e of page.errors) failures.push(`${at}: page: ${e}`);
   await page.context().close();
 }

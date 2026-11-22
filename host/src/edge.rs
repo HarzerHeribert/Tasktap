@@ -514,9 +514,12 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
         }
         // Whether the window in front is the workspace's, and seen: the one notice of it on Windows.
         FRONT => {
-            let workspace = app.get_webview_window(workspace::LABEL).and_then(|w| w.hwnd().ok());
-            let front = workspace.is_some_and(|w| std::ptr::eq(GetForegroundWindow(), w.0) && seen(w.0));
-            crate::presence::told(app, Some(front), Some(front));
+            let foreground = GetForegroundWindow();
+            let front = app.webview_windows().into_iter().find(|(label, w)| {
+                workspace::is_window(label) && w.hwnd().is_ok_and(|w| std::ptr::eq(foreground, w.0) && seen(w.0))
+            });
+            let label = front.as_ref().map(|(label, _)| label.as_str());
+            crate::presence::told(app, Some(label.is_some()), Some(label));
             0
         }
         WM_TIMER if w == WATCH => {

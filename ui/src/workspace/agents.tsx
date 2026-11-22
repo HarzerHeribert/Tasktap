@@ -21,6 +21,10 @@ import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, 
 
 /** What is typed into a terminal to sign an agent in. */
 const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
+/** Signs in to an agent in a terminal of its own, where its row's Sign in goes; an agent with no sign-in of that kind has none. */
+export const canSignIn = (a: AgentHealth) => !!signIn[a.id];
+export const signInTo = (a: AgentHealth) => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }));
+
 /** What an opened row says about its agent, a line each: whose models it runs, where its name does not say, and what of it
  *  the notch cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`,
  *  `questions`): of one that reports nothing Tasktap hears only when it ends, and what one asks where nothing outside
@@ -140,9 +144,7 @@ export function AgentsPane() {
           {command ? <span class="x mono" title={command}>{command}</span> : <span class="x">{a.version}</span>}
           <span class="acts">
             {off && <span class="x warn">Signed out</span>}
-            {off && signIn[a.id] && (
-              <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }))}>Sign in</button>
-            )}
+            {off && canSignIn(a) && <button type="button" class="btn" onClick={() => signInTo(a)}>Sign in</button>}
             {wants && <span class="x warn" title={wants}>{wants}</span>}
             {a.own && <button type="button" class="btn" onClick={() => setForm(a.id)}>Change</button>}
           </span>

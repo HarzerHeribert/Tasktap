@@ -333,28 +333,6 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised .cap-agent .ring-o{--ring-px:24}
 .capture.raised .agent-list .ring-o{--ring-px:22}
 .capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
-/* Setup (setup.tsx, NOTES §13): one quiet fold under the Composer, on its edges, "Setup · 1 of 3 done" in the words'
-   face; open, a quiet line a step: whether it is done, what it is, what it says now, and its one action, a quiet word
-   on the right edge, the same for every step (the review's R13). Hide is beside its name. Hidden, its place says for a
-   moment where it went. */
-.setup{width:min(100%,var(--cap-w));margin:0 auto 6px}
-.setup-h{display:flex;align-items:center;gap:var(--sp2);border-top:1px solid var(--line)}
-.setup:not(.open) .setup-h{border-bottom:1px solid var(--line)}
-.setup .fold-h{flex:1;width:auto;border-top:0;grid-template-columns:var(--lead) auto auto minmax(0,1fr)}
-.setup-n{padding:0 var(--sp4) 0 var(--sp3);font:var(--f-small);color:var(--fg3)}
-.setup.open .fold-h .i{transform:rotate(90deg)}
-.setup.open .fold-h b{color:var(--fg)}
-.setup-h .act{height:var(--ctl-h);margin-right:6px;font:var(--f-small);color:var(--fg3)}
-.setup-b{display:grid;grid-template-columns:var(--lead) max-content minmax(0,1fr) auto;border-top:1px solid var(--line)}
-.setup-b>.line.st{grid-column:1/-1;grid-template-columns:subgrid;padding:0 6px 0 0}
-.line.st>:is(.i,.todo){justify-self:center}
-.line.st>.i{width:14px;height:14px;color:var(--fg3)}
-.line.st>.todo{width:10px;height:10px;border-radius:50%;box-shadow:inset 0 0 0 var(--i-w) var(--fg3)}
-.line.st .t{font:var(--f-text);color:var(--fg2)}
-.line.st .x{padding-left:var(--sp4);color:var(--fg3)}
-.line.st>.act{justify-self:end;height:var(--ctl-h);padding:0 var(--sp2);font:var(--f-small);color:var(--fg2)}
-.line.st[data-done] .t{color:var(--fg3)}
-.setup-gone{width:min(100%,var(--cap-w));margin:0 auto 6px;padding:0 0 0 var(--lead);border-block:1px solid var(--line);font:var(--f-small);line-height:calc(var(--home-row) - 2px);color:var(--fg2)}
 .hx.first{padding-top:max(22px,calc(44vh - 118px))}
 .hx.first .cols{width:min(100%,var(--cap-w));margin-inline:auto}
 .hsec{margin-top:26px}
@@ -455,7 +433,6 @@ body.dragging,body.dragging *{cursor:grabbing!important}
   .fold-p{display:none}
   .later .hr-a{grid-area:3/2/auto/5;display:none;padding:8px 0 1px}
   .later:is(:hover,:focus-within,.new) .hr-a{display:flex}
-  .line.st .x{display:none}
 }
 
 /* ——— sheets: panels of the same instrument, let down from the title bar ———
@@ -754,9 +731,6 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 .more-l[aria-expanded=true] .i{transform:rotate(90deg)}
 .sh-b>.facts-all{margin:0 var(--pad) var(--sp3);font:var(--f-small);color:var(--fg2);text-wrap:pretty;-webkit-user-select:text;user-select:text}
 .sh-b>.ticks{margin:var(--sp1) var(--pad) var(--sp3)}
-.got-l{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2);margin:0 var(--pad) var(--sp3);font:var(--f-small);color:var(--fg)}
-.got-l .i{width:14px;height:14px}
-.got-l .got{flex-basis:100%;width:100%}
 @container (max-width:640px){
   .fr-s{grid-template-columns:var(--lead) calc(120px * var(--ts)) 0 minmax(0,1fr)}
   .fr-f{display:none}

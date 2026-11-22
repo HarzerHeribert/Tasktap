@@ -473,13 +473,13 @@ const DEAF = "(Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { v
 async function deafen(label) {
   if (String(await ask(label, DEAF, 4000).catch((e) => e.message)) !== 'true') throw new Error(`the microphone could not be taken away from the ${label} page: nothing is measured`);
 }
-/** The workspace's page running (again: closing the window ends it), its microphone taken away, Setup put away. */
+/** The workspace's page running (again: closing the window ends it), its microphone taken away, the welcome put away. */
 async function workspaceRuns() {
   if (!(await has('typeof __ws', 'object', 30))) throw new Error("the workspace's page does not run");
   await deafen('workspace');
   windowOpen = true;
-  if (String(await js("__ws.ui.sheet?.kind ?? ''")) === 'setup') {
-    await js("([...document.querySelectorAll('.sheet .sh-f .act')].find(b => b.textContent.includes('Not now'))?.click(), 1)");
+  if (String(await js("document.querySelector('.welcome') ? 'welcome' : ''")) === 'welcome') {
+    await js("(document.querySelector('.wc')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1)");
     await sleep(500);
   }
 }

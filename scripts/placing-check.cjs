@@ -53,22 +53,30 @@ async function main(out, dist) {
     await page.evaluate(() => window.__ws.open({ kind: 'placing' }));
     await page.waitForTimeout(500);
     expect(await rows(page) === '1Claude Code, 2Codex, 3Antigravity', `Tasktap's order, each on: ${await rows(page)}`);
-    const why = await page.evaluate(() => [...document.querySelectorAll('.sheet .rank:not(.sign) .x')].map((x) => x.textContent));
-    expect(why[0] === 'haiku · included in your subscription · about 4 s', `why the first stands first: "${why[0]}"`);
-    expect(why[2] === 'gemini-3.8-flash-low · included in your subscription · about 6 s', `and the last: "${why[2]}"`);
-    const said = await page.evaluate(() => document.querySelector('.sheet .terms').textContent);
+    const why = await page.evaluate(() => [...document.querySelectorAll('.sheet .rank:not(.sign)')].map((r) => `${r.querySelector('.x.m').textContent}, ${r.querySelector('.x:not(.m)').textContent}`));
+    expect(why[0] === 'haiku, about 4 s', `the model and the time of the first, each in a place of its own: "${why[0]}"`);
+    expect(why[2] === 'gemini-3.8-flash-low, about 6 s', `and of the last: "${why[2]}"`);
+    // The sheet is lean: the one sentence on its surface, everything else behind "What is sent".
+    const surface = await page.evaluate(() => document.querySelector('.sheet .terms').textContent);
+    expect(!surface.includes('up to 8 likely projects') && !surface.includes('included in your subscription') && surface.includes('is sent with the names of your projects and sessions'), 'the surface holds the one sentence and none of the list');
+    await page.getByRole('button', { name: 'What is sent' }).click();
+    await page.waitForTimeout(200);
+    const said = await page.evaluate(() => document.querySelector('.sheet .terms.sent').textContent);
     expect(said.includes('goes to the first agent below that answers, one task at a time') && said.includes('up to 8 likely projects'), 'the sentence says who is asked and what is sent');
     expect(said.includes('Antigravity keeps each task it is asked about as a conversation in its history'), 'and that Antigravity keeps each');
     // ChatGPT, not signed in, is the first row, a button; above it, after what is sent, what signing in does.
     const sign = await page.evaluate(() => {
-      const row = document.querySelector('.sheet .ranks > .rank'), kids = [...document.querySelectorAll('.sheet .terms > *')];
+      const row = document.querySelector('.sheet .ranks > .rank'), kids = [...document.querySelectorAll('.sheet .terms.sent > *')];
       const offer = kids.findIndex((k) => k.textContent.startsWith('Sign in with ChatGPT and '));
       return { first: row?.classList.contains('sign') && row.querySelector('.t').textContent, button: row?.querySelector('.btn')?.textContent,
-        order: [kids.findIndex((k) => k.matches('ul.sends')), offer, kids.findIndex((k) => k.matches('.ranks'))], offer: kids[offer]?.textContent };
+        order: [kids.findIndex((k) => k.matches('ul.sends')), offer], offer: kids[offer]?.textContent };
     });
     expect(sign.first === 'ChatGPT' && sign.button === 'Sign in with ChatGPT', `ChatGPT's row comes first, with its button: ${JSON.stringify(sign)}`);
     expect(sign.offer === 'Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.', `what signing in does: "${sign.offer}"`);
-    expect(sign.order[0] >= 0 && sign.order[0] < sign.order[1] && sign.order[1] < sign.order[2], `what is sent, then that, then the button: ${sign.order}`);
+    expect(sign.order[0] >= 0 && sign.order[0] < sign.order[1], `behind "What is sent": what is sent, then what signing in does: ${sign.order}`);
+    // Closed again, the keyboard back on the sheet as it was when it came.
+    await page.getByRole('button', { name: 'What is sent' }).click();
+    await page.evaluate(() => document.querySelector('.sheet').focus());
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f .key')?.textContent)) === 'Allow', 'Return allows');
     await fits(page, 'the sheet');
     await shoot(page, out, 'placing-proposed');
@@ -119,9 +127,9 @@ async function main(out, dist) {
     });
     await page.waitForTimeout(300);
     const limited = await page.evaluate(() => document.querySelector('.sheet .rank:not(.sign) .x'));
-    const words = await page.evaluate(() => document.querySelector('.sheet .rank:not(.sign) .x').textContent);
+    const words = await page.evaluate(() => `${document.querySelector('.sheet .rank:not(.sign) .x.m').textContent} ${document.querySelector('.sheet .rank:not(.sign) .x:not(.m)').textContent}`);
     // On the person's clock, as their system writes a time (here en-US: 4:00 PM; in Germany 16:00).
-    expect(/^haiku · out of quota until (16[.:]00|4:00\s?PM)$/.test(words) && limited !== null, `one at its limit says until when: "${words}"`);
+    expect(/^haiku out of quota until (16[.:]00|4:00\s?PM)$/.test(words) && limited !== null, `one at its limit says until when: "${words}"`);
     await fits(page, 'the agreed sheet');
     await shoot(page, out, 'placing-agreed-limited');
     // Dragged by the pointer: Antigravity to the top.
@@ -193,9 +201,9 @@ async function main(out, dist) {
     await prefs(500, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } });
     await page.waitForTimeout(300);
     expect(await rows(page) === '1ChatGPT, Claude Code off, Codex off, Antigravity off', `signed in, ChatGPT alone places: ${await rows(page)}`);
-    const signed = await page.evaluate(() => ({ x: document.querySelector('.sheet .rank .x')?.textContent, sign: !!document.querySelector('.sheet .rank.sign'),
+    const signed = await page.evaluate(() => ({ x: `${document.querySelector('.sheet .rank .x.m')?.textContent}, ${document.querySelector('.sheet .rank .x:not(.m)')?.textContent}`, sign: !!document.querySelector('.sheet .rank.sign'),
       foot: document.querySelector('.sheet .rank-f')?.textContent, offer: document.querySelector('.sheet .terms').textContent.includes('Sign in with ChatGPT and') }));
-    expect(signed.x === 'GPT-6.2 Sol · included in your subscription · about 4 s' && !signed.sign && !signed.offer, `a row like the others, by its model's name: ${JSON.stringify(signed)}`);
+    expect(signed.x === 'GPT-6.2 Sol, about 4 s' && !signed.sign && !signed.offer, `a row like the others, by its model's name: ${JSON.stringify(signed)}`);
     expect(signed.foot.includes('Sign out'), `signing out is at the foot of the rows: "${signed.foot}"`);
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f').textContent)).includes('Turn off'), 'placing is on: the sheet turns it off');
     await fits(page, 'the sheet signed in with ChatGPT');
@@ -246,19 +254,14 @@ async function main(out, dist) {
     nobody.agents = nobody.agents.map((a) => ({ ...a, signed_in: false }));
     page = await open(browser, { label: 'workspace', records: nobody, url: server.url, dpr: 2 });
     await page.waitForTimeout(500);
-    // Setup's step is there all the same: it says how to sign someone in, and opens the sheet.
-    const step = await page.evaluate(() => {
-      const s = document.querySelector('.home .setup');
-      if (s && !s.classList.contains('open')) s.querySelector('.fold-h')?.click();
-      return document.querySelector('.home .setup [data-step=placing]')?.textContent ?? '';
-    });
-    expect(step.includes('Sign in with ChatGPT, or sign an agent in under Settings › Agents'), `Setup's placing step, with nobody signed in: "${step}"`);
-    await page.evaluate(() => document.querySelector('.home .setup [data-step=placing] .act').click());
+    await page.evaluate(() => window.__ws.open({ kind: 'placing' }));
     await page.waitForTimeout(500);
-    expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'placing', 'and its action opens the placing sheet');
+    expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'placing', 'the placing sheet opens with nobody signed in');
+    await page.getByRole('button', { name: 'What is sent' }).click();
+    await page.waitForTimeout(200);
     const alone = await page.evaluate(() => ({ rows: document.querySelectorAll('.sheet .rank').length, sign: document.querySelector('.sheet .rank.sign .btn')?.textContent,
       sends: document.querySelectorAll('.sheet ul.sends li').length, foot: !!document.querySelector('.sheet .rank-f'), acts: document.querySelector('.sheet .sh-f').textContent }));
-    expect(alone.rows === 1 && alone.sign === 'Sign in with ChatGPT' && alone.sends === 5 && !alone.foot && !alone.acts.includes('Allow'), `ChatGPT alone, with what is sent: ${JSON.stringify(alone)}`);
+    expect(alone.rows === 1 && alone.sign === 'Sign in with ChatGPT' && alone.sends === 5 && !alone.acts.includes('Allow'), `ChatGPT alone, with what is sent: ${JSON.stringify(alone)}`);
     await fits(page, 'the sheet with nobody signed in');
     await shoot(page, out, 'placing-chatgpt-alone');
     // Settings › Projects leads there too.

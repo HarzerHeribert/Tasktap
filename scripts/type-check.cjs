@@ -70,9 +70,9 @@ const VIEWS = [
   ...['thoughts', 'agents', 'projects', 'voice', 'appearance', 'terminal', 'about'].map((at) => ['busy', sheet({ kind: 'settings', at })]), ['normal', sheet({ kind: 'settings', at: 'about' }), 'plain'], ['busy', sheet({ kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
   ['workspace', `(w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id })`], ['busy', `(w) => w.document.querySelector('#dest-chip').click()`],
-  // After the owner's first trial (NOTES §13): who runs a thought, its list open; Setup's sheets; the question asked at
+  // After the owner's first trial (NOTES §13): who runs a thought, its list open; the welcome from "Finish setup" and the placing sheet; the question asked at
   // the Composer about the thought just sent.
-  ['busy', `(w) => w.document.querySelector('.cap-agent').click()`], ['first', sheet({ kind: 'setup', step: 'projects' })], ['normal', sheet({ kind: 'setup', step: 'speech' })],
+  ['busy', `(w) => w.document.querySelector('.cap-agent').click()`], ['normal', `(w) => w.document.querySelector('.finish').click()`], ['normal', sheet({ kind: 'placing' })],
   ['normal', `(w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' })`, 'asked'],
   ['normal', '', 'held'], ['normal', '', 'two'], ['normal', '', 'placing'], ['normal', '', 'gone'], ['busy', '', 'asked'], ['normal', `(w) => (w.__ws.ui.fold = 'later')`, 'later-gone'],
   ['normal', mine, 'recording'], ['normal', mine, 'writing'], ['normal', mine, 'failed-heard'], ['normal', `(w) => (w.__speech.talk.said = 'service')`, 'no-service', { voice: false }],

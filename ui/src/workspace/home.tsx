@@ -15,7 +15,7 @@ import { fallback, laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import { firstLine } from './markdown.ts';
 import { popup } from './menu.ts';
-import { Setup } from './setup.tsx';
+import { Finish, showWelcome } from './welcome.tsx';
 import { older, past } from './past.ts';
 import {
   agentName, call, details, endedSays, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
@@ -268,9 +268,9 @@ export function Home() {
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
       <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={nav}>
-        <Capture raised asks={ui.sheet?.kind !== 'capture'} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'setup', step: 'speech' })} />
-        {/* Under the Composer only what was just sent (its Way, its question); everything offered once is Setup's. */}
-        <Setup quiet={!asks} />
+        <Capture raised asks={ui.sheet?.kind !== 'capture'} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
+        {/* Under the Composer only what was just sent (its Way, its question); what is offered once is the welcome's. */}
+        <Finish />
         <div class="cols">
         <div class="col">
         {waits.length > 0 && (

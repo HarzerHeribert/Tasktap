@@ -1,0 +1,56 @@
+/* The welcome (welcome.tsx): one step in view on the window's own material (the room and its light), centred: a headline,
+   at most a sentence, what the step shows, its one key, and at the foot quiet marks for where the person is and Skip.
+   Steps cross by arriving (the sheets' own time and ease); nothing moves at rest. */
+.welcome{position:relative;z-index:1;min-height:0;overflow:auto}
+.wc{display:flex;flex-direction:column;align-items:center;min-height:100%;padding:var(--sp6) var(--sp5) var(--sp5);outline:0}
+.wc-i{display:flex;flex-direction:column;align-items:center;gap:var(--sp4);width:min(100%,640px);margin-block:auto;text-align:center}
+@media(prefers-reduced-motion:no-preference){
+  .wc-i{animation:arrive var(--t-sheet) var(--ease) both}
+}
+.wc h1{font:var(--f-thought);letter-spacing:var(--ls-thought);text-wrap:balance}
+.wc-s{max-width:48ch;font:var(--f-text);color:var(--fg2);text-wrap:pretty}
+.wc-b{display:flex;flex-direction:column;align-items:center;gap:var(--sp3);width:100%;min-width:0}
+.wc-a{display:flex;align-items:center;justify-content:center;gap:var(--sp3);margin-top:var(--sp2)}
+.wc-a .key{height:var(--ctl-l);padding:0 18px 0 14px;border-radius:var(--r-in)}
+.wc-n{display:flex;align-items:center;gap:var(--sp2);font:var(--f-small);color:var(--fg3)}
+.wc-n.warn{color:var(--asks)}
+/* A list of what was found: a row each, its words left, its switch right. */
+.wc-l{display:grid;width:100%;max-height:min(44vh,360px);overflow:auto;border-block:1px solid var(--line);text-align:left}
+.wc-r{display:grid;grid-template-columns:24px minmax(0,auto) minmax(0,1fr) auto;align-items:center;gap:var(--sp3);min-height:var(--home-row);padding:0 var(--sp2);border-bottom:1px solid var(--line);font:var(--f-small)}
+.wc-r:last-child{border-bottom:0}
+.wc-r .t{overflow:hidden;font:var(--f-label);color:var(--fg);text-overflow:ellipsis;white-space:nowrap}
+.wc-r .x{overflow:hidden;color:var(--fg3);text-overflow:ellipsis;white-space:nowrap}
+.wc-r>.i{justify-self:center;width:14px;height:14px;color:var(--fg3)}
+.wc-r[data-off] :is(.t,.x,.i){opacity:.5}
+.wc-c{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:var(--sp3);font:var(--f-small);color:var(--fg2)}
+/* Who finds the project: three large options side by side, each with its one action. */
+.wc-o{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp3);width:100%}
+.wc-o>section{display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:var(--sp3);min-height:168px;padding:var(--sp4) var(--sp3);border-radius:var(--r3);background:var(--fill);box-shadow:inset 0 0 0 1px var(--line)}
+.wc-o h2{font:var(--f-title)}
+.wc-o .x{font:var(--f-small);color:var(--fg3);text-wrap:pretty}
+.wc-q{display:grid;gap:6px;margin:0;padding:0;list-style:none;font:var(--f-small);color:var(--fg2)}
+.wc-q li{display:flex;align-items:center;gap:var(--sp2)}
+.wc-q li+li::before{content:none}
+.wc .disc{margin:0}
+.wc .terms{max-width:62ch;padding:var(--sp3) var(--sp4);border-radius:var(--r2);background:color-mix(in srgb,var(--bg) 88%,transparent);text-align:left;font:var(--f-small);color:var(--fg2)}
+.wc .terms>p{margin:0 0 var(--sp2)}
+.wc .sends{margin:0 0 var(--sp2);padding:0}
+/* Speech: what it is, as data. */
+.wc-d{display:grid;grid-template-columns:max-content max-content;justify-content:center;align-items:center;gap:var(--sp3) var(--sp5);margin:0;text-align:left;font:var(--f-small)}
+.wc-d dt{color:var(--fg3)}
+.wc-d dd{display:flex;align-items:center;gap:var(--sp3);margin:0;color:var(--fg)}
+.wc-d .got{width:120px}
+/* The foot: where the person is, and the way past. */
+.wc-f{display:flex;align-items:center;justify-content:center;gap:var(--sp5);margin-top:var(--sp5)}
+.wc-m{display:flex;gap:var(--sp2);margin:0;padding:0;list-style:none}
+.wc-m li{width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 var(--i-w) var(--fg3)}
+.wc-m li[data-done]{background:var(--fg3)}
+.wc-m li[data-on]{background:var(--fg);box-shadow:none}
+.wc-skip{height:var(--ctl-h);padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg3)}
+.wc-skip:hover{background:var(--hover);color:var(--fg)}
+/* On Home, while a step is open: one quiet line. */
+.finish{display:block;margin:0 auto var(--sp2);padding:0 var(--sp2);height:var(--ctl-h);border-radius:var(--r1);font:var(--f-small);color:var(--fg3)}
+.finish:hover{background:var(--hover);color:var(--fg)}
+@container (max-width:560px){
+  .wc-o{grid-template-columns:1fr}
+}

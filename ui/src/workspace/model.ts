@@ -27,8 +27,6 @@ export type Sheet =
   | { kind: 'settings'; at?: 'thoughts' | 'projects' | 'voice' | 'agents' | 'appearance' | 'terminal' | 'about' }
   | { kind: 'placing'; back?: boolean }
   | { kind: 'speech' }
-  /** One of Setup's steps (setup.tsx); `auto`: it came down by itself at the first start. */
-  | { kind: 'setup'; step: 'projects' | 'speech'; auto?: boolean }
   | { kind: 'review'; thought: string }
   | { kind: 'settle'; thought: string; keep: boolean }
   | { kind: 'send'; thought: string }

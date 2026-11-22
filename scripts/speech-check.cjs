@@ -60,13 +60,25 @@ async function main() {
     // ——— Settings › Speech, state by state ———
     let page = await start({ supported: true, model: 'none', have: 0, of: OF, error: null }, 'off');
     const settings = () => page.evaluate(() => { window.__ws.ui.sheet = { kind: 'settings', at: 'voice' }; window.__motion.redraw(); });
-    const row = () => page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Where your speech becomes text')?.innerText.replace(/\s+/g, ' ') ?? '');
+    // The row as it reads, and its hint, which the foot of the window says while the pointer is on the row.
+    const row = async () => {
+      const at = await page.evaluate(() => {
+        const r = [...document.querySelectorAll('.settings .set')].find((x) => x.querySelector('.t')?.textContent === 'Where your speech becomes text');
+        if (!r) return null;
+        const b = r.getBoundingClientRect();
+        return { text: r.innerText.replace(/\s+/g, ' '), x: b.x + 6, y: b.y + b.height / 2 };
+      });
+      if (!at) return '';
+      await page.mouse.move(at.x, at.y);
+      await page.waitForTimeout(60);
+      return `${at.text} ${(await page.locator('.sh-hint').textContent()) ?? ''}`;
+    };
     const press = (label) => page.evaluate((l) => [...document.querySelectorAll('.settings .set button')].find((b) => b.textContent === l)?.click(), label);
     const tell = (status) => page.evaluate((s) => (Object.assign(window.__fake.records.speech, s), window.__fake.emit({ ...window.__fake.records.speech }, 'speech')), status);
     await settings();
     await page.waitForTimeout(300);
     // A service is in use: its row shows; this Mac is one click away and says what it needs, with nothing fetched.
-    await hold(row().then((t) => /By OpenAI · gpt-transcribe/.test(t)), `with a service chosen the row does not name it: ${await row()}`);
+    await hold(row().then((t) => /By OpenAI, gpt-transcribe/.test(t)), `with a service chosen the row does not name it: ${await row()}`);
     await shot(page, 'settings-service', ROW);
     await press('On this Mac');
     await page.waitForTimeout(150);
@@ -76,7 +88,7 @@ async function main() {
     await press('Download');
     await tell({ model: 'fetching', have: Math.round(OF * 0.41) });
     await page.waitForTimeout(150);
-    await hold(row().then((t) => /Downloading · 41 % of 574 MB/.test(t) && /Stop/.test(t)), `while it downloads the row does not say how far: ${await row()}`);
+    await hold(row().then((t) => /Downloading 41 % of 574 MB/.test(t) && /Stop/.test(t)), `while it downloads the row does not say how far: ${await row()}`);
     await hold(page.evaluate(() => { const p = document.querySelector('.settings progress.got'); return !!p && Math.abs(p.value / p.max - 0.41) < 0.01 && window.__fake.speech.acts.includes('install'); }), 'the download shows no progress, or was not asked for');
     await shot(page, 'settings-downloading', ROW);
     await tell({ model: 'failed', error: 'No network: the model could not be fetched. What arrived is kept; try again when you are online.' });
@@ -87,7 +99,7 @@ async function main() {
     await tell({ model: 'fetching', have: Math.round(OF * 0.9) });
     await tell({ model: 'ready', have: OF });
     await page.waitForTimeout(300);
-    await hold(row().then((t) => /Ready · Whisper large-v3 turbo · 574 MB on this Mac/.test(t) && /Remove/.test(t) && /sent nowhere/.test(t)), `ready, the row does not say so: ${await row()}`);
+    await hold(row().then((t) => /Ready, Whisper large-v3 turbo, 574 MB on this Mac/.test(t) && /Remove/.test(t) && /sent nowhere/.test(t)), `ready, the row does not say so: ${await row()}`);
     await hold(page.evaluate(() => !window.__fake.records.prefs.some((p) => p.id === 'speech_by') && window.__fake.records.prefs.some((p) => p.id === 'keys')), 'once the model is here the service is still in use (or its key was touched)');
     await shot(page, 'settings-ready', ROW);
     await press('Remove');
@@ -102,15 +114,15 @@ async function main() {
     for (const e of page.errors) failures.push(`the page said: ${e}`);
     await page.context().close();
 
-    // ——— Nothing set up: the microphone brings down Setup's speech step, which says what voice needs and offers the
-    // download on Return (design/ui-directions/NOTES.md §13: nothing of it under the Composer); no microphone is asked for ———
+    // ——— Nothing set up: the microphone brings the welcome's speech step, which shows where speech recognition stands
+    // and offers the download (nothing of it under the Composer); no microphone is asked for ———
     page = await start({ supported: true, model: 'none', have: 0, of: OF, error: null });
     await page.mouse.click(...(await centre(page, '.home .mic')));
     await page.waitForTimeout(400);
-    await hold(page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.step === 'speech' && /downloaded once/.test(document.querySelector('.sheet')?.textContent ?? '')
-      && /Download/.test(document.querySelector('.sheet .sh-f .key')?.textContent ?? '') && !/Voice needs/.test(document.querySelector('.home .ways')?.textContent ?? '')), 'with nothing set up the microphone does not bring down Setup\'s speech step with its download');
+    await hold(page.evaluate(() => document.querySelector('.welcome .wc h1')?.textContent === 'Talk instead of typing' && /Not downloaded/.test(document.querySelector('.wc-d')?.textContent ?? '')
+      && /Download \d+ MB/.test(document.querySelector('.wc-d')?.textContent ?? '')), 'with nothing set up the microphone does not bring the welcome\'s speech step with its download');
     await hold(state(page).then((s) => s.asked === 0 && s.rows === 0), 'the microphone was asked for with nothing to write it down');
-    await shot(page, 'voice-needs', '.sheet');
+    await shot(page, 'voice-needs', '.wc');
     await page.context().close();
 
     // ——— A thought spoken, written down on this Mac ———

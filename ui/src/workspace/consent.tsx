@@ -32,7 +32,7 @@ const at = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric'
  *  passed over), and its switch. ↑ ↓ go from row to row, ⌥↑ ⌥↓ move the one in focus, Space switches it; a row is
  *  dragged by any part but its switch. `set` is given the rows after each change. `lead`: ChatGPT's row while it is
  *  not signed in, first, which is none of those. */
-function Ranks({ rows, set, lead }: { rows: Rank[]; set: (rows: Rank[]) => void; lead?: ComponentChildren }) {
+export function Ranks({ rows, set, lead, onHint }: { rows: Rank[]; set: (rows: Rank[]) => void; lead?: ComponentChildren; onHint?: (hint: string | null) => void }) {
   const list = useRef<HTMLDivElement>(null);
   const [held, hold] = useState<number | null>(null);
   const n = places(rows), tools = terms.route?.tools ?? [];
@@ -77,7 +77,7 @@ function Ranks({ rows, set, lead }: { rows: Rank[]; set: (rows: Rank[]) => void;
         return (
           <div key={r.agent} class={`line rank${held === i ? ' held' : ''}${r.on ? '' : ' off'}`} role="listitem" tabIndex={0}
             aria-label={`${n[i] ? `${n[i]}, ` : ''}${agentName(r.agent)}, ${r.on ? 'on' : 'off'}, ${why}`}
-            onKeyDown={keys(i)} onPointerDown={press(i)} onPointerMove={drag} onPointerUp={drop} onPointerCancel={drop}>
+            onKeyDown={keys(i)} onFocus={() => onHint?.(MOVES)} onBlur={() => onHint?.(null)} onPointerDown={press(i)} onPointerMove={drag} onPointerUp={drop} onPointerCancel={drop}>
             <span class="n">{n[i] ?? ''}</span>
             <Glyph agent={r.agent} tone={r.on ? undefined : 'quiet'} />
             <span class="t">{agentName(r.agent)}</span>
@@ -91,6 +91,13 @@ function Ranks({ rows, set, lead }: { rows: Rank[]; set: (rows: Rank[]) => void;
   );
 }
 
+/** Pressed beside what is sent and to whom: the agreement for ChatGPT's row (core chatgpt.rs `agree`). Once: a second
+ *  press while the first is on its way does nothing. */
+export const signInWithChatGPT = () => {
+  if (signing) return;
+  signing = true;
+  void call('chatgpt.sign_in', {}).then((target) => call('host.open', { target })).catch(fail).finally(() => (signing = false));
+};
 const signOut = () => void call('chatgpt.sign_out', {}).catch(fail);
 /** A sign-in with ChatGPT asked for and not answered yet. */
 let signing = false;
@@ -98,7 +105,7 @@ let signing = false;
 /** ChatGPT's row while it is not signed in: its name and the button that signs in with ChatGPT, or Cancel while the
  *  browser is waited for. `sign`: what the button does; in the sheet, which says above it what is sent to OpenAI, it
  *  signs in, and elsewhere it opens the sheet. `says`: why the last sign-in did not finish, in the row itself. */
-function SignIn({ sign, says }: { sign: () => void; says?: boolean }) {
+export function SignIn({ sign, says }: { sign: () => void; says?: boolean }) {
   const c = chatgptRow(pref('chatgpt'));
   if (c.state === 'in') return null;
   return (
@@ -117,7 +124,7 @@ function SignIn({ sign, says }: { sign: () => void; says?: boolean }) {
 /** The rows of the placing group and what changes them: with an agreement to these terms each change is written at
  *  once; without one, the rows are Tasktap's proposal until the person allows them. A sign-in with ChatGPT that ends
  *  puts its row in or takes it out, whatever was moved before. */
-function useRanks() {
+export function useRanks() {
   const t = terms.route, tools = placers(), by = pref('route_by');
   const agreed = !!by && !!t && by.terms === t.terms;
   const [draft, setDraft] = useState<Rank[] | null>(null);
@@ -131,7 +138,7 @@ function useRanks() {
 }
 
 /** What a row-moving list is moved by, said once under it. */
-const MOVES = `${mac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓'} or a drag moves a row, Space switches it.`;
+export const MOVES = `${mac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓'} or a drag moves a row, Space switches it.`;
 
 /** What the group is called, in Settings › Projects, in About and on its sheet. */
 export const FINDING = 'Finding the project for a task';
@@ -169,16 +176,9 @@ export function Finding() {
  *  Opened as `open({ kind: 'placing' })`, from Settings with `back`. */
 export function PlacingSheet({ back }: { back?: boolean }) {
   const { t, tools, by, agreed, rows, set, write, reset, state } = useRanks();
-  const [reads, setReads] = useState(false);
+  const [reads, setReads] = useState(false), [hint, setHint] = useState<string | null>(null);
   useEffect(() => void loadTerms(), []);
-  const c = chatgptRow(pref('chatgpt')), asks = t?.tools.find((x) => x.agent === CHATGPT)?.model;
-  // Pressed here, below what is sent and to whom: the agreement for ChatGPT's row (core chatgpt.rs `agree`). Once:
-  // a second press while the first is on its way does nothing.
-  const signIn = () => {
-    if (signing) return;
-    signing = true;
-    void call('chatgpt.sign_in', {}).then((target) => call('host.open', { target })).catch(fail).finally(() => (signing = false));
-  };
+  const c = chatgptRow(pref('chatgpt'));
   const done = () => (back ? open({ kind: 'settings', at: 'projects' }) : dismiss());
   const put = (patch: RouteBy | null) => void call('put', { c: 'prefs', id: 'route_by', patch }).then(done, fail);
   const no = () => {
@@ -194,25 +194,19 @@ export function PlacingSheet({ back }: { back?: boolean }) {
       : [{ k: '↩', label: state === 'again' ? 'Agree again' : 'Allow', kind: 'primary', do: () => void write(rows).then(done, fail) },
         { k: 'esc', label: records.prefs.has('route_by') ? 'Close' : 'Not now', do: no }];
   return (
-    <Frame size="md" title={FINDING} acts={acts}>
+    <Frame size="md" title={PLACING_TITLE} acts={acts} hint={hint}>
       <div class="terms">
         {state === 'again' && <p class="warn">Placing now sends more than you agreed to. Until you agree again, only tasks that name their project are placed.</p>}
-        <p>Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent already at work there continues. Your own words always go along.</p>
+        <p>{PLACING_SAYS}</p>
         {!t ? <p>Asking what is sent…</p> : (
           <>
-            <p>Each such task goes to the first agent below that answers, one task at a time, under that agent's own sign-in. That agent is sent:</p>
-            <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
-            {c.state !== 'in' && asks && <p>{chatgptOffer(asks)}</p>}
             {c.says && <p class={c.state === 'out' ? 'warn' : undefined} role={c.state === 'out' ? 'alert' : 'status'}>{c.says}</p>}
-            <Ranks rows={rows} set={set} lead={<SignIn sign={signIn} />} />
-            {rows.length > 0 && (
-              <div class="rank-f">
-                <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
-                {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
-                <span class="hint">{MOVES}</span>
-              </div>
-            )}
-            <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
+            <Ranks rows={rows} set={set} lead={<SignIn sign={signInWithChatGPT} />} onHint={setHint} />
+            <div class="rank-f">
+              <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
+              {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
+            </div>
+            <Sent rows={rows} />
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <p class="hint">{t.cuts}</p>}
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
@@ -220,6 +214,32 @@ export function PlacingSheet({ back }: { back?: boolean }) {
         )}
       </div>
     </Frame>
+  );
+}
+
+/** The one sentence of placing, under its headline, in the welcome and in the sheet. */
+export const PLACING_TITLE = 'Let Tasktap find the project for each task';
+export const PLACING_SAYS = 'A task you do not place yourself is sent with the names of your projects and sessions to the model you choose here.';
+
+/** "What is sent", behind one quiet line: what placing is for, the core's own list of what goes to the model, and to
+ *  which agent, word for word, and what ChatGPT's sign-in asks. */
+export function Sent({ rows }: { rows: Rank[] }) {
+  const [shown, show] = useState(false);
+  const t = terms.route, c = chatgptRow(pref('chatgpt')), asks = t?.tools.find((x) => x.agent === CHATGPT)?.model;
+  useEffect(() => void loadTerms(), []);
+  return (
+    <>
+      <button type="button" class="disc" aria-expanded={shown} onClick={() => show(!shown)}><I n="chev" /><span>What is sent</span></button>
+      {shown && (!t ? <p>Asking what is sent…</p> : (
+        <div class="terms sent">
+          <p>Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent already at work there continues. Your own words always go along.</p>
+          <p>Each such task goes to the first agent below that answers, one task at a time, under that agent's own sign-in. That agent is sent:</p>
+          <ul class="sends">{t.sends.map((x) => <li>{x}</li>)}</ul>
+          {c.state !== 'in' && asks && <p>{chatgptOffer(asks)}</p>}
+          <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
+        </div>
+      ))}
+    </>
   );
 }
 

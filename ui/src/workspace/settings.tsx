@@ -27,7 +27,7 @@ import { placing } from '../way.ts';
 import { AgentsPane } from './agents.tsx';
 import { ProjectsPane } from './projects.tsx';
 import { ASKS, UpdateRow, checks, update } from './update.tsx';
-import { SetupRow } from './setup.tsx';
+import { WelcomeRow } from './welcome.tsx';
 import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref, unfoot } from './form.tsx';
 import { agent, agentName, call, fail, loadTerms, openQuestions, page, placers, pref, records, redraw, sentence, ui } from './model.ts';
@@ -349,7 +349,7 @@ function AboutPane() {
     <>
       <Row name="Tasktap version"><span class="v">{version || 'This copy has none'}</span></Row>
       <UpdateRow />
-      <SetupRow />
+      <WelcomeRow />
       <h3>What leaves {HERE}</h3>
       <Row name="Your tasks" hint={`Each goes to the agent that runs it${usual ? ` (${agentName(usual.id)} unless you choose another)` : ''}, in a terminal on ${HERE} under that agent’s own sign-in.`}>
         <span class="v">To the agent that runs them</span><To at="agents">Agents</To>
@@ -378,6 +378,7 @@ function AboutPane() {
       <Licence name="Whisper" what={`The model for speech on ${HERE}, MIT`} file="Whisper-model-LICENSE.txt" />
       <Licence name="whisper.cpp" what="What runs that model, MIT" file="whisper.cpp-1.9.5-LICENSE.txt" />
       <Row name="Libraries" hint="Open source, under the MIT and Apache 2.0 licences; SQLite is in the public domain."><span class="v">xterm.js, Preact, Tauri, Tokio, SQLite</span></Row>
+      <p class="note">Product names and marks belong to their makers.</p>
     </>
   );
 }

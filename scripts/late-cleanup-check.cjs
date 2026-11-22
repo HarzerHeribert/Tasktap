@@ -5,12 +5,7 @@
 // two things done in one go, before the page has any frame, each as a person can do them one after the other, and
 // what has to hold after them (Chromium on a Mac and on Windows, WebKit on a Mac, on fixture records):
 //   - Settings put away (⌘W) and ⌘3 pressed: Settings stays away (its section keys went with it).
-//   - Setup's sheet that came by itself replaced by Settings, and Shift-Tab on Settings' first control: the keyboard
-//     stays in Settings, at its last control (the sheet before kept it no longer).
 //   - Settings put away while the microphone trial in Appearance listens: the microphone is off that moment.
-//   - The projects sheet put away by a click beside it (which answers Not now) and opened again, Search there pressed
-//     if it is offered again: no Not now lands after an answer given since; the sheet opened again shows the Not now,
-//     as it does when it is opened again a while later.
 //   - Home left for a workspace and shown again while a question waits at its Composer: the question waits in Needs
 //     you and the field has the keyboard, as when the two are a while apart.
 //   - A letter typed while the empty field's line rolls to the next (lines.ts): nothing of the roll is left, not its
@@ -52,25 +47,6 @@ async function sectionKeys(browser, url, system) {
   await done(page, at);
 }
 
-async function trap(browser, url, system) {
-  const at = `${system}, the sheet that came by itself replaced by Settings and Shift-Tab pressed in one go`;
-  const page = await open(browser, { label: 'workspace', records: scene('first'), url, dpr: 1, system });
-  await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'setup', step: 'projects', auto: true }), window.__motion.redraw()));
-  await settled(page);
-  const where = await page.evaluate(new Function(`return (async () => {
-    window.__ws.open({ kind: 'settings', at: 'thoughts' });
-    ${RENDERED}
-    const sheet = document.querySelector('.sheet');
-    const all = [...sheet.querySelectorAll('button, input, [tabindex="0"]')].filter((x) => !x.hidden && x.tabIndex >= 0);
-    all[0].focus();
-    all[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
-    const a = document.activeElement;
-    return a === all[all.length - 1] ? 'last' : a?.closest('.sheet') ? 'in the sheet' : a?.id || a?.tagName;
-  })()`));
-  expect(where === 'last', `${at}: the keyboard goes round to Settings' last control, not out of it (${where})`);
-  await done(page, at);
-}
-
 /** A microphone that is a tone, made in the page: nothing is asked of the system. */
 const MIC = () => {
   const mic = async () => {
@@ -96,37 +72,6 @@ async function trial(browser, url, system) {
     return [window.__ws.ui.voice, ...window.__mic.getTracks().map((t) => t.readyState)].join(' ');
   })()`));
   expect(off === 'false ended', `${at}: the microphone is off the moment the sheet goes (listening, track: ${off})`);
-  await done(page, at);
-}
-
-async function notNow(browser, url, system) {
-  const at = `${system}, the projects sheet put away and opened again in one go`;
-  const FOLDER = '/Users/example/code';
-  const records = { ...scene('first'), offer: { agents: [], places: [{ folder: FOLDER, projects: 3 }] }, looks: [] };
-  const page = await open(browser, { label: 'workspace', records, url, dpr: 1, system });
-  await page.evaluate(() => (window.__ws.open({ kind: 'setup', step: 'projects' }), window.__motion.redraw()));
-  await settled(page);
-  const title = await page.evaluate(() => document.querySelector('.sheet #sheet-title')?.textContent);
-  expect(title === 'Choose where your projects are', `${at}: the sheet asks where the projects are ("${title}")`);
-  // Each word on the folder as the page takes it from the core, in order (the fake's look reads ready later, on again).
-  await page.evaluate((f) => {
-    const looks = window.__ws.records.looks, set = looks.set.bind(looks);
-    window.__said = [];
-    looks.set = (k, v) => (v.folder === f && window.__said.push(v.on ? 'on' : 'off'), set(k, v));
-  }, FOLDER);
-  const offered = await page.evaluate(new Function(`return (async () => {
-    document.querySelector('.scrim').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    ${RENDERED}
-    window.__ws.open({ kind: 'setup', step: 'projects' });
-    ${RENDERED}
-    const search = [...document.querySelectorAll('.sheet button')].find((b) => b.textContent.includes('Search there'));
-    search?.click();
-    return !!search;
-  })()`));
-  await settled(page, 800);
-  const said = await page.evaluate(() => window.__said.join(' '));
-  expect(!!said && !/on.* off/.test(said), `${at}: no Not now lands after an answer given since (the folder, in order: ${said || 'nothing'}; Search there ${offered ? 'offered again and pressed' : 'not offered again'})`);
-  expect(!offered, `${at}: the sheet opened again shows the Not now just given, as later, and offers no Search there for it`);
   await done(page, at);
 }
 
@@ -261,9 +206,7 @@ async function main() {
       try {
         for (const system of systems) {
           await sectionKeys(browser, server.url, system);
-          await trap(browser, server.url, system);
           await trial(browser, server.url, system);
-          await notNow(browser, server.url, system);
           await leftWhileAsking(browser, server.url, system);
           await typedMidRoll(browser, server.url, system);
           await goneMidRoll(browser, server.url, system);
@@ -275,7 +218,7 @@ async function main() {
   } finally {
     await server.close();
   }
-  console.log(failures.length ? `FAIL  ${failures.length} of the checks of what goes with a part of a page` : `PASS  what a part of a page undoes is undone the moment it goes, so nothing begun in the same moment is undone with it: Settings' section keys, a sheet's Tab, the microphone trial, the projects sheet's Not now and a Composer left while it asks, in Chromium on a Mac and on Windows${tried.includes('webkit') ? ' and in WebKit on a Mac' : ' (not in WebKit, which is not installed here)'}`);
+  console.log(failures.length ? `FAIL  ${failures.length} of the checks of what goes with a part of a page` : `PASS  what a part of a page undoes is undone the moment it goes, so nothing begun in the same moment is undone with it: Settings' section keys, the microphone trial and a Composer left while it asks, in Chromium on a Mac and on Windows${tried.includes('webkit') ? ' and in WebKit on a Mac' : ' (not in WebKit, which is not installed here)'}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main();

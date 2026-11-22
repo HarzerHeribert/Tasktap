@@ -25,7 +25,7 @@ import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { follow, refresh, reload, stop, swap } from './preview.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
-import { firstStart } from './setup.tsx';
+import { Welcome, firstStart, welcome } from './welcome.tsx';
 import { effects, power, wakeLook } from './light.tsx';
 import { setVoice, stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
@@ -318,7 +318,7 @@ function App() {
       {(side || (ui.narrow && ui.peek)) && <Sidebar />}
       <main class="main">
         <Bar project={project} />
-        {project ? <Deck key={project} project={project} /> : ui.view === 'earlier' ? <Earlier /> : <Home />}
+        {project ? <Deck key={project} project={project} /> : ui.view === 'earlier' ? <Earlier /> : welcome.on ? <Welcome /> : <Home />}
       </main>
       <Rail />
       <Sheets />
@@ -444,7 +444,7 @@ render(<App />, document.body);
 // Whether the window is the one in use: in front, as the host says it to both pages (followWhere).
 void call('host.where', {}).then(followWhere, () => {});
 // The window shows once the page has laid out its first frame with the records in it (a hidden window draws nothing),
-// so its first picture is Home as it is, with the first start's sheet where there is one (setup.tsx firstStart). A
+// so its first picture is Home as it is, with the welcome where it is a first start (welcome.tsx firstStart). A
 // core that is slow to answer does not keep the window away for longer than a moment.
 let visible = false;
 const ready = () => void (visible || ((visible = true), call('host.ready', {}).catch(() => {})));

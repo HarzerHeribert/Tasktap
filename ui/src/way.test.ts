@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
   agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
-  offers, placed, placeOf, places, placing, placingSays, proposed, ranked, ring, step, waits, wholeHold,
+  offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
 } from './way.ts';
 
 test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
@@ -25,16 +25,6 @@ test('ChatGPT\'s row of placing is a button until it is signed in, waits for the
   assert.equal(out({ state: 'no_model' }), 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.');
   // What the sheet says above the button: where the task goes, and the model that finds its project.
   assert.equal(chatgptOffer('gpt-6.2-sol'), 'Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where gpt-6.2-sol finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.');
-});
-
-test('Setup\'s placing step is always there, and with nobody signed in it says how to sign someone in', () => {
-  assert.equal(placingSays('off', null, 0, false, false), 'Sign in with ChatGPT, or sign an agent in under Settings › Agents');
-  assert.equal(placingSays('off', null, 0, true, false), 'Sign in with ChatGPT, or sign an agent in under Settings › Agents');
-  assert.equal(placingSays('off', null, 0, false, true), 'For tasks you do not place');
-  assert.equal(placingSays('off', null, 0, true, true), 'Skipped');
-  assert.equal(placingSays('on', 'ChatGPT', 0, true, true), 'By ChatGPT');
-  assert.equal(placingSays('on', 'ChatGPT', 2, true, true), 'By ChatGPT, then 2 more');
-  assert.equal(placingSays('again', null, 0, true, true), 'Placing now sends more. Agree again to keep placing on.');
 });
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
@@ -246,13 +236,13 @@ test('the placing group lists the agreement in its order, then the others in Tas
 
 test('each agent says why it stands where it does, or until when it is passed over', () => {
   const at = (ms: number) => new Date(ms).toISOString().slice(11, 16);
-  assert.equal(placeWhy(TOOLS[0]!, null, 0, at), 'included in your subscription, about 4 s');
-  assert.equal(placeWhy(tool('codex', 'gpt-6-luna', 'billed', 4700), null, 0, at), 'billed by your provider, about 5 s');
-  assert.equal(placeWhy(tool('own', 'm', 'billed', null), null, 0, at), 'billed by your provider');
+  assert.equal(placeWhy(TOOLS[0]!, null, 0, at), 'about 4 s');
+  assert.equal(placeWhy(tool('codex', 'gpt-6-luna', 'billed', 4700), null, 0, at), 'about 5 s');
+  assert.equal(placeWhy(tool('own', 'm', 'billed', null), null, 0, at), '');
   const four = Date.UTC(2026, 10, 19, 16);
   assert.equal(placeWhy(TOOLS[0]!, four, four - 60_000, at), 'out of quota until 16:00');
   // Once the time has come it stands as before.
-  assert.equal(placeWhy(TOOLS[0]!, four, four, at), 'included in your subscription, about 4 s');
+  assert.equal(placeWhy(TOOLS[0]!, four, four, at), 'about 4 s');
 });
 
 test('a ring counts what its agent works on, and asking is its state, not part of the count', () => {

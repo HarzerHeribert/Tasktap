@@ -5,7 +5,7 @@
 // - Home's status line does not say "Starting…" in place of the counts while the core has not answered, or still says
 //   it once the core has;
 // - anything on the page claims what the page does not know yet: the chip's words ("No project yet", "saved for
-//   later"), the key saying "Save for later", Setup and its count, "Nothing running"; in the New Task sheet and in the
+//   later"), the key saying "Save for later", the "Finish setup" line, "Nothing running"; in the New Task sheet and in the
 //   notch's Composer as on Home; or once the core has answered they are not as before; or the Composer is not where it
 //   was (a first start, whose Home is as empty after as before);
 // - a task started while the core has not answered is lost, shows an error, is not shown as being placed meanwhile, goes
@@ -44,18 +44,18 @@ const welcome = (p) => p.evaluate(() => window.__fake.welcome());
 
 async function home(browser, url) {
   // 1 and 2: the status line, and nothing claimed, on a first start (whose Home stays empty): the Composer stays put.
-  let page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), holdWelcome: true }, url, dpr: 1 });
+  let page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), prefs: [{ id: 'setup_hidden', value: false, rev: 9 }], holdWelcome: true }, url, dpr: 1 });
   await page.waitForSelector('#capture-input');
   expect((await rail(page)) === 'Starting…', `Home while the core has not answered: the status line says "${await rail(page)}", not "Starting…"`);
   const said = await claims(page);
   expect(!said, `Home while the core has not answered says "${said}", which it does not know yet`);
   expect(await chipHidden(page), 'Home while the core has not answered: the chip shows');
-  expect(!(await page.evaluate(() => !!document.querySelector('.home .setup'))), 'Home while the core has not answered: Setup is there, with its count');
+  expect(!(await page.evaluate(() => !!document.querySelector('.home .finish, .welcome'))), 'Home while the core has not answered: the welcome or its "Finish setup" line is there');
   const before = await page.evaluate(() => document.querySelector('.home #capture-input').getBoundingClientRect().toJSON());
   await welcome(page);
   const after = await until(() => rail(page), (v) => v !== 'Starting…');
   expect(after && after !== 'Starting…', `Home once the core has answered: the status line says "${after}"`);
-  expect(await until(() => page.evaluate(() => !!document.querySelector('.home .setup')), (v) => v), 'Home once the core has answered: no Setup');
+  expect(await until(() => page.evaluate(() => !!document.querySelector('.home .finish')), (v) => v), 'Home once the core has answered: the "Finish setup" line');
   expect(!(await chipHidden(page)), 'Home once the core has answered: the chip is not shown');
   const moved = await page.evaluate((b) => { const r = document.querySelector('.home #capture-input').getBoundingClientRect(); return Math.max(Math.abs(r.x - b.x), Math.abs(r.y - b.y), Math.abs(r.width - b.width)); }, before);
   expect(moved < 0.5, `Home, a first start: the Composer moved ${moved} px when the core answered`);

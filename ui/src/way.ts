@@ -230,23 +230,13 @@ export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'wai
 export const chatgptOffer = (model: string) =>
   `Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
 
-/** What Setup's placing step says: by whom tasks are placed (`asks`, then `more`), that the terms changed, that nobody
- *  who could place is signed in (`anyone`: ChatGPT or an agent), that the person skipped it, or what it is for. */
 /** What Setup and Settings say while an agreement is to what was sent before (`placing`: `again`). */
 export const AGAIN = 'Placing now sends more. Agree again to keep placing on.';
-export function placingSays(state: 'off' | 'on' | 'again', asks: string | null, more: number, answered: boolean, anyone: boolean): string {
-  if (state === 'on' && asks) return `By ${asks}${more > 0 ? `, then ${more} more` : ''}`;
-  if (state === 'again') return AGAIN;
-  if (!anyone) return 'Sign in with ChatGPT, or sign an agent in under Settings › Agents';
-  return answered ? 'Skipped' : 'For tasks you do not place';
-}
-
-/** Why an agent stands where it does in Tasktap's order, or why it is passed over now: its plan at its usage limit
+/** What an agent's row says of its asking: about how long it takes, or why it is passed over now: its plan at its usage limit
  *  until a time (`limited`, as the core keeps it; `at` gives the time as the person's clock shows it). */
 export function placeWhy(t: PlaceTool, limited: number | null | undefined, now: number, at: (ms: number) => string): string {
   if (limited && limited > now) return `out of quota until ${at(limited)}`;
-  const pays = t.pays === 'plan' ? 'included in your subscription' : 'billed by your provider';
-  return t.ms ? `${pays}, about ${Math.max(1, Math.round(t.ms / 1000))} s` : pays;
+  return t.ms ? `about ${Math.max(1, Math.round(t.ms / 1000))} s` : '';
 }
 
 /** What an agent's ring says: how many of its thoughts are being worked on, and its state: not signed in, one of

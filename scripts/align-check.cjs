@@ -45,7 +45,6 @@ const LISTS = [
   { list: '.set-nav', row: ':scope > button', parts: { label: 'span', fact: 'kbd' } },
   { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
   { list: '.cap-list', row: ':scope > button', parts: { mark: '.i, .st, .ring-o', label: 'span' } },
-  { list: '.setup-b', row: ':scope > .line', parts: { mark: ':scope > .i, :scope > .todo', label: '.t', fact: '.x' } },
   { list: '.rows', row: ':scope > .row', parts: { mark: '.st', label: '.t', fact: '.x', time: 'time' } },
   { list: '.ask-notch .qa', row: ':scope > .ans', parts: { key: 'kbd', label: 'span' } },
   { list: '.ask-home .qa', row: ':scope > .ans', parts: { key: 'kbd' } },
@@ -156,9 +155,7 @@ function audit([LISTS, KEY]) {
   if (first && cap) {
     const c = box(cap), h = box(home), at = (c.top + c.height / 2 - h.top) / h.height;
     if (h.height >= 500 && (at < 0.3 || at > 0.5)) bad.push(`first run: the Composer's middle is at ${at.toFixed(2)} of the content's height`);
-    // Under it, Setup, on the Composer's own edges; nothing else stands loose under the Composer.
-    const setup = first.querySelector('.setup');
-    if (setup && (Math.abs(box(setup).left - c.left) > 0.5 || Math.abs(box(setup).right - c.right) > 0.5)) bad.push('first run: Setup is not on the Composer\'s edges');
+    // Nothing else stands loose under the Composer but the quiet "Finish setup" line.
     for (const row of first.querySelectorAll('.hsec')) if (Math.abs(box(row).left - c.left) > 0.5 || Math.abs(box(row).right - c.right) > 0.5) bad.push('first run: For later is not on the Composer\'s edges');
   }
   // A key's label on its face: 7 : 1 or better against every stop of the face.
@@ -475,10 +472,10 @@ async function main() {
   const views = [
     ['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['busy', (w) => (w.__ws.ui.fold = 'later')], ['normal', null], ['quiet', null], ['first', null],
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
-    // Who runs the thought, its list open; Setup's sheets; a question asked at the Composer, with the keyboard and
+    // Who runs the thought, its list open; the welcome from "Finish setup" and the placing sheet; a question asked at the Composer, with the keyboard and
     // given back to the field (NOTES §13).
     ['busy', (w) => w.document.querySelector('.cap-agent').click()], ['first', (w) => w.document.querySelector('.cap-agent').click()],
-    ['first', (w) => (w.__ws.ui.sheet = { kind: 'setup', step: 'projects' })], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'setup', step: 'speech' })],
+    ['normal', (w) => w.document.querySelector('.finish').click()], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' })],
     ['normal', (w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' }), 'asked'],
     ['normal', (w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' }, w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, 'the next one')), 'asked'],
     // Settings, section by section, and the sheets that are a list of answers, a field, or the Composer.
@@ -618,7 +615,7 @@ async function main() {
       // Every row's time, by the column it stands in (its left edge): one right edge in each.
       const times = {};
       for (const t of document.querySelectorAll('.hx .hr time')) if (t.offsetParent) (times[Math.round(t.closest('.hr').getBoundingClientRect().left)] ??= new Set()).add(Math.round(t.getBoundingClientRect().right));
-      return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), setup: r('.home .setup') },
+      return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), finish: r('.home .finish') },
         mid: cap ? cap.left + cap.width / 2 : null, capW: cap?.width ?? null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows,
         times: Object.values(times).map((e) => [...e].sort((a, b) => a - b)) };
     };

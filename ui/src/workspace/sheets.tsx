@@ -22,9 +22,9 @@ import {
   pickFolder, projectName, projects, quiet, QUIET, byPerson, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
-import { SetupSheet } from './setup.tsx';
 import { SessionSheet } from './session.tsx';
 import { footing } from './form.tsx';
+import { showWelcome } from './welcome.tsx';
 import { Settings } from './settings.tsx';
 
 /** A sheet replaced by another (Review, then Discard) is not dropped again. */
@@ -49,7 +49,7 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
 }) {
   const [held, hold] = useState('');
   // A sheet that came by itself is guarded whoever draws it, from the moment it came.
-  const self = guard || (ui.sheet?.kind === 'setup' && !!ui.sheet.auto);
+  const self = guard;
   const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
   const rest = acts.filter((x) => x.k !== 'esc');
   // What Return gives, and since when: from the moment a sheet that came by itself came; and on every sheet, again from
@@ -342,7 +342,7 @@ function Body() {
     case 'capture':
       return (
         <Frame bare title="New task">
-          <Capture asks started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'setup', step: 'speech' })} />
+          <Capture asks started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
         </Frame>
       );
     case 'settings':
@@ -351,8 +351,6 @@ function Body() {
       return <PlacingSheet back={d.back} />;
     case 'speech':
       return <SpeechSheet />;
-    case 'setup':
-      return <SetupSheet step={d.step} auto={d.auto} />;
     case 'reply': {
       const q = records.questions.get(d.question);
       if (!q || q.state !== 'open') return <Frame title="Answered" acts={[{ k: 'esc', label: 'Close', do: dismiss }]} />;
@@ -413,7 +411,7 @@ export function Sheets() {
     if (!d) return;
     const sheet = document.querySelector<HTMLElement>('.sheet');
     // It comes down plainly, a short way from behind the bar, as the window dims; one that replaces another is there at once.
-    if (sheet && !wasOpen && !reduced.matches && !(d.kind === 'setup' && d.auto)) {
+    if (sheet && !wasOpen && !reduced.matches) {
       const drop = { duration: 160, easing: 'cubic-bezier(.19,.76,.19,1)' };
       sheet.animate({ opacity: [0, 1], transform: ['translate(-50%,-14px)', 'translate(-50%,0)'] }, drop);
       sheet.previousElementSibling?.animate({ opacity: [0, 1] }, drop);
@@ -421,9 +419,7 @@ export function Sheets() {
     wasOpen = true;
     // The sheet takes the keyboard at once, without the ring a key press would show: the first thing a person would
     // use where there is one (a field, the first answer, Settings' open section), else the sheet, whose keys then act.
-    // One that came by itself leaves it in Home's Composer, where whatever the person types goes (Frame).
-    const self = d.kind === 'setup' && d.auto ? document.querySelector<HTMLElement>('.home #capture-input') : null;
-    focus(self ?? sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input, [role=tab][aria-selected=true]') ?? sheet);
+    focus(sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input, [role=tab][aria-selected=true]') ?? sheet);
   }, [key]);
   // Tab stays inside the sheet, from the moment it is there; the trap of the sheet before goes the same moment (one
   // that came by itself would give Shift-Tab to the Composer behind this one).
@@ -434,9 +430,6 @@ export function Sheets() {
       if (e.key !== 'Tab' || !sheet) return;
       const all = [...sheet.querySelectorAll<HTMLElement>('button, input, [tabindex="0"]')].filter((x) => !x.hidden && x.tabIndex >= 0);
       const at = all.indexOf(document.activeElement as HTMLElement);
-      // One that came by itself: Shift-Tab from its first control gives the keyboard back to the Composer under it.
-      const field = d.kind === 'setup' && d.auto && e.shiftKey && at === 0 ? document.querySelector<HTMLElement>('.home #capture-input') : null;
-      if (field) return (e.preventDefault(), field.focus());
       if (at === -1 || (e.shiftKey ? at === 0 : at === all.length - 1)) {
         e.preventDefault();
         all[e.shiftKey ? all.length - 1 : 0]?.focus();

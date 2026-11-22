@@ -1,7 +1,6 @@
 // Renders Home after the owner's first trial of the project map (design/ui-directions/NOTES.md §13), from ui/dist in
 // headless Chromium on fixture records (instrument-fixtures.cjs, projects-fixtures.cjs), no host: the first start
-// (the projects step's sheet opening by itself, and what it found), Setup with none, one and all of its steps done and
-// hidden, a thought placed, a thought asked about at the Composer with the keyboard and without it, the agent control
+// (the welcome by itself), "Finish setup", a thought placed, a thought asked about at the Composer with the keyboard and without it, the agent control
 // and its list with 2, 6 and 11 agents, the Composer's foot at 720, 1180 and 1800 px, the Start key up close, the
 // notch's capture row, and the chip's "Open another folder…" clicked with a real pointer (in WebKit with --engine
 // webkit, the Mac's engine, where a click there was lost). Each owner's picture has a state of the same name, so the
@@ -25,7 +24,7 @@ function agents(r, n) {
   if (n > 2) for (const t of r.thoughts.filter((x) => x.status === 'working').slice(0, 2)) t.agent = 'opencode';
   return r;
 }
-/** Placing by a model already answered (No), so Setup's second step is done and nothing offers it. */
+/** Placing by a model already answered (No), so the welcome's placing step is done and nothing offers it. */
 const answered = (r, value = null) => ((r.prefs = [...(r.prefs || []).filter((p) => p.id !== 'route_by'), { id: 'route_by', value, rev: 9 }]), r);
 /** Speech on this Mac, as the host says it (`speech_model`): ready, or still to download. */
 const speech = (r, model = 'none') => ((r.speech = { supported: true, model, have: model === 'ready' ? 1.6e9 : 0, of: 1.6e9, error: null }), r);
@@ -47,29 +46,18 @@ const near = (sel, pad = 24) => ({ sel, pad });
 /** Every state: its records, what is done to the page, the window, and (`clip`) the part of it that is the picture. */
 function shots() {
   const s = {
-    // ——— 1. The first start ———
+    // ——— 1. The first start: the welcome by itself, in place of Home (scripts/welcome-shots.cjs has its steps) ———
     'first-start': { records: speech(projects('first-agents')), act: wait(1200) },
     'first-start-narrow': { records: speech(projects('first-agents')), act: wait(1200), viewport: NARROW },
-    'first-found': { records: speech(projects('first-many')), act: both(wait(900), press('Enter'), wait(4200)) },
-    'first-found-narrow': { records: speech(projects('first-many')), act: both(wait(900), press('Enter'), wait(4200)), viewport: NARROW },
-    'first-folders': { records: speech(projects('first-folders')), act: wait(1200) },
-    'first-details': { records: speech(projects('first-agents')), act: both(wait(900), click('.sheet .more-l'), wait(200)) },
-    // ——— Setup on Home ———
-    'setup-none': { records: speech(projects('first-agents')), act: both(wait(900), press('Escape'), wait(300)) },
-    'setup-one': { records: speech(looked(scene('normal'))), act: wait(400) },
-    'setup-two': { records: speech(answered(looked(scene('normal')))), act: wait(400) },
-    // Agreed to placing under older terms: Setup's placing step says Agree again, and no thought carries a note of it.
-    'setup-again': { records: (() => {
+    // ——— A step left open: one quiet line under the Composer ———
+    'finish-setup': { records: speech(looked(scene('normal'))), act: wait(400) },
+    'finish-setup-again': { records: (() => {
       const r = speech(looked(flow(scene('normal'), 'held')));
       r.prefs = [...r.prefs.filter((p) => p.id !== 'route_by'), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 2 }, rev: 9 }];
       for (const t of r.thoughts) if (t.route) t.route = { ...t.route, by: 'local', fallback: 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again' };
       return r;
     })(), act: wait(400) },
-    'setup-done': { records: speech(answered(looked(scene('normal'))), 'ready'), act: wait(400) },
-    'setup-hidden': { records: speech({ ...looked(scene('normal')), prefs: [{ id: 'setup_hidden', value: true, rev: 9 }] }), act: wait(400) },
-    'setup-closed': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.setup .fold-h'), wait(200)) },
-    'setup-placing': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.setup [data-step=placing] :is(.btn,.act)'), wait(300)) },
-    'setup-speech': { records: speech(answered(looked(scene('normal')))), act: both(wait(300), click('.setup [data-step=speech] :is(.btn,.act)'), wait(300)) },
+    'finish-setup-opened': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.finish'), wait(400)) },
     'settings-about': { records: speech({ ...answered(looked(scene('normal'))), prefs: [{ id: 'setup_hidden', value: true, rev: 9 }, { id: 'route_by', value: null, rev: 9 }] }),
       act: (p) => p.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw())) },
     // ——— 2 and 3. A thought sent: where it went, or its question ———
@@ -126,16 +114,10 @@ function shots() {
   const NOTES = ['', 'matches “export”, “invoices”', ''];
   const asked = (o = {}) => speech({ ...looked(scene('normal')), asks: { notes: NOTES, ...o } });
   Object.assign(s, {
-    // R1: typed at the first start's sheet: the letters are the Composer's, the sheet put away as Not now.
-    'first-typed': { records: speech(projects('first-agents')), act: both(wait(900), (p) => p.keyboard.type('fix the export menu', { delay: 40 }), wait(300)) },
-    // R1: Return 300 ms after another key: held back, and said so.
-    'first-held': { records: speech(projects('first-agents')), act: both(wait(900), press('ArrowLeft'), wait(300), press('Enter'), wait(200)) },
     // R2: letters typed after the question came: all of them in the field, the question in Needs you.
     'sent-asked-typed-after': { records: asked(), act: both(send('make the export faster'), wait(900), (p) => p.keyboard.type('look at the logs', { delay: 30 }), wait(300)) },
     // R3: sent from New Task: the question in the sheet only, its keys there.
     'sheet-asked': { records: asked(), act: both((p) => p.focus('#capture-input'), press('Meta+n'), wait(300), (p) => p.keyboard.type('make the export faster'), press('Enter'), wait(900)) },
-    // R4: the first step put away by a click beside it: Not now, and Setup says Skipped.
-    'first-clicked-away': { records: speech(projects('first-agents')), act: both(wait(900), (p) => { const v = p.viewportSize(); return p.mouse.click(v.width - 20, v.height - 40); }, wait(500)) },
     // R5: Home left for a workspace and back with the question at the Composer.
     'back-home': { records: asked(), act: both(send('make the export faster'), wait(900),
       (p) => p.evaluate(() => (window.__ws.show([...window.__ws.records.projects.values()].find((x) => x.open).id), window.__motion.redraw())), wait(300),
@@ -144,8 +126,6 @@ function shots() {
     'foot-tab': { records: agents(answered(looked(scene('normal'))), 6), act: both(type('tidy the export menu'), press('Tab'), press('Tab'), wait(200)), clip: near('.home .capture') },
     // R7: the usual agent signed out: the list opens, signing in a row of it.
     'agents-signed-out': { records: (() => { const r = agents(answered(looked(scene('normal'))), 6); r.agents[0].signed_in = false; return r; })(), act: both(type('tidy the export menu'), click('.cap-agent'), wait(300)), clip: near('.home .capture') },
-    // R11: Setup hidden a moment ago: its place says where it went.
-    'setup-hidden-now': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.home .setup-h .act'), wait(400)) },
     // R12: a thought placed, its disclosure opened.
     'sent-placed-open': { records: speech(answered(looked(flow(scene('normal'), 'held')))), act: both(wait(300), click('.home .way-more, .home .way-h + .way-b'), wait(200)) },
   });

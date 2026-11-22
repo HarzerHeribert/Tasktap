@@ -23,6 +23,8 @@ const OLD = ['Key to put a thought in', 'Delete finished thoughts after', 'Wait 
   'Thoughts and history', "A service's key", 'Looked', 'Where your agents have worked', 'Folders Tasktap looks in', 'Workspace'];
 /** Words a person does not use (the checklist's rule): placing may stay, its row says what it is. */
 const WORDS = /\b(briefs?|briefed|sessions?|harness|router|worktrees?|isolated?|cards?|look|looks|looked|looking)\b/i;
+/** The one sentence of placing, in the owner's words, which says what is sent in the words of what is sent (consent.tsx PLACING_SAYS). */
+const SAYS = 'A task you do not place yourself is sent with the names of your projects and sessions to the model you choose here.';
 const SECTIONS = ['thoughts', 'agents', 'projects', 'voice', 'terminal', 'about'];const MB = 574_000_000;
 
 /** An agent's switch as the core words it, from its own source: what the row shows. */
@@ -192,7 +194,7 @@ async function main() {
           await page.evaluate((k) => ((window.__ws.ui.sheet = { kind: k }), window.__motion.redraw()), kind);
           await page.waitForTimeout(450);
           sheets++;
-          const text = await page.evaluate(words), bad = WORDS.exec(text);
+          const text = (await page.evaluate(words)).replace(SAYS, ''), bad = WORDS.exec(text);
           if (bad) failures.add(`${state}, the ${kind} sheet: "${bad[0]}" (…${text.slice(Math.max(0, bad.index - 60), bad.index + 40)}…)`);
         }
       }

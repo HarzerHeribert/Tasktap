@@ -141,10 +141,12 @@ export const ownName = (id: string | null | undefined) => pref('own_agents').fin
 /** ChatGPT's id where an agreement and a thought's route name who placed it (core chatgpt.rs): one of placing's rows,
  *  which starts no agent. */
 export const CHATGPT = 'chatgpt';
+/** The own model's id likewise (core own.rs): the model at an address the person names. */
+export const OWN = 'own';
 /** An agent's name, as the core says it: its row of the agents carries it, so no page keeps a list of its own. ChatGPT,
  *  which is no agent and has no row, by its own name. */
 export const agentName = (id: string | null | undefined) =>
-  (id ? (id === CHATGPT ? 'ChatGPT' : (records.agents.get(id)?.name ?? ownName(id) ?? id)) : 'Agent');
+  (id ? (id === CHATGPT ? 'ChatGPT' : id === OWN ? 'Your own model' : (records.agents.get(id)?.name ?? ownName(id) ?? id)) : 'Agent');
 /** Whether a thought was run by an agent Tasktap hears nothing of but its end (the plain tier: Aider, and the ones
  *  the person added). Such a thought is not done, it has ended: nothing says whether the work was done, so no page
  *  calls it a result, and where its outcome would stand is the one sentence that says so (`endedSays`). */
@@ -173,10 +175,11 @@ export const loadTerms = () =>
 /** An agent that can place thoughts, with the version of the terms it would be asked under. */
 export type Placeable = PlaceTool & { terms: number };
 /** The agents whose model can place thoughts, in Tasktap's order: those the core would ask that are installed and
- *  signed in, and ChatGPT while it is signed in, with the model its sign-in chose. */
+ *  signed in, ChatGPT while it is signed in, with the model its sign-in chose, and the own model once it is set up. */
 export const placers = (): Placeable[] =>
   (terms.route?.tools ?? []).filter((t) => {
     if (t.agent === CHATGPT) return pref('chatgpt')?.state === 'signed_in';
+    if (t.agent === OWN) return !!pref('own_model');
     const a = records.agents.get(t.agent);
     return runs(a) && a!.signed_in !== false;
   }).map((t) => ({ ...t, model: (t.agent === CHATGPT && pref('chatgpt')?.model) || t.model, terms: terms.route!.terms }));

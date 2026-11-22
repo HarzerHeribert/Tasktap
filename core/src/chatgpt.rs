@@ -369,29 +369,36 @@ pub fn model(tx: &Tx) -> store::Result<Option<String>> {
 
 /// Signing in is the agreement for ChatGPT's row alone (design §8): it is
 /// put first and switched on, the other rows of an agreement to these terms
-/// as they are; an agreement to other terms covers nothing and goes.
-fn agree(tx: &mut Tx, model: &str) -> store::Result<()> {
+/// as they are; an agreement to other terms covers nothing and goes. Setting
+/// up an own model (`own.rs`) is the same for its row, `id`.
+pub fn agree(tx: &mut Tx, id: &str, model: &str, keeps: bool) -> store::Result<()> {
     let mut agents = match tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
         Some(PrefValue::RouteBy(Some(by))) if by.terms == route::TERMS => by.agents,
         _ => Vec::new(),
     };
-    agents.retain(|p| p.agent != ID);
-    let row = Placer {
-        agent: ID.into(),
-        model: model.into(),
-        on: true,
-    };
-    agents.insert(0, row);
+    // A row that is there stays where it is, as it is switched, where `keeps`.
+    match agents.iter_mut().find(|p| p.agent == id) {
+        Some(row) if keeps => row.model = model.into(),
+        _ => {
+            agents.retain(|p| p.agent != id);
+            let row = Placer {
+                agent: id.into(),
+                model: model.into(),
+                on: true,
+            };
+            agents.insert(0, row);
+        }
+    }
     let terms = route::TERMS;
     tx.put_pref(&PrefValue::RouteBy(Some(RouteBy { agents, terms })))
 }
 
-/// Signing out takes ChatGPT's row out of the agreement. Where it was the
+/// Signing out takes ChatGPT's row (an own model's, as it is taken away) out of the agreement. Where it was the
 /// only row, there is no agreement left: placing is as it was before the
 /// sign-in, not answered.
-fn unagree(tx: &mut Tx) -> store::Result<()> {
+pub fn unagree(tx: &mut Tx, id: &str) -> store::Result<()> {
     if let Some(PrefValue::RouteBy(Some(mut by))) = tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
-        by.agents.retain(|p| p.agent != ID);
+        by.agents.retain(|p| p.agent != id);
         match by.agents.is_empty() {
             true => drop(tx.delete_pref(PrefKey::RouteBy)?),
             false => tx.put_pref(&PrefValue::RouteBy(Some(by)))?,
@@ -716,7 +723,7 @@ pub fn sign_in(cx: &mut Cx, _: Empty) -> Result<String, Error> {
                     name: Some(name),
                     ..state(SignIn::SignedIn)
                 };
-                write(core, Some(seen), |tx| agree(tx, &model));
+                write(core, Some(seen), |tx| agree(tx, ID, &model, false));
             }
             Ended::NoPlan => put(core, Some(state(SignIn::NoPlan))),
             Ended::NoModel => put(core, Some(state(SignIn::NoModel))),
@@ -758,7 +765,7 @@ pub fn sign_out(cx: &mut Cx, _: Empty) -> Option<Control> {
         let lost = || Err("the credential store ended without an answer".to_owned());
         let result = done.unwrap_or_else(lost);
         if result.is_ok() {
-            write(core, None, unagree);
+            write(core, None, |tx| unagree(tx, ID));
         }
         let result = result.map_err(|why| Error::new(Code::Failed, why));
         link.send(&call::ChatgptSignOut::reply(id, result));
@@ -1046,7 +1053,7 @@ fn offered(openai: &OpenAi, access: &str) -> Result<Option<String>, String> {
     };
     let (status, list) = json_call(&request)?;
     if status != 200 {
-        let why = said(&list, status);
+        let why = said(&list, status, None);
         return Err(format!("the list of ChatGPT's models did not load ({why})"));
     }
     let all = list["models"].as_array().or(list["data"].as_array());
@@ -1108,18 +1115,13 @@ impl Asking {
             body: Body::Json(&body),
             limit: left,
         };
-        let answer = http::send(&request, wait).map_err(|e| match e {
-            http::Failed::Slow => format!(
-                "it did not answer within {} s",
-                limit.as_millis().div_ceil(1000)
-            ),
-            e => failed(e),
-        })?;
+        let answer = http::send(&request, wait).map_err(|e| unanswered(e, OPENAI, limit))?;
         let text = String::from_utf8_lossy(&answer.body);
         let words = || {
             said(
                 &serde_json::from_str(&text).unwrap_or_default(),
                 answer.status,
+                Some(&access),
             )
         };
         let why = match answer.status {
@@ -1166,8 +1168,8 @@ fn token(openai: &OpenAi, fields: &[(&str, &str)], limit: Duration) -> Result<Va
         200 => Err(Unanswered(
             "OpenAI answered without a token Tasktap can send".into(),
         )),
-        400 | 401 => Err(Refused(said(&body, status))),
-        _ => Err(Unanswered(said(&body, status))),
+        400 | 401 => Err(Refused(said(&body, status, None))),
+        _ => Err(Unanswered(said(&body, status, None))),
     }
 }
 
@@ -1185,30 +1187,45 @@ fn until(tokens: &Value) -> u64 {
 /// A call to OpenAI: its status and its body as JSON (null where it is
 /// none), or why there is no answer.
 fn json_call(request: &Request) -> Result<(u16, Value), String> {
-    let answer = http::send(request, mpsc::channel()).map_err(failed)?;
+    let answer = http::send(request, mpsc::channel()).map_err(|e| failed(e, OPENAI))?;
     Ok((
         answer.status,
         serde_json::from_slice(&answer.body).unwrap_or_default(),
     ))
 }
 
-/// Why a call to OpenAI has no answer, in a few words.
-fn failed(e: http::Failed) -> String {
+/// Who the sign-in's calls are made to, in the words of why one failed.
+const OPENAI: &str = "OpenAI";
+
+/// Why a call to `who` has no answer, in a few words.
+pub fn failed(e: http::Failed, who: &str) -> String {
     match e {
         http::Failed::Missing => {
             "this system has no curl, which Tasktap makes web calls with".into()
         }
         http::Failed::Stopped => "it was not waited for".into(),
-        http::Failed::Slow => "OpenAI did not answer in time".into(),
-        http::Failed::Unreachable(_) => "OpenAI could not be reached".into(),
-        http::Failed::Untrusted(why) => format!("the connection to OpenAI is not trusted ({why})"),
+        http::Failed::Slow => format!("{who} did not answer in time"),
+        http::Failed::Unreachable(_) => format!("{who} could not be reached"),
+        http::Failed::Untrusted(why) => format!("the connection to {who} is not trusted ({why})"),
         http::Failed::Other(why) => why,
     }
 }
 
-/// What OpenAI said of a refusal, in its words: its code and its message,
+/// Why a placing call has no answer: as [`failed`] says, and for how long it
+/// was waited for where that is what ended it.
+pub fn unanswered(e: http::Failed, who: &str, limit: Duration) -> String {
+    match e {
+        http::Failed::Slow => format!(
+            "it did not answer within {} s",
+            limit.as_millis().div_ceil(1000)
+        ),
+        e => failed(e, who),
+    }
+}
+
+/// What a server said of a refusal, in its words: its code and its message,
 /// in one line of at most 200 characters.
-fn said(body: &Value, status: u16) -> String {
+pub fn said(body: &Value, status: u16, key: Option<&str>) -> String {
     let error = &body["error"];
     let code = error
         .as_str()
@@ -1223,10 +1240,20 @@ fn said(body: &Value, status: u16) -> String {
         (Some(text), None) | (None, Some(text)) => text.into(),
         (None, None) => format!("HTTP {status}"),
     };
+    // The key is struck before the text is cut, or half of it would stay.
+    let text = strike(&text, key);
     cut(&text.split_whitespace().collect::<Vec<_>>().join(" "), 200)
 }
 
-fn cut(text: &str, chars: usize) -> String {
+/// `text` without `key`, which a server may repeat in what it says.
+pub fn strike(text: &str, key: Option<&str>) -> String {
+    match key {
+        Some(key) => text.replace(key, "(key)"),
+        None => text.to_owned(),
+    }
+}
+
+pub fn cut(text: &str, chars: usize) -> String {
     text.chars().take(chars).collect()
 }
 
@@ -1326,6 +1353,16 @@ fn unb64(text: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn a_token_a_server_repeats_is_struck_before_what_it_said_is_cut() {
+        // Built from parts: a push that holds a token-shaped text is refused.
+        let token = concat!("tok", "en-", "abcdefghijklmnopqrstuvwxyz", "0123456789");
+        let body = json!({ "error": { "message": format!("{}{token}", "x".repeat(190)) } });
+        let said = said(&body, 401, Some(token));
+        assert!(said.contains("(key)") && !said.contains("abcdef"), "{said}");
+        assert!(said.chars().count() <= 200);
+    }
 
     /// A credential store in memory.
     #[derive(Default)]

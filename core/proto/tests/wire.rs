@@ -420,6 +420,22 @@ fn every_call_round_trips() {
     let address = "https://auth.openai.com/api/accounts/authorize?client_id=x".to_owned();
     round_trip::<call::ChatgptSignIn>(Empty {}, address, seen);
     round_trip::<call::ChatgptSignOut>(Empty {}, (), seen);
+    let set = SetOwnModel {
+        address: "http://127.0.0.1:11434/v1".into(),
+        model: "llama3.1:8b".into(),
+        key: Some("sk-not-a-key".into()),
+    };
+    // Printing the arguments never shows the key.
+    assert!(!format!("{set:?}").contains("sk-not-a-key"));
+    round_trip::<call::OwnModelSet>(set, (), seen);
+    round_trip::<call::OwnModelRemove>(Empty {}, (), seen);
+    let list = ListModels {
+        address: "http://127.0.0.1:11434/v1".into(),
+    };
+    let models = Models {
+        models: vec!["llama3.1:8b".into()],
+    };
+    round_trip::<call::OwnModelList>(list, models, seen);
     for (start, from) in [
         (None, None),
         (
@@ -724,7 +740,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 54);
+    assert_eq!(Name::ALL.len(), 57);
 }
 
 #[test]
@@ -759,7 +775,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 45);
+    assert_eq!(by(Access::Device).len(), 48);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);

@@ -131,7 +131,10 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     // The history the scene has (`history`), as one page; then, or with none, the empty page that is its end.
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
-    if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
+    if (name === 'route.terms') {
+      const mine = (records.prefs || []).find((p) => p.id === 'own_model')?.value;
+      return reply(id, { ...terms.route, tools: records.tools || [...terms.route.tools, ...(mine ? [{ agent: 'own', model: mine.model, pays: 'plan', ms: null }] : [])] });
+    }
     // The sign-in with ChatGPT (core chatgpt.rs): the address of OpenAI's page, and the wait for the browser, one at a
     // time; the check pushes how it ends. Signing out takes the record and ChatGPT's row of the agreement away, and an
     // agreement left with no row goes with it.
@@ -160,6 +163,24 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       push({ t: 'change', rev, sets: [{ c: 'prefs', ...(value === undefined ? { del: [key] } : { put: [{ id: key, value, rev }] }) }] });
     };
     const keys = () => ((records.prefs || []).find((p) => p.id === 'keys') || { value: [] }).value;
+    // The own model (core own.rs): the models a server lists (`records.servers`, by address; one not there does not
+    // answer), setting it up (the preference, a key's address in `keys`, and its row first in the agreement) and taking it away.
+    if (name === 'own_model.list') {
+      (window.__fake.listed ??= []).push(args);
+      const models = (records.servers || {})[args.address];
+      return models ? reply(id, { models }) : refuse('failed', 'the server could not be reached');
+    }
+    if (name === 'own_model.set' || name === 'own_model.remove') {
+      const by = (records.prefs || []).find((p) => p.id === 'route_by')?.value, others = (by?.agents || []).filter((a) => a.agent !== 'own');
+      const row = name === 'own_model.set' ? [{ agent: 'own', model: args.model, on: true }] : [];
+      pref('own_model', name === 'own_model.set' ? { address: args.address, model: args.model } : null);
+      if (args.key) pref('keys', [...keys().filter((s) => s !== args.address), args.address]);
+      if (name === 'own_model.remove' || (by && by.terms === terms.route.terms)) {
+        const agents = [...row, ...others];
+        if (agents.length) pref('route_by', { agents, terms: terms.route.terms }); else if (by) pref('route_by');
+      } else if (row.length) pref('route_by', { agents: row, terms: terms.route.terms });
+      return reply(id, null);
+    }
     if (name === 'delete' && args.c === 'prefs') return pref(args.id), reply(id, null);
     if (name === 'key.set') return pref('keys', [...keys().filter((s) => s !== args.server), args.server]), reply(id, null);
     if (name === 'key.remove') return pref('keys', keys().filter((s) => s !== args.server)), reply(id, null);

@@ -29,12 +29,23 @@
 .wc-c{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:var(--sp3);font:var(--f-small);color:var(--fg2)}
 /* Who finds the project: three large options side by side, each with its one action. */
 .wc-o{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp3);width:100%}
-.wc-o>section{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp3);min-height:168px;padding:var(--sp4) var(--sp3);border-radius:var(--r3);background:var(--fill);box-shadow:inset 0 0 0 1px var(--line2)}
-.wc-o h2{font:var(--f-title)}
-.wc-o .x{font:var(--f-small);color:var(--fg3);text-wrap:pretty}
-.wc-q{display:grid;gap:6px;margin:0;padding:0;list-style:none;font:var(--f-small);color:var(--fg2)}
-.wc-q li{display:flex;align-items:center;gap:var(--sp2)}
-.wc-q li+li::before{content:none}
+.wc-o[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* A card is one target, on the Composer's raised material: under the pointer or with the keyboard it is a shade
+   brighter and its rim is the lit edge (window.css .capture.raised). Nothing moves. */
+.wc-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:var(--sp3);min-width:0;min-height:196px;padding:var(--sp4) var(--sp3);border-radius:var(--r3);background:var(--surface);box-shadow:var(--surface-edge);color:var(--fg);text-align:center;cursor:pointer;transition:background var(--t-fast)}
+.wc-card::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--edge,var(--lit));opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
+  mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
+.wc-card:is(:hover,:focus-visible){background:var(--surface-lit)}
+.wc-card:is(:hover,:focus-visible)::after{opacity:.9}
+.wc-card:focus-visible{outline:0}
+.wc-card:disabled{opacity:.5;cursor:default;background:var(--surface)}
+.wc-card:disabled::after{opacity:0}
+.wc-card>:is(.key,.btn){pointer-events:none;max-width:100%}
+.wc-t{font:var(--f-title)}
+.wc-c2{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp2);min-width:0;max-width:100%}
+.wc-c2 .x{max-width:100%;overflow:hidden;font:var(--f-small);color:var(--fg3);text-overflow:ellipsis;white-space:nowrap}
+.wc-q{display:flex;gap:var(--sp2)}
+.wc .own{width:100%;max-width:62ch;border:0;border-radius:var(--r2);background:var(--fill);text-align:left}
 .wc .disc{margin:0}
 .wc .terms{max-width:62ch;padding:var(--sp3) var(--sp4);border-radius:var(--r2);background:var(--fill);text-align:left;font:var(--f-small);color:var(--fg2)}
 .wc .terms>p{margin:0 0 var(--sp2)}
@@ -56,5 +67,5 @@
 .finish{display:block;margin:0 auto var(--sp2);padding:0 var(--sp2);height:var(--ctl-h);border-radius:var(--r1);font:var(--f-small);color:var(--fg3)}
 .finish:hover{background:var(--hover);color:var(--fg)}
 @container (max-width:520px){
-  .wc-o{grid-template-columns:1fr}
+  .wc-o,.wc-o[data-n="3"]{grid-template-columns:1fr}
 }

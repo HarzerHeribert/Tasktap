@@ -61,7 +61,7 @@ async function main() {
     await settle(page, 400);
     s = await state(page);
     expect(s.title === 'Let Tasktap find the project for each task', `step 3: "${s.title}"`);
-    expect(await page.locator('.wc-o > section').count() === 2 && await page.locator('#wc-go').textContent() === 'Sign in with ChatGPT', 'step 3 has two cards, ChatGPT and Your agents, and "Sign in with ChatGPT" is the primary action');
+    expect(await page.locator('.wc-o > .wc-card').count() === 2 && await page.locator('#wc-go .key').textContent() === 'Sign in with ChatGPT', 'step 3 has two cards, ChatGPT and Your agents, and "Sign in with ChatGPT" is the primary action');
     expect(await page.locator('.wc .sends').count() === 0, 'what is sent is not on the surface before it is asked for');
     await shot(page, '3-placing');
     await page.getByRole('button', { name: 'What is sent' }).click();
@@ -125,6 +125,53 @@ async function main() {
     s = await state(page);
     expect(s.title === 'No projects found in your home folder' && await page.locator('#wc-go').textContent() === 'Search in a folder…', `nothing found: "${s.title}" with "Search in a folder…" as the primary action`);
     await shot(page, '1-projects-none');
+    await page.context().close();
+
+    // ——— Step 3 with a server answering on this machine: a third card, and the same three fields in place ———
+    const OLLAMA = 'http://127.0.0.1:11434/v1';
+    page = await open(browser, { label: 'workspace', records: { ...speech(projects('first-agents')), servers: { [OLLAMA]: ['llama3.1:8b', 'qwen2.5-coder:7b', 'gemma3:4b'] } }, url: server.url, dpr: 2 });
+    await ready(page);
+    await settle(page, 1500);
+    await page.locator('#wc-go').click();
+    await settle(page, 400);
+    await page.locator('#wc-go').click();
+    await settle(page, 700);
+    const cards = await page.locator('.wc-o > .wc-card .wc-t').allTextContents();
+    expect(/^ChatGPT\|Your agents\|On this (Mac|PC)$/.test(cards.join('|')) && await page.locator('.wc-o > .wc-card', { hasText: 'Use Ollama' }).count() === 1, `with a server found on this machine step 3 has a third card with "Use Ollama": ${cards.join(', ')}`);
+    const wide = await page.evaluate(() => { const o = document.querySelector('.wc-o'), i = document.querySelector('.wc-i'); return o.scrollWidth <= o.clientWidth + 1 && o.getBoundingClientRect().right <= i.getBoundingClientRect().right; });
+    expect(wide, 'the three cards fit the panel');
+    const built = await page.evaluate(() => [...document.querySelectorAll('.wc-o > .wc-card')].map((c) => { const r = (e) => e.getBoundingClientRect(), b = c.lastElementChild, t = c.querySelector(':scope > .wc-t'), m = c.querySelector('.wc-c2 svg'), k = [...c.children].map((e) => e.tagName + '.' + e.className.split(' ')[0]).join(' '); return { tag: c.tagName, top: Math.round(r(t).top), button: Math.round(r(b).bottom), height: Math.round(r(b).height), card: Math.round(r(c).bottom), mark: Math.round(r(m).width), kids: k }; }));
+    expect(built.every((c) => c.tag === 'BUTTON' && c.top === built[0].top && c.button === built[0].button && c.height === built[0].height && c.card === built[0].card && /^SPAN\.wc-t SPAN\.wc-c2 SPAN\.(key|btn)$/.test(c.kids)), `the cards are built alike, each one button: title, mark, the action at the foot, on the same lines: ${JSON.stringify(built)}`);
+    expect(built.every((c) => c.mark >= 32) && built[0].mark === 40, `the marks are large enough to read at a glance (${built.map((c) => c.mark)} px, ChatGPT's 40)`);
+    expect(await page.locator('#wc-go').count() === 1 && await page.locator('.wc-o #wc-go').count() === 1 && await page.locator('.wc-a').locator('button').count() === 0, 'ChatGPT\'s card holds the primary key, and none stands under the cards');
+    // The whole card is the target: its rim lights under the pointer and with the keyboard, and a click anywhere takes its action.
+    const rim = (n) => page.evaluate((i) => { const c = document.querySelectorAll('.wc-o > .wc-card')[i]; return [getComputedStyle(c, '::after').opacity, getComputedStyle(c).backgroundColor, getComputedStyle(c).cursor]; }, n);
+    await page.mouse.move(2, 2);
+    await settle(page, 400);
+    const rest = await rim(1);
+    await shot(page, '5-welcome-step-3');
+    await page.locator('.wc-o > .wc-card').nth(1).hover({ position: { x: 20, y: 20 } });
+    await settle(page, 600);
+    const under = await rim(1);
+    expect(rest[0] === '0' && under[0] !== '0' && under[1] !== rest[1] && under[2] === 'pointer', `a card lights under the pointer, where it is touched anywhere: rim ${rest[0]} to ${under[0]}, ${rest[1]} to ${under[1]}, ${under[2]}`);
+    await shot(page, '5-welcome-step-3-pointer');
+    await page.mouse.move(2, 2);
+    await page.locator('.wc-o > .wc-card').nth(1).focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await settle(page, 600);
+    expect((await rim(1))[0] !== '0', 'and with the keyboard');
+    await page.mouse.move(2, 2);
+    await shot(page, '3-placing-third-card');
+    await page.locator('.wc-o > .wc-card', { hasText: 'Use Ollama' }).click();
+    await settle(page, 700);
+    const open3 = await page.evaluate(() => ({ address: document.querySelector('#own-address')?.value, model: document.querySelector('#own-model')?.tagName, key: document.querySelector('#own-key')?.type, labels: [...document.querySelectorAll('.wc .own label')].map((l) => l.textContent).join() }));
+    expect(open3.address === OLLAMA && open3.model === 'SELECT' && open3.key === 'password' && open3.labels === 'Address,Model,Key', `"Use Ollama" opens the three fields in place with the address filled: ${JSON.stringify(open3)}`);
+    await shot(page, '3-placing-use-ollama');
+    await page.locator('.wc .own .btn', { hasText: 'Use' }).first().click();
+    await settle(page, 700);
+    s = await state(page);
+    expect(s.title === 'Talk instead of typing' && await page.evaluate(() => window.__fake.records.prefs.find((p) => p.id === 'own_model')?.value.address) === OLLAMA, `Use sets it up and goes on: "${s.title}"`);
     await page.context().close();
 
     // ——— Speech downloading, as data ———

@@ -465,9 +465,9 @@ fn route(
     let found = read(core, |tx| {
         let thought = tx.thought(id)?;
         let asked = (thought.map(|t| request(tx, &t.text, current))).transpose()?;
-        Ok(asked.zip(Some(crate::chatgpt::model(tx)?)))
+        Ok(asked.zip(Some(crate::route::Direct::read(tx)?)))
     });
-    let Ok(Some((mut asked, chatgpt))) = found else {
+    let Ok(Some((mut asked, direct))) = found else {
         return;
     };
     (asked.picked, asked.view) = (picked, view);
@@ -493,7 +493,7 @@ fn route(
     let nothing = picked.is_none() && asked.projects.is_empty();
     // An agreement with every agent switched off is none, and says nothing.
     let by = by.filter(|by| !sure && !nothing && by.agents.iter().any(|p| p.on));
-    let tools = by.map(|by| agreed(&by, chatgpt.as_deref()));
+    let tools = by.map(|by| agreed(&by, &direct));
     // No model can be asked (none agreed to, or each one's tool no longer
     // offers its model): the match on names, as before there were any.
     let lost = matches!(&tools, Some(Ok(tools)) if tools.iter().all(|t| core.seams.gone(t.id())));
@@ -566,6 +566,7 @@ fn route(
         why: Vec::new(),
         tried: false,
         lost: false,
+        spent: Duration::ZERO,
     };
     // The tops of the projects' folders, off the core's thread and in a
     // bounded time; then the chain.
@@ -622,6 +623,9 @@ struct Chain {
     tried: bool,
     /// A tool was found to no longer offer its model ([`Routing::lost`]).
     lost: bool,
+    /// How long the own model was waited for: it has a time of its own, which takes
+    /// nothing from the others' budget.
+    spent: Duration,
 }
 
 /// The least time worth asking an agent in: less than it usually takes to
@@ -634,7 +638,9 @@ const LEAST: Duration = Duration::from_secs(1);
 /// person's plan or key has reached its limit until later, one known to be
 /// missing or signed out, and one there is no longer time for. When none is
 /// left, the match on names places the thought, or asks about it, with why.
-/// ChatGPT is asked as an agent is, with one direct call and no tool.
+/// ChatGPT and the own model are asked as an agent is, with one direct call
+/// and no tool; the own model has the time of its own ([`crate::own::FIRST`],
+/// [`crate::own::LATER`]), whatever is left of the budget.
 fn ask_next(core: &mut Core, mut chain: Chain) {
     use crate::route::{Asker, BUDGET, accept, question, typical};
     let now = core.seams.now();
@@ -643,7 +649,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             break None;
         };
         let name = asker.id();
-        let left = BUDGET.saturating_sub(chain.began.elapsed());
+        let left = BUDGET.saturating_sub(chain.began.elapsed().saturating_sub(chain.spent));
         let usual = Duration::from_millis(typical(name).map_or(0, u64::from)).max(LEAST);
         let why = match asker {
             _ if left < usual && name == crate::chatgpt::ID => {
@@ -651,6 +657,13 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             }
             Asker::ChatGpt(model) => {
                 break Some((Asker::ChatGpt(model), crate::chatgpt::LIMIT.min(left)));
+            }
+            Asker::Own(own) if core.own.left_out(&own.address) => {
+                format!("{name}: it did not answer a moment ago and is left out for now")
+            }
+            Asker::Own(own) => {
+                let limit = core.own.limit(&own.address);
+                break Some((Asker::Own(own), limit));
             }
             Asker::Agent(agent, how) => {
                 let health = core.detected(name);
@@ -701,6 +714,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
     let number = core.seams.asked;
     core.seams.routes.insert(chain.id, (number, hear.clone()));
     chain.tried = true;
+    let started = Instant::now();
     let ask: Box<dyn FnOnce() -> Result<String, Failed> + Send> = match &asker {
         &Asker::Agent(agent, how) => {
             let (how, text) = (agents::Headless { limit, ..how }, question(&chain.asked));
@@ -718,14 +732,24 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                 // Undo stops the call as it stops a tool.
                 let (stop, wait) = mpsc::channel();
                 let forward = stop.clone();
-                std::thread::spawn(move || {
-                    if let Ok(Asked::Stop) = heard.recv() {
-                        let _ = forward.send(crate::command::Signal::Stop);
-                    }
+                undone(heard, move || {
+                    let _ = forward.send(crate::command::Signal::Stop);
                 });
                 drop(hear);
                 asking.ask(&model, &text, limit, renewed, (stop, wait))
             })
+        }
+        Asker::Own(own) => {
+            let (asking, own, text) = (
+                core.own.clone(),
+                own.clone(),
+                crate::route::asked(&chain.asked),
+            );
+            let stop = crate::own::Stop::default();
+            let again = stop.clone();
+            undone(heard, move || again.now());
+            drop(hear);
+            Box::new(move || asking.ask(&own, &text, limit, &stop))
         }
     };
     crate::calls::aside(core, ask, move |core, answer| {
@@ -735,6 +759,9 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             return;
         }
         core.seams.routes.remove(&id);
+        if matches!(asker, Asker::Own(_)) {
+            chain.spent += started.elapsed();
+        }
         // The last question may have kept the core alive.
         core.events.notify_one();
         let ms = Some(u32::try_from(chain.began.elapsed().as_millis()).unwrap_or(u32::MAX));
@@ -795,13 +822,22 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                 }
                 format!("{name}: {words}")
             }
-            (Err(Failed::Gone | Failed::Limit(..)), Asker::ChatGpt(_)) => {
+            (Err(Failed::Gone | Failed::Limit(..)), Asker::ChatGpt(_) | Asker::Own(_)) => {
                 format!("{name}: it gave no answer")
             }
             (Err(Failed::Why(why)), _) => format!("{name}: {why}"),
         };
         chain.why.push(why);
         ask_next(core, chain);
+    });
+}
+
+/// `then` once Undo stops the thought's placing, off the core's thread.
+fn undone(heard: mpsc::Receiver<Asked>, then: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || {
+        if let Ok(Asked::Stop) = heard.recv() {
+            then();
+        }
     });
 }
 

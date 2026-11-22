@@ -91,6 +91,9 @@ table! {
     AgentsDetect "agents.detect" Device (DetectAgents) -> Agents;
     ChatgptSignIn "chatgpt.sign_in" Device (Empty) -> String;
     ChatgptSignOut "chatgpt.sign_out" Device (Empty) -> ();
+    OwnModelSet "own_model.set" Device (crate::args::SetOwnModel) -> ();
+    OwnModelRemove "own_model.remove" Device (Empty) -> ();
+    OwnModelList "own_model.list" Device (crate::args::ListModels) -> crate::args::Models;
     // Terminals
     TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;
     TerminalResize "terminal.resize" Device (ResizeTerminal) -> ();

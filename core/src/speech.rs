@@ -515,9 +515,23 @@ fn service(core: &mut Core) -> Result<Option<Service>, Error> {
     }))
 }
 
-/// Whether a server's address is one the core calls, and whether a key
-/// may go to it: over `https`, or to this machine.
-fn server(server: &str) -> Result<bool, String> {
+/// Where an address leads: over `https`, to this machine, or to a private
+/// network (an address of its own, not a name).
+pub struct Reach {
+    pub secure: bool,
+    pub here: bool,
+    pub near: bool,
+}
+
+impl Reach {
+    /// A key may go there: over `https`, or to this machine.
+    pub fn keeps(&self) -> bool {
+        self.secure || self.here
+    }
+}
+
+/// Whether a server's address is one the core calls, and where it leads.
+pub fn server(server: &str) -> Result<Reach, String> {
     let (secure, rest) = match (
         server.strip_prefix("https://"),
         server.strip_prefix("http://"),
@@ -542,7 +556,27 @@ fn server(server: &str) -> Result<bool, String> {
     if server.ends_with('/') {
         return Err("a server's address does not end with /".into());
     }
-    Ok(secure || ["localhost", "127.0.0.1", "::1"].contains(&name))
+    // No curl pattern ({a,b}, [1-9]) in it: only an IPv6 address has brackets.
+    let mut outside = server.to_owned();
+    if host.starts_with('[') {
+        if name.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err("a server's address has brackets only around an IPv6 address".into());
+        }
+        outside = outside.replacen('[', "", 1).replacen(']', "", 1);
+    }
+    if outside.contains(|c| "{},[]".contains(c)) {
+        return Err("a server's address has no braces, brackets or commas".into());
+    }
+    let ip = name.parse::<std::net::IpAddr>().ok();
+    let near = |ip: &std::net::IpAddr| match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+        std::net::IpAddr::V6(v6) => v6.is_unique_local() || v6.is_unicast_link_local(),
+    };
+    Ok(Reach {
+        secure,
+        here: name == "localhost" || ip.is_some_and(|ip| ip.is_loopback()),
+        near: ip.as_ref().is_some_and(near),
+    })
 }
 
 /// Whether a consent names a server and a model the core can ask: what
@@ -784,7 +818,7 @@ fn read(
 
 /// Adds a server to the `keys` preference, or takes it out: the one thing
 /// a client sees of a key.
-fn listed(core: &mut Core, server: &str, has: bool) -> Result<(), Error> {
+pub fn listed(core: &mut Core, server: &str, has: bool) -> Result<(), Error> {
     effects::write(core, |tx| {
         let stored = tx.pref(PrefKey::Keys).map_err(effects::stored)?;
         let mut keys = match stored.map(|pref| pref.value) {
@@ -837,11 +871,11 @@ pub fn set_key(cx: &mut Cx, args: SetKey) -> Option<Control> {
     };
     match server(&name) {
         Err(why) => return invalid(why),
-        Ok(false) => {
+        Ok(reach) if !reach.keeps() => {
             let why = "a key is only stored for an https server or one on this machine";
             return invalid(why.into());
         }
-        Ok(true) => {}
+        Ok(_) => {}
     }
     if !secrets::plain(&key) {
         let why = "a key is 1 to 512 printable characters, none a space, a quote or a backslash";
@@ -866,6 +900,13 @@ pub fn remove_key(cx: &mut Cx, args: Server) -> Option<Control> {
             cx.id,
             Err(Error::new(Code::Invalid, why)),
         ));
+    }
+    // The key stays while the own model is at that address.
+    let own = effects::read(cx.core, |tx| Ok(crate::own::keepers(tx, &name)?.own));
+    if own.unwrap_or(false) {
+        let why = "your own model uses the key at that address: remove the own model first";
+        let invalid = Error::new(Code::Invalid, why);
+        return Some(call::KeyRemove::reply(cx.id, Err(invalid)));
     }
     let server = name.clone();
     keyed::<call::KeyRemove>(cx, server, false, move |vault| vault.remove(&name))

@@ -62,7 +62,7 @@ type Frame =                                   // kind 0: one JSON object
 
 Calls without a mark are built in Phase 1; (2) and (3) name the phase that added the rest; "not built" marks those no phase has added yet. The protocol crate holds only what exists: the 45 built (`core/proto/src/call.rs`, whose test holds this table to them).
 
-| Area | Core calls (54: 48 built, 6 not built) |
+| Area | Core calls (57: 51 built, 6 not built) |
 | --- | --- |
 | Records | `sub`, `put`, `delete`, `history` |
 | Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3), `thought.changes` (3) |
@@ -72,7 +72,7 @@ Calls without a mark are built in Phase 1; (2) and (3) name the phase that added
 | Projects | `project.add`, `project.scan`, `project.close` (2); `look.add`, `projects.offer`, `projects.look`, `projects.find` (what Tasktap knows of the person's projects, docs/projects-design.md) |
 | Files | `preview.open` (4: a file or a web address of this machine beside a terminal, §9 "Previews"), `file.read` (4: a file's bytes as a stream, §9 "Previews"), `result.export` (not built) |
 | Input and voice | `input` (affirm and deny now; hold in 3), `dictation.start` (3), `dictation.report` (3), `dictation.finish` (3), `dictation.cancel` (3), `speech.terms` (3: what a speech service is sent, §8) |
-| Routing and agents | `route.hint` (2), `route.terms` (3: what routing by a model sends and to whom, §8), `key.set` (3), `key.remove` (3: a server's key, §8), `connection.login` (not built), `connection.models` (not built), `agents.detect` (2), `agents.login` (not built), `chatgpt.sign_in` (3), `chatgpt.sign_out` (3: the sign-in with ChatGPT, §8) |
+| Routing and agents | `route.hint` (2), `route.terms` (3: what routing by a model sends and to whom, §8), `key.set` (3), `key.remove` (3: a server's key, §8), `connection.login` (not built), `connection.models` (not built), `agents.detect` (2), `agents.login` (not built), `chatgpt.sign_in` (3), `chatgpt.sign_out` (3: the sign-in with ChatGPT, §8), `own_model.set` (3), `own_model.remove` (3), `own_model.list` (3: the model at an address the person names, §8) |
 | Devices and service | `device.revoke`, `core.status`, `core.retire`, `appearance.import` (not built) |
 
 **Host abilities (19, Phase 4):** `host.show`, `host.notch`, `host.chrome`, `host.drag`, `host.pick`, `host.save`, `host.open`, `host.clipboard`, `host.permission`, `host.settings`, `host.update`, `host.notify`, `host.context`, `host.model`, `host.dictate`, `host.speak`, `host.speech_model`, `host.pdf`, `host.capture_key` (the capture key, §12), and since 2026-11-20 `host.answer_key` (the keys that answer a question, §12) and `host.login` (opening at login, §12). A host lists the ones it has in `hello`. **Page ability (1):** `ui.do {action, id?}`: 14 menu actions, `close-front`, `navigate`, `hover-enter`, `hover-exit`, `previous`, `next`, `confirm`, `back`, `prepare-update`. **Shim ability (1):** `shim.hold` (§7).

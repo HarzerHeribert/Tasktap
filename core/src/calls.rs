@@ -100,6 +100,11 @@ fn handler(name: Name) -> Option<Handler> {
         Name::ChatgptSignOut => {
             |cx, args| later::<call::ChatgptSignOut>(cx, args, crate::chatgpt::sign_out)
         }
+        Name::OwnModelSet => |cx, args| later::<call::OwnModelSet>(cx, args, crate::own::save),
+        Name::OwnModelRemove => {
+            |cx, args| later::<call::OwnModelRemove>(cx, args, crate::own::remove)
+        }
+        Name::OwnModelList => |cx, args| later::<call::OwnModelList>(cx, args, crate::own::list),
         // The core makes this call; it never answers it.
         Name::ShimHold | Name::HostNotify => return None,
         Name::QuestionAsk => questions::ask,

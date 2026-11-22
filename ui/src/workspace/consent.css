@@ -13,7 +13,7 @@
 /* The agents that place thoughts, in the order they are asked: a row each, its place among those on at the left, its
    switch at the right. One switched off is quieter and has no place; the one picked up by the pointer is lifted. */
 .ranks{display:grid;margin-top:12px;border-top:1px solid var(--line)}
-.line.rank{grid-template-columns:16px 28px 100px 150px minmax(0,1fr) auto;width:100%;padding:0 14px 0 10px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
+.line.rank{grid-template-columns:16px 28px 112px 150px minmax(0,1fr) auto;width:100%;padding:0 14px 0 10px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
 .line.rank:hover{background:var(--hover)}
 .line.rank .n{font:var(--f-num);color:var(--fg2);text-align:center}
 .line.rank .x{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -23,6 +23,12 @@
 .line.rank.off :is(.t,.amark,.x){opacity:.55}
 .line.rank.sign{cursor:default}
 .line.rank.held{cursor:grabbing;background:var(--sel);box-shadow:0 1px 0 var(--line2),0 -1px 0 var(--line2)}
+.line.rank .t.wide{grid-column:span 2}
+.line.rank .x:has(.btn){overflow:visible}
+.own{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:8px 12px;padding:10px 14px 10px 10px;border-bottom:1px solid var(--line)}
+.own label{font:var(--f-small);color:var(--fg3)}
+.own :is(input,select){width:100%;min-width:0;height:var(--ctl-h);padding:0 var(--sp2);border-radius:var(--r1);background:var(--fill);font:var(--f-small);color:var(--fg)}
+.own>p,.own>.rank-f{grid-column:1/-1;margin:0}
 .rank-f{display:flex;align-items:center;gap:12px;margin:10px 18px 0}
 .rank-f .hint{margin:0;font:var(--f-small);color:var(--fg3)}
 .terms>p.hint{margin-top:8px;font:var(--f-small);color:var(--fg2)}

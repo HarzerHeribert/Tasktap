@@ -20,7 +20,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"agent_commands":[],"agent_options":[],"capture_key":null,"chatgpt":null,"hold":5,"keep_days":0,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","no_key":null,"own_agents":[],"question_key":null,"return_sends":true,"route_by":null,"setup_hidden":false,"speech_by":null,"speech_languages":[],"talk_key":null,"terminal_bold_bright":true,"terminal_contrast":true,"terminal_font":"","terminal_line_height":100,"terminal_size":14,"text_size":"default","update_checks":true,"yes_key":null};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"agent_commands":[],"agent_options":[],"capture_key":null,"chatgpt":null,"hold":5,"keep_days":0,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","no_key":null,"own_agents":[],"own_model":null,"question_key":null,"return_sends":true,"route_by":null,"setup_hidden":false,"speech_by":null,"speech_languages":[],"talk_key":null,"terminal_bold_bright":true,"terminal_contrast":true,"terminal_font":"","terminal_line_height":100,"terminal_size":14,"text_size":"default","update_checks":true,"yes_key":null};
 /** The keys of Tasktap's own window (core/proto/src/keys.rs): each command's key as the Mac has it, what it does after "for", whether the menu has it, and its key and words on each system. */
 export const APP_KEYS: ({ id: string; key: string; name: string; menu: boolean } & { mac: Shortcut; windows: Shortcut; says: { mac: string; windows: string } })[] = [{"id":"new-task","key":"⌘N","mac":{"alt":false,"code":"KeyN","control":false,"meta":true,"shift":false},"menu":true,"name":"New task","says":{"mac":"⌘N","windows":"Ctrl+Shift+N"},"windows":{"alt":false,"code":"KeyN","control":true,"meta":false,"shift":true}},{"id":"new-terminal","key":"⌘T","mac":{"alt":false,"code":"KeyT","control":false,"meta":true,"shift":false},"menu":true,"name":"New terminal","says":{"mac":"⌘T","windows":"Ctrl+Shift+T"},"windows":{"alt":false,"code":"KeyT","control":true,"meta":false,"shift":true}},{"id":"open-workspace","key":"⌘O","mac":{"alt":false,"code":"KeyO","control":false,"meta":true,"shift":false},"menu":true,"name":"Open workspace","says":{"mac":"⌘O","windows":"Ctrl+Shift+O"},"windows":{"alt":false,"code":"KeyO","control":true,"meta":false,"shift":true}},{"id":"close-tab","key":"⌘W","mac":{"alt":false,"code":"KeyW","control":false,"meta":true,"shift":false},"menu":true,"name":"Close tab","says":{"mac":"⌘W","windows":"Ctrl+Shift+W"},"windows":{"alt":false,"code":"KeyW","control":true,"meta":false,"shift":true}},{"id":"find","key":"⌘F","mac":{"alt":false,"code":"KeyF","control":false,"meta":true,"shift":false},"menu":true,"name":"Find in terminal","says":{"mac":"⌘F","windows":"Ctrl+Shift+F"},"windows":{"alt":false,"code":"KeyF","control":true,"meta":false,"shift":true}},{"id":"sidebar","key":"⌃⌘S","mac":{"alt":false,"code":"KeyS","control":true,"meta":true,"shift":false},"menu":true,"name":"Toggle sidebar","says":{"mac":"⌃⌘S","windows":"Ctrl+Shift+S"},"windows":{"alt":false,"code":"KeyS","control":true,"meta":false,"shift":true}},{"id":"split-right","key":"⌘D","mac":{"alt":false,"code":"KeyD","control":false,"meta":true,"shift":false},"menu":true,"name":"Split right","says":{"mac":"⌘D","windows":"Ctrl+Shift+D"},"windows":{"alt":false,"code":"KeyD","control":true,"meta":false,"shift":true}},{"id":"split-down","key":"⇧⌘D","mac":{"alt":false,"code":"KeyD","control":false,"meta":true,"shift":true},"menu":true,"name":"Split down","says":{"mac":"⇧⌘D","windows":"Ctrl+Shift+E"},"windows":{"alt":false,"code":"KeyE","control":true,"meta":false,"shift":true}},{"id":"preview","key":"⌘P","mac":{"alt":false,"code":"KeyP","control":false,"meta":true,"shift":false},"menu":true,"name":"Switch terminal and preview","says":{"mac":"⌘P","windows":"Ctrl+Shift+P"},"windows":{"alt":false,"code":"KeyP","control":true,"meta":false,"shift":true}},{"id":"reload-preview","key":"⌘R","mac":{"alt":false,"code":"KeyR","control":false,"meta":true,"shift":false},"menu":true,"name":"Reload preview","says":{"mac":"⌘R","windows":"Ctrl+Shift+R"},"windows":{"alt":false,"code":"KeyR","control":true,"meta":false,"shift":true}},{"id":"bigger","key":"⌘=","mac":{"alt":false,"code":"Equal","control":false,"meta":true,"shift":false},"menu":true,"name":"Increase text size","says":{"mac":"⌘=","windows":"Ctrl+="},"windows":{"alt":false,"code":"Equal","control":true,"meta":false,"shift":false}},{"id":"smaller","key":"⌘-","mac":{"alt":false,"code":"Minus","control":false,"meta":true,"shift":false},"menu":true,"name":"Decrease text size","says":{"mac":"⌘-","windows":"Ctrl+-"},"windows":{"alt":false,"code":"Minus","control":true,"meta":false,"shift":false}},{"id":"reset","key":"⌘0","mac":{"alt":false,"code":"Digit0","control":false,"meta":true,"shift":false},"menu":true,"name":"Reset text size","says":{"mac":"⌘0","windows":"Ctrl+0"},"windows":{"alt":false,"code":"Digit0","control":true,"meta":false,"shift":false}},{"id":"settings","key":"⌘,","mac":{"alt":false,"code":"Comma","control":false,"meta":true,"shift":false},"menu":true,"name":"Settings","says":{"mac":"⌘,","windows":"Ctrl+,"},"windows":{"alt":false,"code":"Comma","control":true,"meta":false,"shift":false}},{"id":"back","key":"⌘[","mac":{"alt":false,"code":"BracketLeft","control":false,"meta":true,"shift":false},"menu":true,"name":"Back","says":{"mac":"⌘[","windows":"Alt+←"},"windows":{"alt":true,"code":"ArrowLeft","control":false,"meta":false,"shift":false}},{"id":"session","key":"⌘I","mac":{"alt":false,"code":"KeyI","control":false,"meta":true,"shift":false},"menu":true,"name":"Details","says":{"mac":"⌘I","windows":"Ctrl+Shift+I"},"windows":{"alt":false,"code":"KeyI","control":true,"meta":false,"shift":true}},{"id":"section-thoughts","key":"⌘1","mac":{"alt":false,"code":"Digit1","control":false,"meta":true,"shift":false},"menu":false,"name":"Tasks in Settings","says":{"mac":"⌘1","windows":"Ctrl+1"},"windows":{"alt":false,"code":"Digit1","control":true,"meta":false,"shift":false}},{"id":"section-agents","key":"⌘2","mac":{"alt":false,"code":"Digit2","control":false,"meta":true,"shift":false},"menu":false,"name":"Agents in Settings","says":{"mac":"⌘2","windows":"Ctrl+2"},"windows":{"alt":false,"code":"Digit2","control":true,"meta":false,"shift":false}},{"id":"section-projects","key":"⌘3","mac":{"alt":false,"code":"Digit3","control":false,"meta":true,"shift":false},"menu":false,"name":"Projects in Settings","says":{"mac":"⌘3","windows":"Ctrl+3"},"windows":{"alt":false,"code":"Digit3","control":true,"meta":false,"shift":false}},{"id":"section-voice","key":"⌘4","mac":{"alt":false,"code":"Digit4","control":false,"meta":true,"shift":false},"menu":false,"name":"Voice in Settings","says":{"mac":"⌘4","windows":"Ctrl+4"},"windows":{"alt":false,"code":"Digit4","control":true,"meta":false,"shift":false}},{"id":"section-appearance","key":"⌘5","mac":{"alt":false,"code":"Digit5","control":false,"meta":true,"shift":false},"menu":false,"name":"Appearance in Settings","says":{"mac":"⌘5","windows":"Ctrl+5"},"windows":{"alt":false,"code":"Digit5","control":true,"meta":false,"shift":false}},{"id":"section-terminal","key":"⌘6","mac":{"alt":false,"code":"Digit6","control":false,"meta":true,"shift":false},"menu":false,"name":"Terminal in Settings","says":{"mac":"⌘6","windows":"Ctrl+6"},"windows":{"alt":false,"code":"Digit6","control":true,"meta":false,"shift":false}},{"id":"section-about","key":"⌘7","mac":{"alt":false,"code":"Digit7","control":false,"meta":true,"shift":false},"menu":false,"name":"About in Settings","says":{"mac":"⌘7","windows":"Ctrl+7"},"windows":{"alt":false,"code":"Digit7","control":true,"meta":false,"shift":false}},{"id":"agents","key":"⌘J","mac":{"alt":false,"code":"KeyJ","control":false,"meta":true,"shift":false},"menu":false,"name":"the list of agents","says":{"mac":"⌘J","windows":"Ctrl+Shift+J"},"windows":{"alt":false,"code":"KeyJ","control":true,"meta":false,"shift":true}},{"id":"places","key":"⌘K","mac":{"alt":false,"code":"KeyK","control":false,"meta":true,"shift":false},"menu":false,"name":"the list of places","says":{"mac":"⌘K","windows":"Ctrl+Shift+K"},"windows":{"alt":false,"code":"KeyK","control":true,"meta":false,"shift":true}},{"id":"undo","key":"⌘Z","mac":{"alt":false,"code":"KeyZ","control":false,"meta":true,"shift":false},"menu":false,"name":"Undo","says":{"mac":"⌘Z","windows":"Ctrl+Z"},"windows":{"alt":false,"code":"KeyZ","control":true,"meta":false,"shift":false}},{"id":"copy","key":"⌘C","mac":{"alt":false,"code":"KeyC","control":false,"meta":true,"shift":false},"menu":false,"name":"Copy","says":{"mac":"⌘C","windows":"Ctrl+Shift+C"},"windows":{"alt":false,"code":"KeyC","control":true,"meta":false,"shift":true}},{"id":"paste","key":"⌘V","mac":{"alt":false,"code":"KeyV","control":false,"meta":true,"shift":false},"menu":false,"name":"Paste","says":{"mac":"⌘V","windows":"Ctrl+Shift+V"},"windows":{"alt":false,"code":"KeyV","control":true,"meta":false,"shift":true}},{"id":"stop","key":"⌘⌫","mac":{"alt":false,"code":"Backspace","control":false,"meta":true,"shift":false},"menu":false,"name":"Stop where a sheet asks","says":{"mac":"⌘⌫","windows":"Ctrl+Backspace"},"windows":{"alt":false,"code":"Backspace","control":true,"meta":false,"shift":false}},{"id":"end","key":"⌘↓","mac":{"alt":false,"code":"ArrowDown","control":false,"meta":true,"shift":false},"menu":false,"name":"the end of a terminal","says":{"mac":"⌘↓","windows":"Ctrl+End"},"windows":{"alt":false,"code":"End","control":true,"meta":false,"shift":false}}];
 /** The keys a text field keeps, which the key held to talk may not be. */
@@ -979,6 +979,12 @@ export type LayoutPatch = { tree: unknown, };
 export type Limit = number;
 
 /**
+ * `own_model.list`: the models the server at `address` lists, asked with
+ * `key` where one is given, else with the one stored for that address.
+ */
+export type ListModels = { address: string, key?: string | null, };
+
+/**
  * The reply to `dictation.start`.
  */
 export type Listening = {
@@ -1090,6 +1096,11 @@ from?: Offset | null,
 exit?: number | null, };
 
 export type Mode = "ask" | "nudge" | "note";
+
+/**
+ * The names of the models a server lists, as it names them.
+ */
+export type Models = { models: Array<string>, };
 
 export type MotionAmbient = "off" | "still" | "breathing";
 
@@ -1236,6 +1247,22 @@ command: string,
 removed?: boolean, };
 
 /**
+ * The model placing asks at an address of the person's choosing, in the
+ * form OpenAI's chat completions have (Ollama, LM Studio, llama.cpp, vLLM
+ * and most hosted services speak it).
+ */
+export type OwnModel = {
+/**
+ * The server's address up to its `/chat/completions` and `/models`,
+ * for example `http://127.0.0.1:11434/v1`.
+ */
+address: string,
+/**
+ * The model's name as that server lists it.
+ */
+model: string, };
+
+/**
  * What placing a thought with an agent costs the person (design §8):
  * nothing more than they pay already, as a subscription's small model
  * is included in it (`plan`), or what their provider bills for each
@@ -1304,9 +1331,9 @@ on: boolean, };
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> } | { "id": "return_sends", "value": boolean } | { "id": "capture_key", "value": Shortcut | null } | { "id": "talk_key", "value": Shortcut | null } | { "id": "question_key", "value": Shortcut | null } | { "id": "yes_key", "value": Shortcut | null } | { "id": "no_key", "value": Shortcut | null } | { "id": "keep_days", "value": number } | { "id": "terminal_bold_bright", "value": boolean } | { "id": "terminal_contrast", "value": boolean } | { "id": "text_size", "value": TextSize } | { "id": "agent_options", "value": Array<string> } | { "id": "own_agents", "value": Array<OwnAgent> } | { "id": "agent_commands", "value": Array<AgentCommand> } | { "id": "setup_hidden", "value": boolean } | { "id": "update_checks", "value": boolean } | { "id": "chatgpt", "value": ChatGpt | null });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> } | { "id": "return_sends", "value": boolean } | { "id": "capture_key", "value": Shortcut | null } | { "id": "talk_key", "value": Shortcut | null } | { "id": "question_key", "value": Shortcut | null } | { "id": "yes_key", "value": Shortcut | null } | { "id": "no_key", "value": Shortcut | null } | { "id": "keep_days", "value": number } | { "id": "terminal_bold_bright", "value": boolean } | { "id": "terminal_contrast", "value": boolean } | { "id": "text_size", "value": TextSize } | { "id": "agent_options", "value": Array<string> } | { "id": "own_agents", "value": Array<OwnAgent> } | { "id": "agent_commands", "value": Array<AgentCommand> } | { "id": "setup_hidden", "value": boolean } | { "id": "update_checks", "value": boolean } | { "id": "chatgpt", "value": ChatGpt | null } | { "id": "own_model", "value": OwnModel | null });
 
-export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys" | "return_sends" | "capture_key" | "talk_key" | "keep_days" | "terminal_bold_bright" | "terminal_contrast" | "text_size" | "agent_options" | "own_agents" | "setup_hidden" | "update_checks" | "question_key" | "yes_key" | "no_key" | "agent_commands" | "chatgpt";
+export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys" | "return_sends" | "capture_key" | "talk_key" | "keep_days" | "terminal_bold_bright" | "terminal_contrast" | "text_size" | "agent_options" | "own_agents" | "setup_hidden" | "update_checks" | "question_key" | "yes_key" | "no_key" | "agent_commands" | "chatgpt" | "own_model";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
@@ -1740,6 +1767,14 @@ export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "proje
 export type SetKey = { server: string, key: string, };
 
 /**
+ * `own_model.set`: the model at `address` that places tasks, with the key
+ * it takes where it takes one. An empty `key` leaves the one stored for
+ * that address as it is; a new address has none until one is given. No call
+ * returns a key.
+ */
+export type SetOwnModel = { address: string, model: string, key?: string | null, };
+
+/**
  * `thought.settle`: keeps or discards the changes of a thought's worktree,
  * once its session has ended. The attempt makes a repeat answer from its record.
  */
@@ -2000,6 +2035,9 @@ export type Calls = {
   "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "chatgpt.sign_in": { args: Empty; result: string; access: "device" };
   "chatgpt.sign_out": { args: Empty; result: null; access: "device" };
+  "own_model.set": { args: SetOwnModel; result: null; access: "device" };
+  "own_model.remove": { args: Empty; result: null; access: "device" };
+  "own_model.list": { args: ListModels; result: Models; access: "device" };
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };
   "terminal.stop": { args: Ref<TerminalId>; result: null; access: "device" };

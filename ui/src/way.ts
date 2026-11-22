@@ -230,6 +230,14 @@ export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'wai
 export const chatgptOffer = (model: string) =>
   `Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;
 
+/** Whether an address is on this machine, as the core takes it (speech.rs `server`). */
+export const onThisMachine = (address: string) => /^https?:\/\/(localhost|127(\.\d{1,3}){3}|\[::1\])([:/]|$)/i.test(address);
+
+/** What "What is sent" says of the own model: to which address each task goes, and where that address is this machine,
+ *  that the task does not leave it (`here` names it: this Mac or this PC). */
+export const ownOffer = (address: string, here: string) =>
+  `Your own model gets each task at ${address}${onThisMachine(address) ? `, which is on ${here}: the task does not leave ${here}` : ''}.`;
+
 /** What Setup and Settings say while an agreement is to what was sent before (`placing`: `again`). */
 export const AGAIN = 'Placing now sends more. Agree again to keep placing on.';
 /** What an agent's row says of its asking: about how long it takes, or why it is passed over now: its plan at its usage limit

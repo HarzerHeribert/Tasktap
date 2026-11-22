@@ -519,7 +519,7 @@ fn a_consent_to_one_agent_reads_as_an_agreement_that_lists_it_alone() {
             terms: 2,
         })
     );
-    let refused = tasktap_core::route::agreed(&by.unwrap(), None)
+    let refused = tasktap_core::route::agreed(&by.unwrap(), &Default::default())
         .err()
         .unwrap();
     assert!(refused.contains("asks you again"), "{refused}");

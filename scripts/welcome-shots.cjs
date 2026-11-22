@@ -127,6 +127,31 @@ async function main() {
     await shot(page, '1-projects-none');
     await page.context().close();
 
+    // ——— Step 3 with a server answering on this machine: a third card, and the same three fields in place ———
+    const OLLAMA = 'http://127.0.0.1:11434/v1';
+    page = await open(browser, { label: 'workspace', records: { ...speech(projects('first-agents')), servers: { [OLLAMA]: ['llama3.1:8b', 'qwen2.5-coder:7b', 'gemma3:4b'] } }, url: server.url, dpr: 2 });
+    await ready(page);
+    await settle(page, 1500);
+    await page.locator('#wc-go').click();
+    await settle(page, 400);
+    await page.locator('#wc-go').click();
+    await settle(page, 700);
+    const cards = await page.locator('.wc-o > section h2').allTextContents();
+    expect(/^ChatGPT\|Your agents\|On this (Mac|PC)$/.test(cards.join('|')) && await page.locator('.wc-o > section .btn', { hasText: 'Use Ollama' }).count() === 1, `with a server found on this machine step 3 has a third card with "Use Ollama": ${cards.join(', ')}`);
+    const wide = await page.evaluate(() => { const o = document.querySelector('.wc-o'), i = document.querySelector('.wc-i'); return o.scrollWidth <= o.clientWidth + 1 && o.getBoundingClientRect().right <= i.getBoundingClientRect().right; });
+    expect(wide, 'the three cards fit the panel');
+    await shot(page, '3-placing-third-card');
+    await page.locator('.wc-o > section .btn', { hasText: 'Use Ollama' }).click();
+    await settle(page, 700);
+    const open3 = await page.evaluate(() => ({ address: document.querySelector('#own-address')?.value, model: document.querySelector('#own-model')?.tagName, key: document.querySelector('#own-key')?.type, labels: [...document.querySelectorAll('.wc .own label')].map((l) => l.textContent).join() }));
+    expect(open3.address === OLLAMA && open3.model === 'SELECT' && open3.key === 'password' && open3.labels === 'Address,Model,Key', `"Use Ollama" opens the three fields in place with the address filled: ${JSON.stringify(open3)}`);
+    await shot(page, '3-placing-use-ollama');
+    await page.locator('.wc .own .btn', { hasText: 'Use' }).first().click();
+    await settle(page, 700);
+    s = await state(page);
+    expect(s.title === 'Talk instead of typing' && await page.evaluate(() => window.__fake.records.prefs.find((p) => p.id === 'own_model')?.value.address) === OLLAMA, `Use sets it up and goes on: "${s.title}"`);
+    await page.context().close();
+
     // ——— Speech downloading, as data ———
     page = await open(browser, { label: 'workspace', records: speech(projects('first-agents'), 'fetching'), url: server.url, dpr: 2 });
     await ready(page);

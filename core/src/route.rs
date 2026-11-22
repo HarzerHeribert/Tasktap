@@ -2746,12 +2746,29 @@ pub fn askable(text: &str) -> Result<(), String> {
     }
 }
 
+/// What the placers that make one direct call are set up with: ChatGPT
+/// while signed in (the model its sign-in chose), and the own model.
+#[derive(Default)]
+pub struct Direct {
+    pub chatgpt: Option<String>,
+    pub own: Option<crate::own::Placing>,
+}
+
+impl Direct {
+    pub fn read(tx: &Tx) -> store::Result<Direct> {
+        Ok(Direct {
+            chatgpt: crate::chatgpt::model(tx)?,
+            own: crate::own::placing(tx)?,
+        })
+    }
+}
+
 /// Whether an agreement names what this core would ask: these terms, and
 /// each agent once, one this core has, whose tool it would ask for the
-/// model agreed to. ChatGPT, while signed in (`chatgpt`: the model the
-/// sign-in chose), for that model; while not, it is asked nothing, and its
-/// row stands as it is.
-pub fn valid(by: &RouteBy, chatgpt: Option<&str>) -> Result<(), String> {
+/// model agreed to. ChatGPT, while signed in (`direct`: the model the
+/// sign-in chose), and the own model, while set up, for that model; while
+/// not, they are asked nothing, and their rows stand as they are.
+pub fn valid(by: &RouteBy, direct: &Direct) -> Result<(), String> {
     if by.terms != TERMS {
         return Err(AGAIN.into());
     }
@@ -2759,19 +2776,26 @@ pub fn valid(by: &RouteBy, chatgpt: Option<&str>) -> Result<(), String> {
         if by.agents[..i].iter().any(|p| p.agent == placer.agent) {
             return Err(format!("{} is listed twice", placer.agent));
         }
-        // ChatGPT signed out keeps its row as it is.
-        if placer.agent != crate::chatgpt::ID || chatgpt.is_some() {
-            covered(placer, chatgpt)?;
+        // A direct placer that is not there keeps its row as it is.
+        let missing = match placer.agent.as_str() {
+            crate::chatgpt::ID => direct.chatgpt.is_none(),
+            crate::own::ID => direct.own.is_none(),
+            _ => false,
+        };
+        if !missing {
+            covered(placer, direct)?;
         }
     }
     Ok(())
 }
 
-/// Who is asked about a thought: an agent's tool, headless, or ChatGPT on
-/// the person's plan, for the model its sign-in chose.
+/// Who is asked about a thought: an agent's tool, headless, ChatGPT on
+/// the person's plan, for the model its sign-in chose, or the model at the
+/// address the person named.
 pub enum Asker {
     Agent(&'static dyn Agent, Headless),
     ChatGpt(String),
+    Own(crate::own::Placing),
 }
 
 impl Asker {
@@ -2780,6 +2804,7 @@ impl Asker {
         match self {
             Asker::Agent(agent, _) => agent.id(),
             Asker::ChatGpt(_) => crate::chatgpt::ID,
+            Asker::Own(_) => crate::own::ID,
         }
     }
 
@@ -2787,6 +2812,7 @@ impl Asker {
         match self {
             Asker::Agent(_, how) => how.model,
             Asker::ChatGpt(model) => model,
+            Asker::Own(own) => &own.model,
         }
     }
 
@@ -2795,6 +2821,7 @@ impl Asker {
         match self {
             Asker::Agent(agent, _) => agent.name(),
             Asker::ChatGpt(_) => "ChatGPT",
+            Asker::Own(_) => "Your own model",
         }
     }
 }
@@ -2805,10 +2832,20 @@ const AGAIN: &str = "the agreement was to what was sent before: \
 
 /// The agent an agreement names and how its tool is asked, when the
 /// agreement covers what this core would ask: that tool, with that model;
-/// or ChatGPT, signed in for that model.
-fn covered(placer: &Placer, chatgpt: Option<&str>) -> Result<Asker, String> {
+/// or ChatGPT, signed in for that model, or the own model that is set up.
+fn covered(placer: &Placer, direct: &Direct) -> Result<Asker, String> {
+    if placer.agent == crate::own::ID {
+        return match &direct.own {
+            Some(own) if own.model == placer.model => Ok(Asker::Own(own.clone())),
+            Some(own) => Err(format!(
+                "the agreement is for your own model {}, and Tasktap now asks {}",
+                placer.model, own.model
+            )),
+            None => Err("no own model is set up".into()),
+        };
+    }
     if placer.agent == crate::chatgpt::ID {
-        return match chatgpt {
+        return match direct.chatgpt.as_deref() {
             Some(model) if model == placer.model => Ok(Asker::ChatGpt(model.into())),
             Some(model) => Err(format!(
                 "the agreement is for ChatGPT with {}, and Tasktap now asks {model}",
@@ -2836,15 +2873,16 @@ fn covered(placer: &Placer, chatgpt: Option<&str>) -> Result<Asker, String> {
 /// The agents an agreement lets Tasktap ask about a thought, in the
 /// person's order, each with how its tool is asked: those switched on that
 /// the agreement covers, ChatGPT among them while it is signed in for the
-/// model agreed to (`chatgpt`). Why there are none, where there are none.
-pub fn agreed(by: &RouteBy, chatgpt: Option<&str>) -> Result<Vec<Asker>, String> {
+/// model agreed to and the own model while it is set up (`direct`). Why
+/// there are none, where there are none.
+pub fn agreed(by: &RouteBy, direct: &Direct) -> Result<Vec<Asker>, String> {
     if by.terms != TERMS {
         return Err(AGAIN.into());
     }
     let mut why = Vec::new();
     let on = by.agents.iter().filter(|p| p.on);
     let tools: Vec<_> = on
-        .filter_map(|p| covered(p, chatgpt).map_err(|e| why.push(e)).ok())
+        .filter_map(|p| covered(p, direct).map_err(|e| why.push(e)).ok())
         .collect();
     match (tools.is_empty(), why.is_empty()) {
         (false, _) => Ok(tools),
@@ -2916,9 +2954,10 @@ pub fn proposed(mut tools: Vec<PlaceTool>) -> Vec<PlaceTool> {
 /// `route.terms`: what placing by a model sends and to whom, the agents
 /// that can be asked in Tasktap's order. A tool that was found not to
 /// offer its model any more is not among them. ChatGPT always is, with the
-/// model its sign-in chose, or the one it would choose before one did.
+/// model its sign-in chose, or the one it would choose before one did; the own
+/// model is, once it is set up.
 pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> {
-    let chatgpt = effects::read(cx.core, crate::chatgpt::model)?;
+    let direct = effects::read(cx.core, Direct::read)?;
     let offered = |a: &&&dyn Agent| !cx.core.seams.gone(a.id());
     let all = agents::all();
     let tools = all.iter().filter(offered).filter_map(|a| {
@@ -2932,16 +2971,22 @@ pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> 
     });
     let chatgpt = PlaceTool {
         agent: crate::chatgpt::ID.into(),
-        model: chatgpt.unwrap_or_else(|| crate::chatgpt::MODEL.into()),
+        model: (direct.chatgpt).unwrap_or_else(|| crate::chatgpt::MODEL.into()),
         pays: Pays::Plan,
         ms: typical(crate::chatgpt::ID),
     };
+    let own = direct.own.map(|o| PlaceTool {
+        agent: crate::own::ID.into(),
+        pays: crate::own::pays(&o.address),
+        model: o.model,
+        ms: None,
+    });
     Ok(RouteTerms {
         instructions: INSTRUCTIONS.into(),
         sends: SENDS.iter().map(|s| (*s).into()).collect(),
         cuts: CUTS.into(),
         terms: TERMS,
-        tools: proposed(tools.chain([chatgpt]).collect()),
+        tools: proposed(tools.chain([chatgpt]).chain(own).collect()),
     })
 }
 
@@ -2987,19 +3032,19 @@ fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
 /// they are sure ([`sure`]), else `unknown`, and the page names the place
 /// in view. It stores nothing and starts nothing.
 pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
-    let (request, by, chatgpt) = effects::read(cx.core, |tx| {
+    let (request, by, direct) = effects::read(cx.core, |tx| {
         let by = match tx.pref(tasktap_proto::PrefKey::RouteBy)?.map(|p| p.value) {
             Some(tasktap_proto::PrefValue::RouteBy(by)) => by,
             _ => None,
         };
-        let chatgpt = crate::chatgpt::model(tx)?;
-        Ok((request(tx, &args.text, args.current)?, by, chatgpt))
+        let direct = Direct::read(tx)?;
+        Ok((request(tx, &args.text, args.current)?, by, direct))
     })?;
     let names = by_names(&request);
     let pad = matches!(&names, Some(Route::Clear { to: Destination::New(p), .. }) if Some(*p) == request.scratch);
     // In Tasktap's window, as released: the names when sure.
     if args.current.is_some() || args.view.is_some() {
-        let agreed = |by: RouteBy| agreed(&by, chatgpt.as_deref()).is_ok();
+        let agreed = |by: RouteBy| agreed(&by, &direct).is_ok();
         let model = by.is_some_and(agreed) && !sure(&request);
         return Ok(match model {
             true => tasktap_proto::Route::Unknown,
@@ -3007,7 +3052,7 @@ pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
         });
     }
     let tools = by.filter(|_| !pad && !request.projects.is_empty());
-    let tools = tools.and_then(|by| agreed(&by, chatgpt.as_deref()).ok());
+    let tools = tools.and_then(|by| agreed(&by, &direct).ok());
     let model = tools.is_some_and(|tools| tools.iter().any(|t| !cx.core.seams.gone(t.id())));
     Ok(match model {
         true => tasktap_proto::Route::Unknown,

@@ -7,6 +7,14 @@
 //! for ChatGPT and for a placing agent. Nothing is asked of anyone.
 //!
 //!     route-lab <corpus.json> <task id>       e.g. pa-t0, or pa-x0-0 for one said with sessions open
+//!     route-lab <corpus.json> <task id> --address <url> --model <name>
+//!
+//! With `--address` the question is asked of the model at that address in
+//! the chat-completions form, as the product asks its own model
+//! (`own::lab`: the same call, the instructions as the system message), and
+//! what is printed is its answer and what the product's rules make of it
+//! (`route::accept`). The key, where the server wants one, is read from the
+//! environment variable `ROUTE_LAB_KEY`, never from an argument.
 //!
 //! A project's earlier tasks are its commit subjects (the corpus has no
 //! earlier tasks of its own), cut as the product cuts a task's title
@@ -20,6 +28,7 @@
 //! to) and a state's `view`; without them the projects count as never used.
 
 use serde::Deserialize;
+use tasktap_core::own;
 use tasktap_core::route::{self, Exchange, Followed, Named, Request};
 use tasktap_core::state::Destination;
 use tasktap_proto::{ProjectId, SessionId, SessionState, Status, Time};
@@ -91,19 +100,43 @@ struct Open {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [file, id] = args.as_slice() else {
-        eprintln!("usage: route-lab <corpus.json> <task id>");
+    let usage = || {
+        eprintln!("usage: route-lab <corpus.json> <task id> [--address <url> --model <name>]");
         std::process::exit(2);
+    };
+    let (file, id, to) = match args.as_slice() {
+        [file, id] => (file, id, None),
+        [file, id, a, address, m, model] if a == "--address" && m == "--model" => {
+            (file, id, Some((address, model)))
+        }
+        _ => usage(),
     };
     let corpus: Corpus = serde_json::from_slice(&std::fs::read(file).expect("the corpus"))
         .expect("the corpus as JSON");
     for person in &corpus.persons {
         let plain = person.tasks.iter().map(|t| (t, None));
         let said = (person.states.iter()).flat_map(|s| s.tasks.iter().map(move |t| (t, Some(s))));
-        if let Some((task, state)) = plain.chain(said).find(|(t, _)| t.id == *id) {
-            print!("{}", route::question(&request(person, task, state)));
+        let Some((task, state)) = plain.chain(said).find(|(t, _)| t.id == *id) else {
+            continue;
+        };
+        let request = request(person, task, state);
+        let Some((address, model)) = to else {
+            print!("{}", route::question(&request));
             return;
+        };
+        let key = std::env::var("ROUTE_LAB_KEY").ok();
+        let asked = route::asked(&request);
+        match own::lab(address, model, key.as_deref(), &asked) {
+            Ok(answer) => {
+                println!("{answer}");
+                println!("{:?}", route::accept(&request, &answer));
+            }
+            Err(why) => {
+                eprintln!("no answer: {why}");
+                std::process::exit(1);
+            }
         }
+        return;
     }
     eprintln!("no task {id} in {file}");
     std::process::exit(1);

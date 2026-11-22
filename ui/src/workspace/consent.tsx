@@ -5,6 +5,10 @@
 // writes the preference, and its section of Settings says what is on, changes it and turns it off. Nothing here is
 // kept by the page.
 //
+// A third placer is the model at an address the person names, in the chat-completions form that Ollama, LM Studio,
+// llama.cpp, vLLM and most hosted services speak (core own.rs): its row sits under ChatGPT's, three fields open in place
+// (address, model, key), and setting it up is the agreement for its row, as signing in is for ChatGPT's.
+//
 // Speech has a second way that sends nothing: on this Mac, by a model the person downloads once (speech/local.ts).
 // Its row says what it needs, how far the download is, that it is ready and how large, or why it failed, and removes
 // it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
@@ -14,8 +18,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { Glyph, I } from '../ui.tsx';
-import { AGAIN, type Rank, agreement, chatgptOffer, chatgptRow, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
-import { CHATGPT, agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
+import { AGAIN, type Rank, agreement, chatgptOffer, chatgptRow, moved, ownOffer, placeWhy, places, placing, proposed, ranked } from '../way.ts';
+import { CHATGPT, OWN, agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
 import { HERE, KEYS_KEPT, mac } from '../system.ts';
@@ -39,6 +43,7 @@ export function Ranks({ rows, set, lead, onHint }: { rows: Rank[]; set: (rows: R
   const row = (i: number) => list.current?.querySelectorAll<HTMLElement>('.rank:not(.sign)')[i];
   const toggle = (i: number) => set(rows.map((r, j) => (j === i ? { ...r, on: !r.on } : r)));
   const keys = (i: number) => (e: KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest('.btn')) return;
     const step = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0, plain = !e.metaKey && !e.ctrlKey && !e.shiftKey;
     if (step && plain && e.altKey) {
       const to = i + step;
@@ -53,7 +58,7 @@ export function Ranks({ rows, set, lead, onHint }: { rows: Rank[]; set: (rows: R
   };
   // Picked up where it is pressed, it goes where the pointer is over another row, and stays where it is let go.
   const press = (i: number) => (e: PointerEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('.switch')) return;
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.switch, .btn')) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     hold(i);
   };
@@ -82,7 +87,8 @@ export function Ranks({ rows, set, lead, onHint }: { rows: Rank[]; set: (rows: R
             <Glyph agent={r.agent} tone={r.on ? undefined : 'quiet'} />
             <span class="t">{agentName(r.agent)}</span>
             <span class="x m" title={model}>{model}</span>
-            <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={why}>{why}</span>
+            {r.agent === OWN ? <span class="x"><button type="button" class="btn" onClick={() => openOwn()}>Change</button></span>
+              : <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={why}>{why}</span>}
             <button type="button" role="switch" class="switch" tabIndex={-1} aria-checked={r.on} aria-label={`${agentName(r.agent)} helps find the project`} onClick={() => toggle(i)}><span /></button>
           </div>
         );
@@ -121,6 +127,102 @@ export function SignIn({ sign, says }: { sign: () => void; says?: boolean }) {
   );
 }
 
+// ——— The own model ———
+
+/** Ollama's usual address on this machine, where a server is looked for without being told. */
+export const OLLAMA = 'http://127.0.0.1:11434/v1';
+/** The three fields while they are open, what the server at the address lists of models (none while it has not
+ *  answered: then the model is typed), the models of a server found on this machine, and why the last try failed. */
+const own = { open: false, address: '', model: '', key: '', models: null as string[] | null, found: null as string[] | null, err: '' };
+const trimmed = () => own.address.trim().replace(/\/+$/, '');
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+/** Asks the server at the address typed for its models, once the typing has paused. A server that does not answer is
+ *  no error: the model is typed instead. */
+function look(wait = 400) {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    const address = trimmed();
+    if (!address) return ((own.models = null), redraw());
+    const gone = () => address !== trimmed();
+    void call('own_model.list', { address, key: own.key.trim() || undefined }).then(
+      ({ models }) => !gone() && ((own.models = models), !own.model && models[0] && (own.model = models[0]), redraw()),
+      () => !gone() && ((own.models = null), redraw()));
+  }, wait);
+}
+
+/** Looks for a server on this machine at Ollama's usual address; one that does not answer costs nothing and says nothing. */
+const detect = () => void call('own_model.list', { address: OLLAMA }).then(({ models }) => ((own.found = models), redraw()), () => own.found && ((own.found = null), redraw()));
+
+/** Opens the three fields: with `address` (a server found), else the own model's, else empty. */
+export function openOwn(address?: string) {
+  const set = pref('own_model');
+  Object.assign(own, { open: true, address: address ?? set?.address ?? '', model: address ? '' : (set?.model ?? ''), key: '', models: null, err: '' });
+  look(0);
+  redraw();
+}
+
+/** A server answers on this machine at Ollama's usual address, and no own model is set up. */
+export const foundOllama = () => !pref('own_model') && !!own.found;
+/** Looks for one, once, as the page that offers it appears. */
+export const useFound = () => useEffect(() => void (pref('own_model') || detect()), [!!pref('own_model')]);
+
+const setUp = (then?: () => void) => {
+  const address = trimmed(), model = own.model.trim();
+  if (!address || !model) return (own.err = 'Your own model needs an address and a model.', redraw());
+  void call('own_model.set', { address, model, key: own.key.trim() || undefined }).then(() => ((own.open = false), (own.key = ''), void loadTerms(), redraw(), then?.()), (e) => ((own.err = said(e)), redraw()));
+};
+const takeAway = () => void call('own_model.remove', {}).then(() => ((own.open = false), void loadTerms(), redraw()), fail);
+
+/** The three fields, in place: the address, the model (a chooser once the server has answered with its models, else
+ *  typed) and the key, if the server wants one, shown as dots. `then` runs once the model is set up. */
+export function OwnFields({ then }: { then?: () => void }) {
+  if (!own.open) return null;
+  const set = pref('own_model'), keyed = pref('keys').includes(trimmed());
+  const type = (what: 'address' | 'model' | 'key') => (e: Event) => ((own[what] = (e.currentTarget as HTMLInputElement).value), (own.err = ''), what === 'model' ? redraw() : look());
+  const enter = (e: KeyboardEvent) => e.key === 'Enter' && !e.isComposing && (e.preventDefault(), e.stopPropagation(), setUp(then));
+  const models = own.models?.length ? (own.models.includes(own.model) || !own.model ? own.models : [own.model, ...own.models]) : null;
+  return (
+    <div class="own" role="group" aria-label="Your own model">
+      <label for="own-address">Address</label>
+      <input id="own-address" class="text" spellcheck={false} autocomplete="off" maxLength={200} placeholder="https://" value={own.address} onInput={type('address')} onKeyDown={enter} />
+      <label for="own-model">Model</label>
+      {models ? <select id="own-model" class="text" value={own.model} onChange={type('model')}>{models.map((m) => <option value={m}>{m}</option>)}</select>
+        : <input id="own-model" class="text" spellcheck={false} autocomplete="off" maxLength={200} value={own.model} onInput={type('model')} onKeyDown={enter} />}
+      <label for="own-key">Key</label>
+      <input id="own-key" class="text" type="password" autocomplete="off" spellcheck={false} maxLength={512} placeholder={keyed ? '••••••••' : 'Optional'} value={own.key} onInput={type('key')} onKeyDown={enter} />
+      {own.err && <p class="warn" role="alert">{own.err}</p>}
+      <div class="rank-f">
+        <button type="button" class="btn" onClick={() => setUp(then)}>Use</button>
+        <button type="button" class="btn" onClick={() => ((own.open = false), redraw())}>Cancel</button>
+        {set && <button type="button" class="btn" onClick={takeAway}>Remove</button>}
+      </div>
+    </div>
+  );
+}
+
+/** The own model's row while it is not set up, under ChatGPT's: its name and the button that opens the fields; where a
+ *  server answers on this machine, "Ollama on this Mac" and "Use…" with its address already there. Set up, it is a row
+ *  of the list like the others (`Ranks`). The fields open under it. */
+export function OwnRow({ then }: { then?: () => void }) {
+  useFound();
+  const found = foundOllama();
+  return (
+    <>
+      {!pref('own_model') && (
+        <div class="line rank sign mine off" role="listitem" aria-label={found ? `Ollama on ${HERE}, not used` : 'Your own model, not set up'}>
+          <span class="n" />
+          <Glyph agent={OWN} tone="quiet" />
+          {found ? <span class="t wide">Ollama on {HERE}</span> : <><span class="t">Your own model</span><span /></>}
+          <span />
+          <button type="button" class="btn" onClick={() => openOwn(found ? OLLAMA : undefined)}>{found ? 'Use…' : 'Set up…'}</button>
+        </div>
+      )}
+      <OwnFields then={then} />
+    </>
+  );
+}
+
 /** The rows of the placing group and what changes them: with an agreement to these terms each change is written at
  *  once; without one, the rows are Tasktap's proposal until the person allows them. A sign-in with ChatGPT that ends
  *  puts its row in or takes it out, whatever was moved before. */
@@ -128,8 +230,8 @@ export function useRanks() {
   const t = terms.route, tools = placers(), by = pref('route_by');
   const agreed = !!by && !!t && by.terms === t.terms;
   const [draft, setDraft] = useState<Rank[] | null>(null);
-  const chatgpt = pref('chatgpt')?.state;
-  useEffect(() => setDraft(null), [chatgpt]);
+  const chatgpt = pref('chatgpt')?.state, ownModel = pref('own_model')?.model;
+  useEffect(() => setDraft(null), [chatgpt, ownModel]);
   const rows = draft ?? ranked(agreed ? by : null, tools);
   const write = (next: Rank[]) => call('put', { c: 'prefs', id: 'route_by', patch: agreement(next, by, t?.tools ?? [], t?.terms ?? 0) });
   const set = (next: Rank[]) => (setDraft(next), agreed && void write(next).catch(fail));
@@ -155,7 +257,7 @@ export function Finding() {
     return (
       <Row name={FINDING} hint={`${on.length ? `Tasks you do not place go where they belong: ${on.length > 1 ? 'the first of these to answer' : on[0]} decides from earlier tasks and what your agents last answered.`
         : 'Every agent here is switched off, so only tasks that name their project are placed; Tasktap asks you about the rest.'} ${MOVES}`}>
-        <Ranks rows={rows} set={set} lead={<SignIn sign={sheet} says />} />
+        <Ranks rows={rows} set={set} lead={<><SignIn sign={sheet} says /><OwnRow /></>} />
         <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
         <button type="button" class="btn" onClick={sheet}>What is sent…</button>
         {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
@@ -201,7 +303,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
         {!t ? <p>Asking what is sent…</p> : (
           <>
             {c.says && <p class={c.state === 'out' ? 'warn' : undefined} role={c.state === 'out' ? 'alert' : 'status'}>{c.says}</p>}
-            <Ranks rows={rows} set={set} lead={<SignIn sign={signInWithChatGPT} />} onHint={setHint} />
+            <Ranks rows={rows} set={set} lead={<><SignIn sign={signInWithChatGPT} /><OwnRow /></>} onHint={setHint} />
             <div class="rank-f">
               <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
               {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
@@ -225,7 +327,7 @@ export const PLACING_SAYS = 'A task you do not place yourself is sent with the n
  *  which agent, word for word, and what ChatGPT's sign-in asks. */
 export function Sent({ rows }: { rows: Rank[] }) {
   const [shown, show] = useState(false);
-  const t = terms.route, c = chatgptRow(pref('chatgpt')), asks = t?.tools.find((x) => x.agent === CHATGPT)?.model;
+  const t = terms.route, c = chatgptRow(pref('chatgpt')), asks = t?.tools.find((x) => x.agent === CHATGPT)?.model, mine = pref('own_model');
   useEffect(() => void loadTerms(), []);
   return (
     <>
@@ -236,6 +338,7 @@ export function Sent({ rows }: { rows: Rank[] }) {
           <p>Each such task goes to the first agent below that answers, one task at a time, under that agent's own sign-in. That agent is sent:</p>
           <ul class="sends">{t.sends.map((x) => <li>{x}</li>)}</ul>
           {c.state !== 'in' && asks && <p>{chatgptOffer(asks)}</p>}
+          {mine && rows.some((r) => r.agent === OWN && r.on) && <p>{ownOffer(mine.address, HERE)}</p>}
           <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
         </div>
       ))}

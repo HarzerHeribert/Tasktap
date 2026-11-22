@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
-  agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
+  agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, onThisMachine, ownOffer, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
   offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
 } from './way.ts';
 
@@ -327,4 +327,11 @@ test('an agreement to older terms is said once, in Setup, and on no thought; any
   assert.equal(fallback(route(null)), null);
   assert.equal(placed({ placed: 'name', ...route(again) }, (id) => id), 'Placed by name');
   assert.equal(placed({ placed: 'name', ...route('claude: it did not answer within 12 s') }, (id) => id), 'Placed by name. claude: it did not answer within 12 s');
+});
+
+test('the own model: an address on this machine says the task does not leave it', () => {
+  for (const a of ['http://127.0.0.1:11434/v1', 'http://localhost:11434/v1', 'http://[::1]:8080/v1', 'https://127.0.0.2/v1']) assert.equal(onThisMachine(a), true, a);
+  for (const a of ['http://192.168.1.20:1234/v1', 'https://api.example.com/v1', 'http://127.0.0.1.example.com/v1', 'http://localhost.example.com/v1']) assert.equal(onThisMachine(a), false, a);
+  assert.equal(ownOffer('http://127.0.0.1:11434/v1', 'this Mac'), 'Your own model gets each task at http://127.0.0.1:11434/v1, which is on this Mac: the task does not leave this Mac.');
+  assert.equal(ownOffer('https://api.example.com/v1', 'this Mac'), 'Your own model gets each task at https://api.example.com/v1.');
 });

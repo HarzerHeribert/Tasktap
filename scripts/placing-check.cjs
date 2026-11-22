@@ -85,6 +85,8 @@ async function main(out, dist) {
     await press(page, 'Tab');
     expect(await page.evaluate(() => document.activeElement?.textContent) === 'Sign in with ChatGPT', 'Tab reaches ChatGPT\'s button first');
     await press(page, 'Tab');
+    expect(await page.evaluate(() => document.activeElement?.textContent) === 'Set up…', 'then the own model\'s button');
+    await press(page, 'Tab');
     expect(await focused(page) === 'Claude Code', `Tab reaches the first row (${await focused(page)})`);
     await press(page, 'Alt+ArrowDown');
     expect(await rows(page) === '1Codex, 2Claude Code, 3Antigravity', `⌥↓ moves it down one: ${await rows(page)}`);
@@ -111,6 +113,7 @@ async function main(out, dist) {
     await page.waitForTimeout(400);
     expect(await rows(page) === '1Antigravity, Codex off, 2Claude Code', `agreed, the sheet shows the person's order: ${await rows(page)}`);
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f').textContent)).includes('Turn off'), 'agreed, the sheet turns it off');
+    await press(page, 'Tab');
     await press(page, 'Tab');
     await press(page, 'Tab');
     await press(page, 'ArrowDown');
@@ -190,7 +193,7 @@ async function main(out, dist) {
     const once = await page.evaluate(() => ({ calls: window.__fake.calls.filter((c) => c === 'chatgpt.sign_in').length, error: document.querySelector('.err')?.textContent ?? '' }));
     expect(once.calls === 1 && !once.error, `pressed twice, one sign-in and no error: ${JSON.stringify(once)}`);
     const waiting = await page.evaluate(() => ({ opened: window.__fake.opened.map((o) => o.target), said: document.querySelector('.sheet .terms > p[role=status]')?.textContent,
-      button: document.querySelector('.sheet .rank.sign .btn')?.textContent }));
+      button: document.querySelector('.sheet .rank.sign:not(.mine) .btn')?.textContent }));
     expect(waiting.opened.join() === 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake', `OpenAI's page opens in the browser: ${waiting.opened}`);
     expect(waiting.said === 'Waiting for the sign-in in your browser…' && waiting.button === 'Cancel', `it waits for the browser, with Cancel: ${JSON.stringify(waiting)}`);
     expect(await stored(page) === 'null', 'nothing is agreed while it waits');
@@ -201,7 +204,7 @@ async function main(out, dist) {
     await prefs(500, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } });
     await page.waitForTimeout(300);
     expect(await rows(page) === '1ChatGPT, Claude Code off, Codex off, Antigravity off', `signed in, ChatGPT alone places: ${await rows(page)}`);
-    const signed = await page.evaluate(() => ({ x: `${document.querySelector('.sheet .rank .x.m')?.textContent}, ${document.querySelector('.sheet .rank .x:not(.m)')?.textContent}`, sign: !!document.querySelector('.sheet .rank.sign'),
+    const signed = await page.evaluate(() => ({ x: `${document.querySelector('.sheet .rank .x.m')?.textContent}, ${document.querySelector('.sheet .rank .x:not(.m)')?.textContent}`, sign: !!document.querySelector('.sheet .rank.sign:not(.mine)'),
       foot: document.querySelector('.sheet .rank-f')?.textContent, offer: document.querySelector('.sheet .terms').textContent.includes('Sign in with ChatGPT and') }));
     expect(signed.x === 'GPT-6.2 Sol, about 4 s' && !signed.sign && !signed.offer, `a row like the others, by its model's name: ${JSON.stringify(signed)}`);
     expect(signed.foot.includes('Sign out'), `signing out is at the foot of the rows: "${signed.foot}"`);
@@ -214,7 +217,7 @@ async function main(out, dist) {
     await page.waitForTimeout(300);
     expect(await rows(page) === '1Claude Code, 2Codex, 3Antigravity', `signed out, placing as it was before: ${await rows(page)}`);
     expect(await stored(page) === 'null' && (await page.evaluate(() => document.querySelector('.sheet .sh-f').textContent)).includes('Allow'), 'no agreement is left, and Allow asks for one');
-    expect(await page.evaluate(() => document.querySelector('.sheet .rank.sign .btn')?.textContent) === 'Sign in with ChatGPT', 'and ChatGPT\'s button is back');
+    expect(await page.evaluate(() => document.querySelector('.sheet .rank.sign:not(.mine) .btn')?.textContent) === 'Sign in with ChatGPT', 'and ChatGPT\'s button is back');
     // Why a sign-in did not finish, or ended, is said above the button, in the words given.
     const ends = [
       [{ state: 'failed', model: null, name: null, error: 'access_denied' }, 'The sign-in with ChatGPT did not finish: access_denied.'],
@@ -227,7 +230,7 @@ async function main(out, dist) {
     for (const [i, [value, said, more]] of ends.entries()) {
       await prefs(600 + i, { chatgpt: value, ...more });
       await page.waitForTimeout(200);
-      const shown = await page.evaluate(() => ({ warn: document.querySelector('.sheet .terms > p[role=alert]')?.textContent, button: document.querySelector('.sheet .rank.sign .btn')?.textContent }));
+      const shown = await page.evaluate(() => ({ warn: document.querySelector('.sheet .terms > p[role=alert]')?.textContent, button: document.querySelector('.sheet .rank.sign:not(.mine) .btn')?.textContent }));
       expect(shown.warn === said && shown.button === 'Sign in with ChatGPT', `${value.state}: "${shown.warn}", and the button again`);
     }
     await fits(page, 'the sheet after OpenAI signed Tasktap out');
@@ -235,7 +238,7 @@ async function main(out, dist) {
     // In Settings the same row says why in itself, and its button opens the sheet, which says first what is sent.
     await page.evaluate(() => window.__ws.open({ kind: 'settings', at: 'projects' }));
     await page.waitForTimeout(500);
-    const there = await page.evaluate(() => document.querySelector('.settings .rank.sign .x')?.textContent);
+    const there = await page.evaluate(() => document.querySelector('.settings .rank.sign:not(.mine) .x')?.textContent);
     expect(there === ends[ends.length - 1][1], `Settings' row says why: "${there}"`);
     await click('Sign in with ChatGPT', '.settings');
     await page.waitForTimeout(300);
@@ -259,7 +262,7 @@ async function main(out, dist) {
     expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'placing', 'the placing sheet opens with nobody signed in');
     await page.getByRole('button', { name: 'What is sent' }).click();
     await page.waitForTimeout(200);
-    const alone = await page.evaluate(() => ({ rows: document.querySelectorAll('.sheet .rank').length, sign: document.querySelector('.sheet .rank.sign .btn')?.textContent,
+    const alone = await page.evaluate(() => ({ rows: document.querySelectorAll('.sheet .rank:not(.mine)').length, sign: document.querySelector('.sheet .rank.sign:not(.mine) .btn')?.textContent,
       sends: document.querySelectorAll('.sheet ul.sends li').length, foot: !!document.querySelector('.sheet .rank-f'), acts: document.querySelector('.sheet .sh-f').textContent }));
     expect(alone.rows === 1 && alone.sign === 'Sign in with ChatGPT' && alone.sends === 5 && !alone.acts.includes('Allow'), `ChatGPT alone, with what is sent: ${JSON.stringify(alone)}`);
     await fits(page, 'the sheet with nobody signed in');
@@ -532,6 +535,90 @@ async function main(out, dist) {
     const made = await page.evaluate(() => ({ calls: window.__fake.calls.filter((c) => c === 'project.add' || c === 'thought.update'), updated: window.__fake.updated ?? null,
       project: (window.__fake.records.projects || []).find((p) => p.folder === '/Users/example/projects/tide-notes')?.id ?? null }));
     expect(made.calls.join() === 'project.add,thought.update' && !!made.updated?.project_id, `its key makes the folder and sends the task there: ${JSON.stringify(made)}`);
+    for (const e of page.errors) failures.push(`page: ${e}`);
+    await page.context().close();
+
+    // ——— The own model: the model at an address the person names, under ChatGPT's row ———
+    const OLLAMA = 'http://127.0.0.1:11434/v1';
+    const here = (r) => ({ ...r, servers: { [OLLAMA]: ['llama3.1:8b', 'qwen2.5-coder:7b', 'gemma3:4b'] } });
+    const own = (pg) => pg.evaluate(() => {
+      const r = document.querySelector('.sheet .rank.mine');
+      return r && { name: r.querySelector('.t').textContent, button: r.querySelector('.btn')?.textContent, quiet: r.classList.contains('off') };
+    });
+    const fields = (pg) => pg.evaluate(() => {
+      const f = document.querySelector('.sheet .own');
+      return f && { labels: [...f.querySelectorAll('label')].map((l) => l.textContent), model: f.querySelector('#own-model')?.tagName, key: f.querySelector('#own-key')?.type,
+        options: [...f.querySelectorAll('#own-model option')].map((o) => o.textContent), address: f.querySelector('#own-address')?.value, chosen: f.querySelector('#own-model')?.value, buttons: [...f.querySelectorAll('.btn')].map((b) => b.textContent) };
+    });
+    const sheetPrefs = (pg, id) => pg.evaluate((i) => (window.__fake.records.prefs || []).find((x) => x.id === i)?.value ?? null, id);
+    // Not set up, no server on this machine: one row, under ChatGPT's.
+    page = await open(browser, { label: 'workspace', records: records(), url: server.url, dpr: 2 });
+    await page.evaluate(() => window.__ws.open({ kind: 'placing' }));
+    await page.waitForTimeout(600);
+    let m = await own(page);
+    const order = await page.evaluate(() => [...document.querySelectorAll('.sheet .ranks > .rank.sign')].map((r) => r.querySelector('.t').textContent));
+    expect(m?.name === 'Your own model' && m.button === 'Set up…' && order.join() === 'ChatGPT,Your own model', `not set up: one row under ChatGPT's, "Set up…": ${JSON.stringify([m, order])}`);
+    expect(!(await page.evaluate(() => !!document.querySelector('.sheet .own'))), 'and no field is open before the button is pressed');
+    await fits(page, 'the sheet with the own model not set up');
+    await shoot(page, out, '1-row-not-set-up');
+    // "Set up…" opens three fields in place; the model is typed while the address does not answer.
+    await page.locator('.sheet .rank.mine .btn').click();
+    await page.waitForTimeout(300);
+    let f = await fields(page);
+    expect(f?.labels.join() === 'Address,Model,Key' && f.model === 'INPUT' && f.key === 'password' && f.buttons.join() === 'Use,Cancel', `Set up… opens Address, Model, Key in place, the key as dots, the model typed: ${JSON.stringify(f)}`);
+    // An address that answers fills the model's chooser with what the server lists, the first chosen.
+    await page.locator('#own-address').fill(OLLAMA);
+    await page.waitForTimeout(900);
+    f = await fields(page);
+    expect(f?.model === 'INPUT', `an address that does not answer leaves the model typed: ${f?.model}`);
+    await page.context().close();
+
+    page = await open(browser, { label: 'workspace', records: here(records()), url: server.url, dpr: 2 });
+    await page.evaluate(() => window.__ws.open({ kind: 'placing' }));
+    await page.waitForTimeout(700);
+    // A server answers on this machine and nothing is set up: the row says so and offers it, address filled.
+    m = await own(page);
+    expect(/^Ollama on this (Mac|PC)$/.test(m?.name ?? '') && m.button === 'Use…', `a server found on this machine: "${m?.name}", "${m?.button}"`);
+    await fits(page, 'the sheet with a server found');
+    await shoot(page, out, '4-server-found');
+    await page.locator('.sheet .rank.mine .btn').click();
+    await page.waitForTimeout(500);
+    f = await fields(page);
+    expect(f?.address === OLLAMA && f.model === 'SELECT' && f.options.join() === 'llama3.1:8b,qwen2.5-coder:7b,gemma3:4b' && f.chosen === 'llama3.1:8b', `Use… opens the fields with the address filled and the models listed: ${JSON.stringify(f)}`);
+    await page.locator('#own-key').fill('a-key-of-no-service');
+    await fits(page, 'the sheet with the three fields open');
+    await shoot(page, out, '2-fields-open');
+    await page.locator('#own-model').selectOption('qwen2.5-coder:7b');
+    await page.locator('.sheet .own .btn', { hasText: 'Use' }).first().click();
+    await page.waitForTimeout(500);
+    const kept = { own: await sheetPrefs(page, 'own_model'), keys: await sheetPrefs(page, 'keys'), by: await sheetPrefs(page, 'route_by') };
+    expect(kept.own?.address === OLLAMA && kept.own.model === 'qwen2.5-coder:7b' && kept.keys.includes(OLLAMA) && kept.by.agents[0].agent === 'own', `Use sets it up, with its key, and its row is first in the agreement: ${JSON.stringify(kept)}`);
+    expect(!(await page.evaluate(() => !!document.querySelector('.sheet .own'))) && await own(page) === null, 'the fields close, and the row is not the button any more');
+    expect(await rows(page) === '1Your own model, Claude Code off, Codex off, Antigravity off', `set up: a row like the others: ${await rows(page)}`);
+    const row = await page.evaluate(() => { const r = document.querySelector('.sheet .rank:not(.sign)'); return { model: r.querySelector('.x.m').textContent, on: r.querySelector('.switch').getAttribute('aria-checked'), button: r.querySelector('.btn')?.textContent, mark: !!r.querySelector('svg') }; });
+    expect(row.model === 'qwen2.5-coder:7b' && row.on === 'true' && row.button === 'Change' && row.mark, `with the model's name as data, its switch and "Change": ${JSON.stringify(row)}`);
+    await fits(page, 'the sheet with the own model set up');
+    await shoot(page, out, '3-row-set-up');
+    // "What is sent" names the address, and that on this machine the task does not leave it.
+    await page.getByRole('button', { name: 'What is sent' }).click();
+    await page.waitForTimeout(200);
+    const sent = await page.evaluate(() => [...document.querySelectorAll('.sheet .terms.sent > p')].map((q) => q.textContent));
+    expect(sent.some((q) => /^Your own model gets each task at http:\/\/127\.0\.0\.1:11434\/v1, which is on this (Mac|PC): the task does not leave this (Mac|PC)\.$/.test(q)), `"What is sent" says where the task goes and that it stays on this machine: ${JSON.stringify(sent.filter((q) => q.startsWith('Your own')))}`);
+    await page.getByRole('button', { name: 'What is sent' }).click();
+    // "Change" opens the fields again with what was set; the key is dots; Cancel closes them and changes nothing.
+    await page.locator('.sheet .rank .btn', { hasText: 'Change' }).click();
+    await page.waitForTimeout(500);
+    f = await fields(page);
+    expect(f?.address === OLLAMA && f.chosen === 'qwen2.5-coder:7b' && f.buttons.join() === 'Use,Cancel,Remove', `Change opens them with what was set: ${JSON.stringify(f)}`);
+    await page.locator('.sheet .own .btn', { hasText: 'Cancel' }).click();
+    expect(!(await page.evaluate(() => !!document.querySelector('.sheet .own'))) && (await sheetPrefs(page, 'own_model'))?.model === 'qwen2.5-coder:7b', 'Cancel closes the fields and changes nothing');
+    // Remove takes the model and its row away.
+    await page.locator('.sheet .rank .btn', { hasText: 'Change' }).click();
+    await page.locator('.sheet .own .btn', { hasText: 'Remove' }).click();
+    await page.waitForTimeout(400);
+    expect(await sheetPrefs(page, 'own_model') === null && (await own(page))?.button === 'Use…', 'Remove: the preference goes and the row is the button again');
+    const dots = await page.evaluate(() => document.querySelector('.sheet').innerText.includes('·'));
+    expect(!dots, 'no "·" on the sheet');
     for (const e of page.errors) failures.push(`page: ${e}`);
     await page.context().close();
   } finally {

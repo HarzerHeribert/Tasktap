@@ -795,6 +795,26 @@ pub enum PrefValue {
     /// system's credential store and in no record. None: never signed in,
     /// or signed out by the person.
     Chatgpt(Option<ChatGpt>),
+    /// The model at an address the person names, which places tasks as
+    /// ChatGPT and the agents do (design §8): only the core writes it, with
+    /// `own_model.set` and `own_model.remove`. Its key, where there is one,
+    /// is in the system's credential store under the address, and `keys`
+    /// lists the address. None: no own model is set up.
+    OwnModel(Option<OwnModel>),
+}
+
+/// The model placing asks at an address of the person's choosing, in the
+/// form OpenAI's chat completions have (Ollama, LM Studio, llama.cpp, vLLM
+/// and most hosted services speak it).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OwnModel {
+    /// The server's address up to its `/chat/completions` and `/models`,
+    /// for example `http://127.0.0.1:11434/v1`.
+    pub address: String,
+    /// The model's name as that server lists it.
+    pub model: String,
 }
 
 /// Where the sign-in with ChatGPT stands, and the model placing asks for.
@@ -1185,7 +1205,7 @@ words! {
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
         AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey,
-        AgentCommands, Chatgpt
+        AgentCommands, Chatgpt, OwnModel
     }
 }
 
@@ -1252,6 +1272,7 @@ impl PrefKey {
             PrefKey::NoKey => PrefValue::NoKey(None),
             PrefKey::AgentCommands => PrefValue::AgentCommands(Vec::new()),
             PrefKey::Chatgpt => PrefValue::Chatgpt(None),
+            PrefKey::OwnModel => PrefValue::OwnModel(None),
         }
     }
 }
@@ -1289,6 +1310,7 @@ impl PrefValue {
             PrefValue::NoKey(_) => PrefKey::NoKey,
             PrefValue::AgentCommands(_) => PrefKey::AgentCommands,
             PrefValue::Chatgpt(_) => PrefKey::Chatgpt,
+            PrefValue::OwnModel(_) => PrefKey::OwnModel,
         }
     }
 }

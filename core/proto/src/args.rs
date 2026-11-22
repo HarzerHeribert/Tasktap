@@ -1245,6 +1245,57 @@ impl std::fmt::Debug for SetKey {
     }
 }
 
+/// `own_model.set`: the model at `address` that places tasks, with the key
+/// it takes where it takes one. An empty `key` leaves the one stored for
+/// that address as it is; a new address has none until one is given. No call
+/// returns a key.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct SetOwnModel {
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub address: String,
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub model: String,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub key: Option<String>,
+}
+
+impl std::fmt::Debug for SetOwnModel {
+    /// Without the key, so that printing the arguments never shows it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SetOwnModel")
+            .field("address", &self.address)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `own_model.list`: the models the server at `address` lists, asked with
+/// `key` where one is given, else with the one stored for that address.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct ListModels {
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub address: String,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub key: Option<String>,
+}
+
+impl std::fmt::Debug for ListModels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ListModels")
+            .field("address", &self.address)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The names of the models a server lists, as it names them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Models {
+    pub models: Vec<String>,
+}
+
 /// `key.remove`: the server whose key goes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

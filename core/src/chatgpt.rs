@@ -369,15 +369,16 @@ pub fn model(tx: &Tx) -> store::Result<Option<String>> {
 
 /// Signing in is the agreement for ChatGPT's row alone (design §8): it is
 /// put first and switched on, the other rows of an agreement to these terms
-/// as they are; an agreement to other terms covers nothing and goes.
-fn agree(tx: &mut Tx, model: &str) -> store::Result<()> {
+/// as they are; an agreement to other terms covers nothing and goes. Setting
+/// up an own model (`own.rs`) is the same for its row, `id`.
+pub fn agree(tx: &mut Tx, id: &str, model: &str) -> store::Result<()> {
     let mut agents = match tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
         Some(PrefValue::RouteBy(Some(by))) if by.terms == route::TERMS => by.agents,
         _ => Vec::new(),
     };
-    agents.retain(|p| p.agent != ID);
+    agents.retain(|p| p.agent != id);
     let row = Placer {
-        agent: ID.into(),
+        agent: id.into(),
         model: model.into(),
         on: true,
     };
@@ -386,12 +387,12 @@ fn agree(tx: &mut Tx, model: &str) -> store::Result<()> {
     tx.put_pref(&PrefValue::RouteBy(Some(RouteBy { agents, terms })))
 }
 
-/// Signing out takes ChatGPT's row out of the agreement. Where it was the
+/// Signing out takes ChatGPT's row (an own model's, as it is taken away) out of the agreement. Where it was the
 /// only row, there is no agreement left: placing is as it was before the
 /// sign-in, not answered.
-fn unagree(tx: &mut Tx) -> store::Result<()> {
+pub fn unagree(tx: &mut Tx, id: &str) -> store::Result<()> {
     if let Some(PrefValue::RouteBy(Some(mut by))) = tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
-        by.agents.retain(|p| p.agent != ID);
+        by.agents.retain(|p| p.agent != id);
         match by.agents.is_empty() {
             true => drop(tx.delete_pref(PrefKey::RouteBy)?),
             false => tx.put_pref(&PrefValue::RouteBy(Some(by)))?,
@@ -716,7 +717,7 @@ pub fn sign_in(cx: &mut Cx, _: Empty) -> Result<String, Error> {
                     name: Some(name),
                     ..state(SignIn::SignedIn)
                 };
-                write(core, Some(seen), |tx| agree(tx, &model));
+                write(core, Some(seen), |tx| agree(tx, ID, &model));
             }
             Ended::NoPlan => put(core, Some(state(SignIn::NoPlan))),
             Ended::NoModel => put(core, Some(state(SignIn::NoModel))),
@@ -758,7 +759,7 @@ pub fn sign_out(cx: &mut Cx, _: Empty) -> Option<Control> {
         let lost = || Err("the credential store ended without an answer".to_owned());
         let result = done.unwrap_or_else(lost);
         if result.is_ok() {
-            write(core, None, unagree);
+            write(core, None, |tx| unagree(tx, ID));
         }
         let result = result.map_err(|why| Error::new(Code::Failed, why));
         link.send(&call::ChatgptSignOut::reply(id, result));
@@ -1108,13 +1109,7 @@ impl Asking {
             body: Body::Json(&body),
             limit: left,
         };
-        let answer = http::send(&request, wait).map_err(|e| match e {
-            http::Failed::Slow => format!(
-                "it did not answer within {} s",
-                limit.as_millis().div_ceil(1000)
-            ),
-            e => failed(e),
-        })?;
+        let answer = http::send(&request, wait).map_err(|e| unanswered(e, OPENAI, limit))?;
         let text = String::from_utf8_lossy(&answer.body);
         let words = || {
             said(
@@ -1185,30 +1180,45 @@ fn until(tokens: &Value) -> u64 {
 /// A call to OpenAI: its status and its body as JSON (null where it is
 /// none), or why there is no answer.
 fn json_call(request: &Request) -> Result<(u16, Value), String> {
-    let answer = http::send(request, mpsc::channel()).map_err(failed)?;
+    let answer = http::send(request, mpsc::channel()).map_err(|e| failed(e, OPENAI))?;
     Ok((
         answer.status,
         serde_json::from_slice(&answer.body).unwrap_or_default(),
     ))
 }
 
-/// Why a call to OpenAI has no answer, in a few words.
-fn failed(e: http::Failed) -> String {
+/// Who the sign-in's calls are made to, in the words of why one failed.
+const OPENAI: &str = "OpenAI";
+
+/// Why a call to `who` has no answer, in a few words.
+pub fn failed(e: http::Failed, who: &str) -> String {
     match e {
         http::Failed::Missing => {
             "this system has no curl, which Tasktap makes web calls with".into()
         }
         http::Failed::Stopped => "it was not waited for".into(),
-        http::Failed::Slow => "OpenAI did not answer in time".into(),
-        http::Failed::Unreachable(_) => "OpenAI could not be reached".into(),
-        http::Failed::Untrusted(why) => format!("the connection to OpenAI is not trusted ({why})"),
+        http::Failed::Slow => format!("{who} did not answer in time"),
+        http::Failed::Unreachable(_) => format!("{who} could not be reached"),
+        http::Failed::Untrusted(why) => format!("the connection to {who} is not trusted ({why})"),
         http::Failed::Other(why) => why,
     }
 }
 
-/// What OpenAI said of a refusal, in its words: its code and its message,
+/// Why a placing call has no answer: as [`failed`] says, and for how long it
+/// was waited for where that is what ended it.
+pub fn unanswered(e: http::Failed, who: &str, limit: Duration) -> String {
+    match e {
+        http::Failed::Slow => format!(
+            "it did not answer within {} s",
+            limit.as_millis().div_ceil(1000)
+        ),
+        e => failed(e, who),
+    }
+}
+
+/// What a server said of a refusal, in its words: its code and its message,
 /// in one line of at most 200 characters.
-fn said(body: &Value, status: u16) -> String {
+pub fn said(body: &Value, status: u16) -> String {
     let error = &body["error"];
     let code = error
         .as_str()
@@ -1226,7 +1236,7 @@ fn said(body: &Value, status: u16) -> String {
     cut(&text.split_whitespace().collect::<Vec<_>>().join(" "), 200)
 }
 
-fn cut(text: &str, chars: usize) -> String {
+pub fn cut(text: &str, chars: usize) -> String {
     text.chars().take(chars).collect()
 }
 

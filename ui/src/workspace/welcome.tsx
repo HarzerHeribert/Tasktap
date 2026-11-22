@@ -16,14 +16,14 @@ import { Voice } from '../motion/voice.ts';
 import { keyTimes, talkKey } from '../page.ts';
 import { local, model } from '../speech/local.ts';
 import { voiced } from '../speech/record.ts';
-import { shownPath } from '../system.ts';
+import { HERE, shownPath } from '../system.ts';
 import { Glyph, I, Key, Level, Mark } from '../ui.tsx';
 import { chatgptRow, placing } from '../way.ts';
 import { canSignIn, signInTo } from './agents.tsx';
-import { PLACING_SAYS, PLACING_TITLE, Sent, serviceName, signInWithChatGPT, useRanks } from './consent.tsx';
+import { OLLAMA, OwnFields, PLACING_SAYS, PLACING_TITLE, Sent, foundOllama, openOwn, serviceName, signInWithChatGPT, useFound, useRanks } from './consent.tsx';
 import { Choice, Row, Switch, setPref } from './form.tsx';
 import { Light, useLight } from './light.tsx';
-import { CHATGPT, agent, agentName, call, core, dismiss, fail, loadTerms, page, placers, pref, records, redraw, runs, ui } from './model.ts';
+import { CHATGPT, OWN, agent, agentName, call, core, dismiss, fail, loadTerms, page, placers, pref, records, redraw, runs, ui } from './model.ts';
 import { searchInFolder, seen, useFirstSearch } from './projects.tsx';
 import './welcome.css';
 
@@ -184,11 +184,13 @@ function Placing() {
   useEffect(() => void loadTerms(), []);
   const c = pref('chatgpt')?.state, signed = c === 'signed_in', waiting = c === 'waiting', says = chatgptRow(pref('chatgpt')).says;
   const agree = (only: (agent: string) => boolean) => void write(rows.map((r) => ({ ...r, on: only(r.agent) }))).then(next, fail);
-  const asked = rows.filter((r) => r.agent !== CHATGPT && tools.some((x) => x.agent === r.agent));
+  const asked = rows.filter((r) => r.agent !== CHATGPT && r.agent !== OWN && tools.some((x) => x.agent === r.agent));
+  useFound();
+  const here = foundOllama();
   return (
     <Page title={PLACING_TITLE} says={PLACING_SAYS}
       primary={signed ? { label: 'Use ChatGPT', do: () => agree((a) => a === CHATGPT), off: !t } : { label: 'Sign in with ChatGPT', do: signInWithChatGPT, off: waiting }}>
-      <div class="wc-o" role="group" aria-label="Who finds the project">
+      <div class="wc-o" role="group" aria-label="Who finds the project" data-n={here ? 3 : 2}>
         <section>
           <h2>ChatGPT</h2>
           <Glyph agent={CHATGPT} size={28} />
@@ -197,9 +199,17 @@ function Placing() {
         <section>
           <h2>Your agents</h2>
           <ol class="wc-q">{asked.map((r) => <li key={r.agent}><Glyph agent={r.agent} size={16} /><span>{agentName(r.agent)}</span></li>)}</ol>
-          <button type="button" class="btn lg" disabled={!t || !asked.length} onClick={() => agree((a) => a !== CHATGPT)}>Use my agents</button>
+          <button type="button" class="btn lg" disabled={!t || !asked.length} onClick={() => agree((a) => a !== CHATGPT && a !== OWN)}>Use my agents</button>
         </section>
+        {here && (
+          <section>
+            <h2>On {HERE}</h2>
+            <Glyph agent={OWN} size={28} />
+            <button type="button" class="btn lg" onClick={() => openOwn(OLLAMA)}>Use Ollama</button>
+          </section>
+        )}
       </div>
+      <OwnFields then={next} />
       {says && <p class={`wc-n${c === 'failed' || c === 'no_plan' || c === 'no_model' ? ' warn' : ''}`} role="status">{says}</p>}
       <Sent rows={rows} />
     </Page>

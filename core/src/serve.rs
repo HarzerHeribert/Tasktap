@@ -89,6 +89,8 @@ pub struct Core {
     pub speech: crate::speech::Speech,
     /// The sign-in with ChatGPT that waits for the browser (design §8).
     pub chatgpt: crate::chatgpt::ChatGpt,
+    /// What placing by the model at the person's own address shares.
+    pub own: crate::own::Own,
     /// Whether a look at the person's projects runs (docs/projects-design.md).
     pub map: crate::map::Map,
     /// How long each folder check waits first, for tests (design §13).
@@ -209,6 +211,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             files: Default::default(),
             speech: crate::speech::Speech::new(second),
             chatgpt: crate::chatgpt::ChatGpt::new(second),
+            own: Default::default(),
             map: crate::map::Map::new(second),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,

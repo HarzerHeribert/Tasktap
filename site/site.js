@@ -70,8 +70,29 @@
   const still = $('.notch-still img'), stillFrom = $('.notch-still source');
   let form = null;
   // From here on this script keeps the stage (the page's own inline script did until now). What the checks read of
-  // it: how many frames of the chrome were drawn, and what draws them.
-  window.__story = { get frames() { return chrome ? chrome.frames : 0; }, get renderer() { return chrome ? chrome.renderer : ''; } };
+  // it: how many frames of the chrome were drawn and what draws them, whether the stage is at rest, and what stands
+  // on it.
+  window.__story = {
+    get frames() { return chrome ? chrome.frames : 0; },
+    get renderer() { return chrome ? chrome.renderer : ''; },
+    /** Whether the stage has come to rest where the page is scrolled: it stands at that place, no frame of its own is due, the resting frame
+     *  of the chrome is drawn, no still is on its way, nothing fades, and the live notch, where there is one, has
+     *  said that it stands in the chapter's state (it gets there by the app's own motion, which takes its time). */
+    get settled() {
+      // First, that the stage stands where the page is scrolled now: a scroll the page has not yet answered is not rest.
+      if (root.classList.contains('held')) {
+        const r = story.getBoundingClientRect();
+        if ((r.bottom > 0 && r.top < innerHeight) !== seen || (seen && Math.abs(clamp(-r.top / beat, 0, END) - at) > 0.0005)) return false;
+      }
+      return !queued && !again && !$('.notch-still.loading, .form-still.loading') && (!frame || !seen || !root.classList.contains('held') || (ready && stood === on))
+        && !document.getAnimations().some((a) => a.playState === 'running');
+    },
+    /** What stands on the stage now, in words, for a check to say when two pictures of it differ. */
+    get state() {
+      const name = (i) => (i && i.currentSrc ? i.currentSrc.replace(/.*\//, '') : 'none');
+      return `${here.toFixed(2)} chapters in, chapter ${on || 'none'}; the notch ${!frame ? 'is its still' : !ready ? 'is loading' : live ? `is live and ${stood ? `stands in ${stood}` : 'is on its way'}` : 'is not yet live'}, its still ${name(still)}${still.parentElement.classList.contains('loading') ? ' (on its way)' : ''}; the chrome ${chrome ? 'is drawn' : flat ? `is its still ${name(form)} at opacity ${form ? getComputedStyle(form).opacity : 0}` : 'has not come'}; the first screen's words at opacity ${getComputedStyle(topText).opacity}; ${this.settled ? 'at rest' : 'not at rest'}`;
+    },
+  };
   // The page's head says when the stage is held and has set the class already, so the first paint is laid out as it
   // stays.
   const held = matchMedia(root.dataset.held);
@@ -86,6 +107,8 @@
   let frame = null, live = false, ready = false, told = '', on = '', queued = false, seen = false, resting = null;
   let chrome = null, mod = null, flat = false, G = null, P = null, beat = 1, at = -1, here = -1, turning = 0;
   let spot = null, wide = innerWidth, tall = innerHeight;
+  /** The state the live notch last said it stands in; none while it is on its way to one it was asked for. */
+  let stood = '';
 
   const post = (m) => frame && frame.contentWindow && frame.contentWindow.postMessage({ tasktap: 'page', ...m }, location.origin);
   const isHeld = () => held.matches;
@@ -173,7 +196,7 @@
       // The frame the scroll comes to rest on is drawn once more, a moment after the last: a browser that shows a
       // canvas one frame late (its picture of the page then holds the frame before) comes to rest on the right one.
       clearTimeout(again);
-      again = setTimeout(() => chrome && P && !turning && chrome.draw(P, performance.now() / 1000), 90);
+      again = setTimeout(() => ((again = 0), chrome && P && !turning && chrome.draw(P, performance.now() / 1000)), 90);
     }
     const gone = b > 0.36;
     topText.style.opacity = (1 - ss(0.06, 0.34, b)).toFixed(3);
@@ -226,6 +249,7 @@
     const key = `${s.step}:${Math.round(s.p * 40)}`;
     if (ready && key !== told) {
       told = key;
+      stood = '';
       post({ do: 'scene', step: s.step, p: s.p });
     }
   }
@@ -280,11 +304,12 @@
     if (e.origin !== location.origin || !frame || e.source !== frame.contentWindow || !m || m.tasktap !== 'stage') return;
     if (m.ready) {
       ready = true;
-      told = '';
+      told = stood = '';
       resting = null;
       rest();
       return update();
     }
+    if (m.step) stood = m.step;
     // The live notch takes the still's place once it stands in the state of the chapter in view: the same picture.
     if (m.step && m.step === on && !live) (live = true), stage.classList.add('live');
   });
@@ -326,7 +351,7 @@
       if (!now) marked();
       describe(now);
       markTold();
-      if (!now && ready) (post({ do: 'scene', step: 'rest', p: 0 }), (told = ''));
+      if (!now && ready) (post({ do: 'scene', step: 'rest', p: 0 }), (told = stood = ''));
       on = '';
       here = -1;
     }

@@ -698,7 +698,11 @@
     try {
       for (;;) {
         const w = wanted, s = scene(w.step, w.p), key = keyOf(s);
-        if (key === shown) break;
+        // Standing where it is wanted already: said again, for the page counts the notch at rest by its word.
+        if (key === shown) {
+          tell(w.step);
+          break;
+        }
         // On its way: the notch stands in no told state until the scene has ended.
         shown = '';
         await play(s);

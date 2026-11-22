@@ -328,9 +328,17 @@ function state() {
         }, [a, z, CLIP]);
         const said = (d) => (d.pixels ? `differs in ${d.pixels} of ${d.of} pixels, by at most ${d.most} of 255, within ${d.box[0]},${d.box[1]} to ${d.box[2]},${d.box[3]} of the window; ${d.mark} of them where the chrome draws the mark, ${d.elsewhere} elsewhere` : 'is the same, pixel for pixel');
         const frames = () => page.evaluate(() => window.__story.frames);
+        /** The stage at rest, by the page's own word (no still on its way, nothing fading, the chrome's resting frame
+         *  drawn, the live notch standing in the chapter's state: it gets there by the app's own motion, which on a
+         *  slow machine outlasts any fixed wait), and that state painted. */
+        const atRest = async (what) => {
+          await page.waitForFunction(() => window.__story.settled, null, { timeout: 20000 }).catch(async () => assert.fail(`${what}: the stage did not come to rest in 20 s (${await page.evaluate(() => window.__story.state)})`));
+          await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+          return page.evaluate(() => window.__story.state);
+        };
         const rest = (id) => (id ? centre(page, id) : page.evaluate(() => scrollTo(0, 0))).then(() => page.waitForTimeout(900));
         if (drawn) {
-          await page.waitForTimeout(600);
+          const was = await atRest('at the top');
           assert.equal(await page.locator('.mark-big img').count(), 0, 'the chrome draws the mark: its still is never fetched');
           const first = await look(), seen = new Set([first]);
           for (const step of STEPS) {
@@ -362,9 +370,11 @@ function state() {
           // first screen that really differs (no mark, an earlier form left standing, a still in the chrome's place)
           // differs by tens of levels over thousands of pixels, and by words elsewhere.
           const renderer = await page.evaluate(() => window.__story.renderer), exact = !!metal || process.platform === 'darwin';
-          await rest();
+          await page.evaluate(() => scrollTo(0, 0));
+          const now = await atRest('back at the top');
           const back = await differs(first, await look());
-          console.log(`${kind}: the chrome is drawn by “${renderer}”, ${exact ? 'taken for a graphics card' : 'taken for a renderer on the processor'}; scrolled back to the top, the first screen ${said(back)}`);
+          console.log(`${kind}: the chrome is drawn by “${renderer}”, ${exact ? 'taken for a graphics card' : 'taken for a renderer on the processor'}; scrolled back to the top and at rest, the first screen ${said(back)}`);
+          if (back.pixels) console.log(`${kind}: in the first picture: ${was}\n${kind}: in the second: ${now}`);
           if (back.pixels) {
             // What would tell an earlier frame left in the picture from a renderer's rounding: one more frame of the
             // same place, and the picture again.
@@ -372,25 +382,29 @@ function state() {
             await page.waitForTimeout(700);
             console.log(`${kind}: after one more frame drawn at the top, the first screen ${said(await differs(first, await look()))}`);
           }
-          if (exact) assert.equal(back.pixels, 0, `scrolled back to the top, the first screen ${said(back)}`);
-          else assert.ok(back.most <= 2 && !back.elsewhere, `scrolled back to the top, the first screen ${said(back)} (a renderer on the processor may differ by 2 of 255 where the chrome draws, no more)`);
+          if (exact) assert.equal(back.pixels, 0, `scrolled back to the top, the first screen ${said(back)}; first: ${was}; then: ${now}`);
+          else assert.ok(back.most <= 2 && !back.elsewhere, `scrolled back to the top, the first screen ${said(back)} (a renderer on the processor may differ by 2 of 255 where the chrome draws, no more); first: ${was}; then: ${now}`);
           f0 = await frames();
           await page.waitForTimeout(1200);
           assert.equal(await frames(), f0, 'at rest at the top, no frame of the chrome is drawn');
         } else {
           assert.ok(await page.locator('.mark-big img').evaluate(async (i) => (await i.decode(), i.naturalWidth > 0 && i.clientWidth <= i.naturalWidth)), 'the mark\'s still stands on the first screen, no larger than drawn');
-          await page.waitForTimeout(400);
+          const was = await atRest('at the top');
           const first = await look();
           for (const step of STEPS) {
             await centre(page, step);
             await page.waitForFunction((step) => { const i = document.querySelector('.form-still'); return i && i.complete && i.naturalWidth > 0 && i.currentSrc.includes(`chrome-${step}`) && +getComputedStyle(i).opacity > 0.99; }, step);
           }
-          await rest();
+          await page.evaluate(() => scrollTo(0, 0));
+          const now = await atRest('back at the top');
           assert.ok(await page.locator('.form-still').evaluate((i) => +getComputedStyle(i).opacity < 0.01), 'back at the top, the mark alone');
-          // Stills are pictures: scrolled back, the first screen is the picture it was, pixel for pixel.
+          // Stills are pictures: scrolled back and at rest, the first screen is the picture it was, pixel for pixel.
+          // (At rest: the live notch comes back from the last chapter's state by the app's own motion, and both
+          // pictures are taken once it stands in the first screen's.)
           const back = await differs(first, await look());
-          console.log(`${kind}: the chrome's stills stand for it; scrolled back to the top, the first screen ${said(back)}`);
-          assert.equal(back.pixels, 0, `scrolled back to the top, the first screen ${said(back)}`);
+          console.log(`${kind}: the chrome's stills stand for it; scrolled back to the top and at rest, the first screen ${said(back)}`);
+          if (back.pixels) console.log(`${kind}: in the first picture: ${was}\n${kind}: in the second: ${now}`);
+          assert.equal(back.pixels, 0, `scrolled back to the top, the first screen ${said(back)}; first: ${was}; then: ${now}`);
         }
       } finally {
         if (metal) await metal.close();

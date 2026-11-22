@@ -93,7 +93,7 @@ test('the two letters of a ring are no two agents alike', () => {
   assert.deepEqual([...lettersOf(['agy', 'aider', 'amp'], true).values()], ['A', 'I', 'M']);
 });
 
-const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, lead: null, ms: 2100, others: [], ...o });
+const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, lead: null, ms: 2100, others: [], decided: null, ...o });
 const thought = (o: Partial<Thought> = {}) => ({
   phase: 'captured', status: 'captured', mode: 'ask', route: null, placed: null, project_id: null, text: 'make the header stay on one line', brief: null, hold_until: null, created: 1000, ...o,
 }) as Thought;

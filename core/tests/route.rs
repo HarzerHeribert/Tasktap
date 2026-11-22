@@ -265,7 +265,6 @@ fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_i
             said: Some(led),
         };
         assert_eq!(local(&r), wanted, "{text}");
-        assert!(!tasktap_core::route::sure(&r), "{text}");
     }
     // A near miss asks, with the one most pointed at first.
     for (text, first) in [
@@ -1014,18 +1013,16 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
     for quote in ["", "it", "the login bug", "login from before"] {
         refused(&request, follow(quote), "not in the task");
     }
-    // A follow-up to the session the capture was made in needs none.
+    // A follow-up to the session the capture was made in needs the words
+    // too: the view tells which session, not whether.
     let here = Request {
         current: Some(quiet),
         ..request.clone()
     };
     let taken = accept(&here, &answer("clear", "s2", brief).to_string());
     assert_eq!(
-        taken,
-        Ok((
-            clear(Destination::Session(quiet), brief),
-            Routing::default()
-        ))
+        taken.unwrap_err(),
+        "the words it quotes for a follow-up are not in the task"
     );
     refused(&here, follow(""), "not in the task");
 
@@ -1046,14 +1043,37 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         label: label.into(),
         to,
     };
+    // A session among them needs the words that lean on it, as a sure
+    // follow-up does; with them it is offered as the follow-up.
+    let mut quoted =
+        serde_json::from_str::<Value>(&choices(json!(["p3", "s2", "p3", "s1"]))).unwrap();
+    quoted["quote"] = "the login fix from before".into();
     assert_eq!(
-        accept(&request, &choices(json!(["p3", "s2", "p3", "s1"]))),
+        accept(&request, &quoted.to_string()),
         Ok((
             Route::Torn {
                 candidates: vec![
                     choice("app", Destination::New(app)),
                     choice("The codex session in folio", Destination::Session(quiet)),
                     choice("Login fix", Destination::Session(login)),
+                ],
+                brief: Some(brief.into()),
+            },
+            Routing {
+                quote: Some("the login fix from before".into()),
+                ..Routing::default()
+            }
+        ))
+    );
+    // Without them, each is a new run in its session's project, once.
+    assert_eq!(
+        accept(&request, &choices(json!(["p3", "s2", "p2", "s1"]))),
+        Ok((
+            Route::Torn {
+                candidates: vec![
+                    choice("app", Destination::New(app)),
+                    choice("folio", Destination::New(folio)),
+                    choice("tasktap", Destination::New(tasktap)),
                 ],
                 brief: Some(brief.into()),
             },
@@ -1266,6 +1286,14 @@ impl Asking {
         self.script(&[format!("print:{answer}")]);
     }
 
+    /// The fixture agent's tool was asked about thought `t`: its words, as
+    /// a model is sent them, are the request's.
+    fn asked_about(&self, t: ThoughtId) {
+        let text = tasktap_core::route::redact(&self.w.model.thought(t).text);
+        let asked = self.asked().expect("the model was asked");
+        assert_eq!(asked["thought"], json!(text));
+    }
+
     /// The request the fixture agent's tool was last asked with, and
     /// forgets it.
     fn asked(&self) -> Option<Value> {
@@ -1342,7 +1370,7 @@ fn a_name_that_may_not_be_meant_goes_to_the_model_agreed_to_first_among_its_proj
         th.route.unwrap().others,
         [tasktap_proto::Place::Project(a.folio)]
     );
-    assert!(a.asked().is_some());
+    a.asked_about(t);
 }
 
 #[test]
@@ -1415,7 +1443,7 @@ fn a_model_routes_a_thought_and_writes_its_brief() {
     let th = a.settled(t);
     assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
     assert_eq!(th.route.unwrap().by, "fixture");
-    assert!(a.asked().is_some());
+    a.asked_about(t);
 }
 
 #[test]
@@ -1501,16 +1529,26 @@ fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
     let text = format!("{SPOKEN}, that is in folio by the way");
     let gone = "Fixture agent no longer offers the model Tasktap asks for placing; \
                 placing by name until Tasktap is updated";
-    // Asked and failing, it leaves the question to the person.
+    // Gone for good, it is no placing model: the match on names places that
+    // task as with none, and says why.
     let t = a.capture(&text, None);
     let th = a.settled(t);
-    assert_eq!((th.status, th.project_id), (Status::NeedsYou, None));
+    assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
     let route = th.route.unwrap();
     assert_eq!(
         (route.by.as_str(), route.fallback.as_deref()),
         ("local", Some(gone))
     );
-    assert!(a.asked().is_some());
+    assert_eq!(a.asked().unwrap()["thought"], json!(text));
+    // The chip's hint says so: the names decide now.
+    let hint = Hint {
+        text: "fix the header in folio".into(),
+        current: None,
+    };
+    assert!(matches!(
+        a.w.ok::<call::RouteHint>(&hint),
+        tasktap_proto::Route::Clear { .. }
+    ));
     // It is not asked again while this core runs, whatever it would answer:
     // no model is left, so the match on names places, as with none.
     a.answers(&answer("clear", "p2", "Brief."));
@@ -1700,7 +1738,7 @@ fn an_agent_at_its_usage_limit_is_passed_over_until_the_time_it_named() {
         (th.project_id, th.route.unwrap().by.as_str()),
         (Some(a.folio), "fixture-probed")
     );
-    assert!(a.asked().is_some());
+    a.asked_about(t);
     // Its row says until when, and so does what the next core reads.
     let until = time(back * 1000);
     a.w.until("the limit is in the agent's row", |m| {
@@ -1788,7 +1826,7 @@ fn placing_waits_for_the_agents_no_longer_than_its_budget() {
         th.route.unwrap().fallback.as_deref(),
         Some("fixture: it did not answer within 8 s; fixture-silent: no time was left to ask it")
     );
-    assert!(a.asked().is_some());
+    a.asked_about(t);
     assert_eq!(a.asked_of("fixture-silent"), None);
 }
 
@@ -1877,7 +1915,7 @@ fn a_said_project_name_alone_starts_nothing_while_a_model_is_there() {
     let t = a.capture(&format!("{SPOKEN}, in folio or in app"), None);
     let th = a.settled(t);
     assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
-    assert!(a.asked().is_some());
+    a.asked_about(t);
 }
 
 #[test]
@@ -1915,7 +1953,7 @@ fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
     let place = tasktap_proto::Place::Project;
     assert_eq!(th.route.as_ref().unwrap().others, [place(a.folio)]);
     assert!(a.w.model.glance().question.is_none());
-    assert!(a.asked().is_some());
+    a.asked_about(t);
     // It calls the person as the question did: the host is told it waits.
     let told = loop {
         match host.recv().unwrap() {
@@ -1935,9 +1973,8 @@ fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
         (None, Some(t), "Which project is this task for?", None)
     );
     assert!(SPOKEN.starts_with(told.body.trim_end_matches('…')));
-    // Nothing starts by itself.
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    assert_eq!(a.w.model.thought(t).status, Status::Routed);
+    // Nothing starts by itself: no hold runs.
+    assert_eq!(a.w.model.thought(t).hold_until, None);
     // The other's key places it there; the hold runs from now, the first
     // stays offered, and nobody is asked again.
     let to = tasktap_proto::Assign {
@@ -2063,10 +2100,12 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
     // projects, and nothing is "routed".
     assert_eq!(
         terms.sends[1],
-        "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the file names at the project's top"
+        "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the folder names at the project's top"
     );
     let said = terms.sends.join(" ").to_lowercase();
-    for word in ["folder", "repositor", "rout"] {
+    // ("folder names" at a project's top are the coordinator's words of
+    // 2026-11-22: what is sent of it is its folders' names.)
+    for word in ["repositor", "rout"] {
         assert!(!said.contains(word), "{word} in {said}");
     }
     assert_eq!(terms.terms, tasktap_core::route::TERMS);
@@ -2164,7 +2203,7 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
         (Some(a.folio), Some("Brief."))
     );
     assert_eq!(th.route.unwrap().by, "fixture");
-    assert!(a.asked().is_some());
+    a.asked_about(t);
     a.pref(PrefPatch::RouteBy(None)).unwrap();
     local(&mut a);
     a.consent("fixture");
@@ -2183,7 +2222,7 @@ fn a_core_that_stops_while_a_model_is_asked_asks_nobody_again_and_launches_nothi
     a.answers(&answer("clear", "p1", "Keep the header on one line."));
     let routed = a.capture(SPOKEN, None);
     assert_eq!(a.settled(routed).status, Status::Routed);
-    assert!(a.asked().is_some());
+    a.asked_about(routed);
     a.script(&["sleep:5000".into()]);
     let asked = a.capture(SPOKEN, None);
     assert!(a.w.model.thought(asked).route.as_ref().unwrap().pending);
@@ -2607,7 +2646,7 @@ fn the_vehicle_key_turns_a_follow_up_into_a_new_run_and_back() {
     let t = a.capture("also cover an empty export", None);
     let th = a.settled(t);
     assert_eq!(th.session_id, Some(s));
-    assert!(a.asked().is_some());
+    a.asked_about(t);
     use tasktap_proto::Place;
     // A new run in app, the follow-up offered in its place; the hold from now.
     a.switch(t, Place::Project(a.app));
@@ -2669,11 +2708,36 @@ fn a_new_project_is_made_only_when_the_person_says_yes_and_the_task_starts_there
     a.w.until("its run has a session", |m| {
         m.thoughts[&t].session_id.is_some()
     });
-    // A name that is a folder there already is offered as that folder.
-    std::fs::create_dir_all(a.data.0.join("notes")).unwrap();
-    said["folder"] = "notes".into();
+    // A name that is a project Tasktap knows there is offered as that
+    // project; a folder there that is none of its projects never is.
+    let offers = |a: &mut Asking, folder: &str| {
+        let mut said = answer("new", "", "Start it.");
+        said["folder"] = folder.into();
+        a.answers(&said);
+        let t = a.capture("start a notes app", None);
+        a.settled(t);
+        let q =
+            a.w.model
+                .questions
+                .values()
+                .find(|q| q.thought_id == Some(t));
+        q.unwrap().create.clone()
+    };
+    let known = offers(&mut a, "App").unwrap();
+    assert_eq!((known.name.as_str(), known.exists), ("app", true));
+    std::fs::create_dir_all(a.data.0.join("music")).unwrap();
+    assert_eq!(offers(&mut a, "Music"), None);
+    assert_eq!(offers(&mut a, "名前"), None);
+}
+
+#[test]
+fn undo_takes_back_an_empty_folder_made_for_the_task_and_says_why_one_cannot_be_made() {
+    let mut a = Asking::new("unmake");
+    a.consent("fixture");
+    let mut said = answer("new", "", "Start a tide table app.");
+    said["folder"] = "tide-pool".into();
     a.answers(&said);
-    let t = a.capture("start a notes app", None);
+    let t = a.capture("start a new app for tide tables", None);
     a.settled(t);
     let q =
         a.w.model
@@ -2681,7 +2745,37 @@ fn a_new_project_is_made_only_when_the_person_says_yes_and_the_task_starts_there
             .values()
             .find(|q| q.thought_id == Some(t));
     let create = q.unwrap().create.clone().unwrap();
-    assert_eq!((create.name.as_str(), create.exists), ("notes", true));
+    let add = AddProject {
+        id: ProjectId::mint(),
+        folder: create.folder.clone(),
+        name: None,
+        create: true,
+    };
+    let project = a.w.ok::<call::ProjectAdd>(&add);
+    a.switch(t, tasktap_proto::Place::Project(project));
+    let folder = std::path::PathBuf::from(&create.folder);
+    assert!(folder.is_dir());
+    // Undo: the empty folder goes, and the workspace it opened closes.
+    a.w.ok::<call::ThoughtStop>(&tasktap_proto::Ref { id: t });
+    a.w.until("the workspace closed", |m| !m.projects[&project].open);
+    assert!(!folder.exists());
+    // A folder that cannot be made says where and why.
+    let inside = a.data.0.join("no-such-parent").join("x");
+    let add = AddProject {
+        id: ProjectId::mint(),
+        folder: inside.to_string_lossy().into(),
+        name: None,
+        create: true,
+    };
+    let refused = a.w.call::<call::ProjectAdd>(&add).unwrap_err();
+    assert!(
+        refused
+            .message
+            .starts_with("Tasktap could not make the folder")
+            && refused.message.contains("no-such-parent"),
+        "{}",
+        refused.message
+    );
 }
 
 #[test]
@@ -2701,7 +2795,7 @@ fn nothing_that_fits_or_nonsense_asks_the_person() {
             (Status::NeedsYou, Mode::Ask, None),
             "{said}"
         );
-        assert!(a.asked().is_some());
+        a.asked_about(t);
     }
 }
 
@@ -2725,7 +2819,7 @@ fn the_question_shows_sessions_and_projects_with_what_they_did_and_no_secrets() 
     a.settled(id);
     let asked = a.asked().unwrap();
     let text = asked.to_string();
-    assert!(!text.contains(key) && !text.contains(&secret), "{text}");
+    assert!(!text.contains(key), "{text}");
     // Each session with its first task, state, age and last answer; the one
     // whose text looks like a secret is there, without that text.
     let sessions = asked["sessions"].as_array().unwrap();
@@ -2741,7 +2835,11 @@ fn the_question_shows_sessions_and_projects_with_what_they_did_and_no_secrets() 
     };
     let (app, folio) = (of("app"), of("folio"));
     assert_eq!(app["first"], "fix the flaky export test");
-    assert_eq!((&folio["first"], &folio["task"]), (&json!(""), &json!("")));
+    let left = json!("deploy with [left out]");
+    assert_eq!((&folio["first"], &folio["task"]), (&left, &left));
+    // Its last turn began now (the clock stands still), and its agent has
+    // answered nothing yet.
+    assert_eq!((&app["ago"], &app["summary"]), (&json!("now"), &json!("")));
     for s in [&app, &folio] {
         for field in ["first", "task", "state", "ago", "summary", "agent"] {
             assert!(s.get(field).is_some(), "{field} in {s}");
@@ -2827,5 +2925,270 @@ fn an_agreement_to_the_terms_before_asks_again_and_sends_nothing_before_the_yes(
     a.consent("fixture");
     let t = a.capture("fix the header in folio", None);
     assert_eq!(a.settled(t).route.unwrap().by, "fixture");
-    assert!(a.asked().is_some());
+    a.asked_about(t);
+}
+
+// The review of smart placing (2026-11-22): each finding's test.
+
+#[test]
+fn switching_the_vehicle_gives_a_new_run_the_persons_words_and_agent_and_back() {
+    let mut a = Asking::new("switch-words");
+    a.consent("fixture");
+    let s = a.run(a.app, "fix the flaky export test");
+    a.answers(&follow(
+        "s1",
+        "also",
+        "Also cover an empty export in that test.",
+    ));
+    let id = ThoughtId::mint();
+    let text = "also cover an empty export";
+    let capture = Capture {
+        agent: Some("codex".into()),
+        ..typed(id, text)
+    };
+    a.w.ok::<call::ThoughtCapture>(&capture);
+    let th = a.settled(id);
+    assert_eq!(
+        (th.session_id, th.agent.as_deref()),
+        (Some(s), Some("fixture"))
+    );
+    assert_eq!(a.asked().unwrap()["thought"], json!(text));
+    // A new run by the key: the person's own words, and the agent they chose.
+    a.switch(id, tasktap_proto::Place::Project(a.app));
+    let th = a.w.model.thought(id).clone();
+    assert_eq!(
+        (th.session_id, th.brief.as_deref(), th.agent.as_deref()),
+        (None, Some(text), Some("codex"))
+    );
+    // Back: the follow-up as the model decided it.
+    a.switch(id, tasktap_proto::Place::Session(s));
+    let th = a.w.model.thought(id).clone();
+    assert_eq!(
+        (th.session_id, th.brief.as_deref(), th.agent.as_deref()),
+        (
+            Some(s),
+            Some("Also cover an empty export in that test."),
+            Some("fixture")
+        )
+    );
+}
+
+#[test]
+fn a_long_task_placed_by_hand_sends_the_model_the_task_and_that_place_alone() {
+    let mut a = Asking::new("picked-alone");
+    a.consent("fixture");
+    a.run(a.folio, "rotate the staging password to hunter2");
+    a.answers(&answer("clear", "p1", "Brief."));
+    let t = a.capture(SPOKEN, Some(a.app));
+    a.settled(t);
+    let asked = a.asked().expect("asked for the brief");
+    let names: Vec<_> = asked["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].clone())
+        .collect();
+    assert_eq!(names, [json!("app")]);
+    assert_eq!(asked["picked"], json!("p1"));
+    for empty in ["sessions", "recent"] {
+        assert_eq!(asked[empty], json!([]), "{empty}");
+    }
+    assert_eq!(
+        (&asked["current"], &asked["view"]),
+        (&json!(null), &json!(null))
+    );
+    assert_eq!(asked["projects"][0]["earlier"], json!([]));
+    assert!(!asked.to_string().contains("hunter2"));
+}
+
+#[test]
+fn a_model_that_cannot_be_reached_leaves_the_question_with_the_place_in_view_first() {
+    let mut a = Asking::new("unreached");
+    a.consent("fixture");
+    a.script(&["exit:1".into()]);
+    let id = ThoughtId::mint();
+    let capture = Capture {
+        agent: Some("fixture".into()),
+        view: Some(a.folio),
+        ..typed(id, "make the header bigger")
+    };
+    a.w.ok::<call::ThoughtCapture>(&capture);
+    let th = a.settled(id);
+    assert_eq!((th.status, th.project_id), (Status::NeedsYou, None));
+    let q =
+        a.w.model
+            .questions
+            .values()
+            .find(|q| q.thought_id == Some(id));
+    let places = q.unwrap().places.clone().unwrap();
+    assert_eq!(places[0], tasktap_proto::Place::Project(a.folio));
+    assert_eq!(a.asked().unwrap()["view"], json!("p1"));
+}
+
+#[test]
+fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
+    use tasktap_core::route::redact;
+    // (said, as a model is sent it)
+    let out = [
+        ("my password is hunter2", "my password is [left out]"),
+        ("Passwort: Sommer2024", "Passwort: [left out]"),
+        (
+            "the passphrase correct horse",
+            "the passphrase [left out] horse",
+        ),
+        ("token=abc123", "[left out]"),
+        ("set the secret to xyz", "set the secret to [left out]"),
+        ("the api key AbCdEf", "the api key [left out]"),
+        ("export DB_PASS=s3cr3t now", "export [left out] now"),
+        ("MYSQL_PWD=foo", "[left out]"),
+        ("API_TOKEN: abc", "API_TOKEN: [left out]"),
+        (
+            "open https://admin:pw123@db.example.com/x",
+            "open [left out]",
+        ),
+        ("use sk-proj-abcdefghijklmnop", "use [left out]"),
+        (
+            "use ghp_abcdefghijklmnopqrstuvwxyz0123 please",
+            "use [left out] please",
+        ),
+        ("key=xyzAKIAIOSFODNN7EXAMPLE", "[left out]"),
+        (
+            "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+            "Authorization: Bearer [left out]",
+        ),
+        (
+            "post to https://hooks.slack.com/services/T000/B000/XXXX",
+            "post to [left out]",
+        ),
+        (
+            "the jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
+            "the jwt [left out]",
+        ),
+        ("QWxhZGRpbjpvcGVuIHNlc2FtZQBvcGVuIHNlc2FtZQxx", "[left out]"),
+        ("ThisIsAVeryLongMixedCaseStringWithoutDigits", "[left out]"),
+        ("a1b2c3d4e5f6a7b8c9d0e1f2a3b4", "[left out]"),
+    ];
+    for (said, sent) in out {
+        assert_eq!(redact(said), sent, "{said}");
+    }
+    let kept = [
+        "fix the flaky export test",
+        "make the rehearsal timer readable on mobile",
+        "rename getUserById to findUserById",
+        "bump the version to 1.2.3",
+        "the README links to https://example.com/docs/setup",
+        "src/components/Header.tsx wraps on small screens",
+        "use the useCallback hook in SettingsPanel",
+        "the passwordless login is broken",
+        "check the keyboard shortcuts",
+        "in folio, the login from before",
+    ];
+    for said in kept {
+        assert_eq!(redact(said), said);
+    }
+}
+
+#[test]
+fn a_new_projects_name_is_safe_on_every_system_and_its_place_never_an_unknown_folder() {
+    use tasktap_core::route::{create, folder_name};
+    let named = [
+        ("Tide Notes", Some("tide-notes")),
+        ("../evil", Some("evil")),
+        ("..", None),
+        ("...", None),
+        (".hidden", Some("hidden")),
+        ("-rf", Some("rf")),
+        (".. notes", Some("notes")),
+        ("con", None),
+        ("lpt1", None),
+        ("COM3", None),
+        ("nul.txt", Some("nul-txt")),
+        ("a/b", Some("a-b")),
+        ("C:\\Windows\\System32", Some("c-windows-system32")),
+        ("foo\u{202E}gpj.exe", Some("foo-gpj-exe")),
+        ("名前", None),
+        ("🚀", None),
+        ("", None),
+        ("   ", None),
+        ("x.", Some("x")),
+    ];
+    for (proposed, want) in named {
+        assert_eq!(folder_name(proposed).as_deref(), want, "{proposed:?}");
+    }
+    assert_eq!(folder_name(&"a".repeat(300)).unwrap().len(), 40);
+    // Projects right in the home folder: a folder there that is none of them
+    // (~/Music) is never offered; a project's own folder is, as it.
+    let home = Folder::new("home-place");
+    for f in ["tapped", "earshot", "music"] {
+        std::fs::create_dir_all(home.0.join(f)).unwrap();
+    }
+    let unsure = Route::Ambiguous {
+        prompt: "Which project is this task for?".into(),
+        candidates: Vec::new(),
+        brief: None,
+    };
+    let proposed = |name: &str| Route::Create {
+        prompt: String::new(),
+        project: tasktap_proto::NewProject {
+            name: name.into(),
+            place: String::new(),
+            folder: String::new(),
+            exists: false,
+        },
+        candidates: Vec::new(),
+        brief: Some("Start it.".into()),
+    };
+    let known = |f: &std::path::Path| f.ends_with("tapped") || f.ends_with("earshot");
+    assert_eq!(
+        create(proposed("music"), Some(&home.0), &unsure, known),
+        unsure
+    );
+    let Route::Create { project, .. } = create(proposed("tapped"), Some(&home.0), &unsure, known)
+    else {
+        panic!("a project Tasktap knows is offered");
+    };
+    assert!(project.exists);
+    let Route::Create { project, .. } =
+        create(proposed("tide-pool"), Some(&home.0), &unsure, known)
+    else {
+        panic!("a new name is offered");
+    };
+    assert!(!project.exists && project.folder.ends_with("tide-pool"));
+}
+
+#[test]
+fn a_projects_top_is_its_folders_and_well_known_files_read_in_bounded_time() {
+    use tasktap_core::route::{top_of, tops};
+    let d = Folder::new("tops");
+    for f in ["src", "docs", ".git"] {
+        std::fs::create_dir_all(d.0.join(f)).unwrap();
+    }
+    for f in [
+        "package.json",
+        "README.md",
+        "secret-plan.txt",
+        "notes.md",
+        "CLAUDE.md",
+    ] {
+        std::fs::write(d.0.join(f), "").unwrap();
+    }
+    let place = Destination::New(ProjectId::mint());
+    let folder = d.0.to_string_lossy().into_owned();
+    let began = std::time::Instant::now();
+    let read = tops(vec![(place, folder)], std::time::Duration::from_millis(400));
+    assert!(began.elapsed() < std::time::Duration::from_secs(2));
+    let want = ["CLAUDE.md", "README.md", "docs", "package.json", "src"];
+    assert_eq!(read, [(place, want.map(String::from).to_vec())]);
+    // The same function the routing lab gives its corpus's lists.
+    let listed = [
+        ("src", true),
+        ("docs", true),
+        (".git", true),
+        ("package.json", false),
+        ("README.md", false),
+        ("secret-plan.txt", false),
+        ("notes.md", false),
+        ("CLAUDE.md", false),
+    ];
+    assert_eq!(top_of(listed.map(|(n, f)| (n.to_owned(), f))), want);
 }

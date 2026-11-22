@@ -1687,7 +1687,8 @@ fn a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges() {
             json!("result 3")
         ]
     );
-    assert!(first["ago"].is_string(), "{first}");
+    // Its last turn began at 1 ms, the clock now at 2,000,000,000,000 ms.
+    assert_eq!(first["ago"], json!("23148 days"), "{first}");
     assert_eq!(
         (&sent["current"], &sent["picked"]),
         (&json!("s2"), &json!(null))

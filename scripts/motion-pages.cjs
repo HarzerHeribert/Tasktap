@@ -573,10 +573,10 @@ const TERMS = {
     // As core/src/route.rs says them (`SENDS`, `TERMS`).
     sends: [
       "the task in your words, and the project or session open in Tasktap's window",
-      "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the file names at the project's top",
+      "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the folder names at the project's top",
       "the sessions in those projects, each with its name, first and last request, its agent, the agent's state, how long ago it last ran and the start of the agent's last answer",
       'your 3 most recent tasks in those sessions and how each ended',
-      'never a text that looks like a key, a token or a password',
+      'a text that looks like a key, a token or a password is left out, also from the task',
     ],
     cuts: "How much of each text is sent at most: a name 100 characters, a line about a project 160, an earlier task 80, a request 180, an agent's last answer 160, a recent task 320 and how it ended 160.",
     // In Tasktap's order, as core/src/route.rs proposes it (`COSTS`): ChatGPT first, listed whether or not it is signed in.

@@ -41,8 +41,10 @@ export function says(why: Why, f: { place: string; is: Is; fresh?: boolean; agen
       break;
     default:
       // Nothing known yet ('starting' is hidden, and keeps the place these words take).
-      c = { mark: 'arrow', name: 'Auto', auto: false, title: `Auto: Tasktap sends the task to the project the task names${
-        f.agent ? `. When the task names none, ${f.agent} reads the task and chooses the project.` : ', and asks you when the task names none.'} ${click} choose the place yourself.` };
+      // With a model, the model decides every task the person does not place, a project named among what it reads.
+      c = { mark: 'arrow', name: 'Auto', auto: false, title: f.agent
+        ? `Auto: ${f.agent} reads the task and chooses its project, and whether an agent at work there continues. ${click} choose the place yourself.`
+        : `Auto: Tasktap sends the task to the project the task names, and asks you when the task names none. ${click} choose the place yourself.` };
   }
   return f.back ? { ...c, name: `Back to ${c.name}`, title: `Your choice was for the task before. ${c.title}` } : c;
 }

@@ -129,6 +129,22 @@ pub struct Routing {
     /// on a key of its own (design §8, "The decision").
     #[serde(default)]
     pub others: Vec<crate::args::Place>,
+    /// What a model decided, kept while the person may place the thought
+    /// anew on the decision line: back where the model put it, it has the
+    /// model's brief and the agent it had; anywhere else, the person's own
+    /// words and the agent they chose for it.
+    #[serde(default)]
+    pub decided: Option<Decided>,
+}
+
+/// Where a model put a thought, the brief it wrote for that place, and the
+/// agent the person chose for the thought (none: the usual one).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Decided {
+    pub to: crate::args::Place,
+    pub brief: Option<String>,
+    pub agent: Option<String>,
 }
 
 words! {

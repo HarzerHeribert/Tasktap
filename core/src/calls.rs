@@ -427,10 +427,15 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Option<Control> {
     let create = args.create;
     let look = move || {
         // A new project the person said yes to: its folder first, inside
-        // one that is there, as a folder panel makes one.
-        if create {
-            let _ = std::fs::create_dir(&folder);
-        }
+        // one that is there, as a folder panel makes one. One that cannot be
+        // made says where and why; one there already is that folder.
+        let made = match create.then(|| std::fs::create_dir(&folder)) {
+            Some(Ok(())) => Ok(true),
+            Some(Err(e)) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                Err(format!("Tasktap could not make the folder {folder}: {e}"))
+            }
+            _ => Ok(false),
+        };
         // The folder as a person knows it: canonical, and on Windows without
         // the `\\?\` a canonical path begins with there, which no person
         // types and few programs take. It is the path the pages show, the
@@ -440,9 +445,17 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Option<Control> {
             .filter(|path| path.is_dir())
             .map(crate::terminal::folder);
         let git = path.as_ref().is_some_and(|path| path.join(".git").exists());
-        (path, git)
+        (path, git, made)
     };
-    off_thread::<call::ProjectAdd, _>(cx, look, |core, found| add_found(core, args, found))
+    off_thread::<call::ProjectAdd, _>(cx, look, |core, (path, git, made)| {
+        let made = made.map_err(|why| Error::new(Code::Failed, why))?;
+        let project = add_found(core, args, (path, git))?;
+        // Made here for a task: Undo takes it back while it is still empty.
+        if made {
+            core.seams.made.push(project);
+        }
+        Ok(project)
+    })
 }
 
 /// Adds the project once its folder was looked at.

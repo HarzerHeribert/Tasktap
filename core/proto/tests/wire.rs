@@ -1373,6 +1373,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         lead: None,
         ms: Some(2300),
         others: Vec::new(),
+        decided: None,
     };
     let routed = Thought {
         route: Some(route),
@@ -1383,7 +1384,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         wire["route"],
         json!({"by": "claude", "model": "haiku", "pending": false, "fallback": null,
                "quote": "that thing from before", "title": "Login redirect", "lead": null,
-               "ms": 2300, "others": []})
+               "ms": 2300, "others": [], "decided": null})
     );
     // A route stored before a model gave titles reads with none.
     let mut untitled = wire["route"].clone();

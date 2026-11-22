@@ -22,7 +22,7 @@ import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, loadTerms, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, decided, first, hold, laterWhy, leave, type Names, offers, onWay, placed, placeOf, placing, step, waits, wholeHold } from './way.ts';
 
 /** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
@@ -448,12 +448,24 @@ setAim((field): DictationTarget => {
  *  agent picked for it are the field's again. */
 export function followSpeech() {
   follow();
+  lostModel();
   if (!cap.spoken) return;
   if (records.thoughts.has(cap.spoken)) cap.spoken = '';
   else if (!talk.id && !talk.asking) {
     const was = cap.sent?.id === cap.spoken ? cap.sent : null;
     Object.assign(cap, { spoken: '', ...(was && { sent: null, dest: cap.dest ?? was.pick, agent: cap.agent ?? was.agent }) });
   }
+}
+
+/** A thought the core placed by name because its placing tool no longer offers its model (core route.rs `gone`): that
+ *  tool is no placing model any more, and the core's terms no longer list it, so the chip says what is true; asked
+ *  again once per such thought. */
+const lostSeen = new Set<string>();
+function lostModel() {
+  const lost = [...records.thoughts.values()].find((t) => !lostSeen.has(t.id) && t.route?.fallback?.includes('no longer offers the model Tasktap asks for placing'));
+  if (!lost) return;
+  lostSeen.add(lost.id);
+  void loadTerms();
 }
 
 /** Whether this page's dictation is for the Composer's field rather than a reply's. */

@@ -9,8 +9,11 @@
 //!     route-lab <corpus.json> <task id>       e.g. pa-t0, or pa-x0-0 for one said with sessions open
 //!
 //! A project's earlier tasks are its commit subjects (the corpus has no
-//! earlier tasks of its own), the names at its top its folder's; a
-//! session's first and last request are the one the corpus gives it.
+//! earlier tasks of its own), cut as the product cuts a task's title
+//! (`route::cut`); the names at its top go through the product's own
+//! filter and order (`route::top_of`), a name with no dot taken for a
+//! folder, as the corpus does not say; a session's first and last request
+//! are the one the corpus gives it.
 
 use serde::Deserialize;
 use tasktap_core::route::{self, Exchange, Followed, Named, Request};
@@ -112,7 +115,10 @@ fn request(person: &Person, text: &str, state: Option<&State>) -> Request {
         .map(|(p, id)| (to(id), p.history.iter().filter_map(title).take(5).collect()))
         .collect();
     let top = (person.projects.iter().zip(&ids))
-        .map(|(p, id)| (to(id), p.top.iter().take(15).cloned().collect()))
+        .map(|(p, id)| {
+            let entries = p.top.iter().map(|n| (n.clone(), !n.contains('.')));
+            (to(id), route::top_of(entries))
+        })
         .collect();
     let open: Vec<(&Open, SessionId)> = (state.map(|s| s.sessions.as_slice()).unwrap_or_default())
         .iter()
@@ -177,5 +183,5 @@ fn request(person: &Person, text: &str, state: Option<&State>) -> Request {
 /// an object with its text.
 fn title(item: &serde_json::Value) -> Option<String> {
     let text = item.as_str().or_else(|| item.get("text")?.as_str())?;
-    Some(text.chars().take(80).collect())
+    Some(route::cut(text, route::EARLIER_TITLE))
 }

@@ -535,6 +535,12 @@ terminals: number, };
 export type Credit = { s: StreamId, n: number, };
 
 /**
+ * Where a model put a thought, the brief it wrote for that place, and the
+ * agent the person chose for the thought (none: the usual one).
+ */
+export type Decided = { to: Place, brief: string | null, agent: string | null, };
+
+/**
  * `delete`: removes plain data, a preview, and a terminal that is not
  * running with its history and its previews, the only way history is
  * removed by hand; one a session refers to is `conflict`. Deleting a
@@ -1584,7 +1590,14 @@ ms: number | null,
  * thought went to, the likelier first: the decision line offers each
  * on a key of its own (design §8, "The decision").
  */
-others: Array<Place>, };
+others: Array<Place>,
+/**
+ * What a model decided, kept while the person may place the thought
+ * anew on the decision line: back where the model put it, it has the
+ * model's brief and the agent it had; anywhere else, the person's own
+ * words and the agent they chose for it.
+ */
+decided: Decided | null, };
 
 /**
  * Rows put whole, and ids of rows that stopped being live.

@@ -103,10 +103,10 @@ pub const SCHEMA: &str = concat!(
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
     "the task in your words, and the project or session open in Tasktap's window",
-    "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the file names at the project's top",
+    "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the folder names at the project's top",
     "the sessions in those projects, each with its name, first and last request, its agent, the agent's state, how long ago it last ran and the start of the agent's last answer",
     "your 3 most recent tasks in those sessions and how each ended",
-    "never a text that looks like a key, a token or a password",
+    "a text that looks like a key, a token or a password is left out, also from the task",
 ];
 
 /// How much of each text is sent, in one sentence: `route.terms` says it
@@ -702,29 +702,6 @@ pub fn local(r: &Request) -> Route {
     by_names(r).unwrap_or_else(|| unsure(r))
 }
 
-/// Whether the names the capture says, or the session it was made in,
-/// decide where it goes: then the match is sure and no model is asked. A
-/// question the names alone would ask (two projects named alike) is sure
-/// too; one they ask only because a name may not be meant (said only as it
-/// sounds, a letter off, an everyday word, words written apart) is not: a
-/// model the person agreed to is asked first, given those projects first.
-pub fn sure(r: &Request) -> bool {
-    match by_names(r) {
-        Some(Route::Ambiguous { .. }) => {
-            let named = hits(r);
-            let sessions = r.sessions.iter().any(|s| follows(&r.text, s));
-            sessions || named.iter().any(decides)
-        }
-        // One project only leads: a model is asked first, given it first.
-        Some(Route::Clear {
-            said: Some(state::Said::Leads { .. }),
-            ..
-        }) => false,
-        Some(_) => true,
-        None => false,
-    }
-}
-
 /// The route the names the capture says decide, or the session it was
 /// made in; none when neither says anything.
 pub fn by_names(r: &Request) -> Option<Route> {
@@ -841,6 +818,29 @@ const ON_PAD: &[&[&str]] = &[
     &["in", "dem"],
     &["auf", "dem"],
 ];
+
+/// Whether a request's capture says the Scratchpad as a place, where there
+/// is one: the person's own place, as a pick is ([`scratchpad`]).
+pub fn on_pad(r: &Request) -> bool {
+    r.scratch.is_some() && scratchpad(&r.text)
+}
+
+/// The request for the brief of a thought the person placed at `to`: the
+/// task and that place, nothing more; no other project or session, no
+/// earlier task, nothing in view.
+pub fn only(mut r: Request, to: Destination) -> Request {
+    let project = match to {
+        Destination::Session(id) => (r.sessions.iter())
+            .find(|s| s.id == id)
+            .map(|s| Destination::New(s.project)),
+        place => Some(place),
+    };
+    r.sessions.retain(|s| Destination::Session(s.id) == to);
+    r.projects.retain(|p| Some(p.to) == project);
+    (r.current, r.view) = (None, None);
+    (r.recent, r.earlier, r.top) = (Vec::new(), Vec::new(), Vec::new());
+    r
+}
 
 /// Whether the capture says the Scratchpad as a place: "scratchpad" or
 /// "scratch pad" right after one of [`ON_PAD`]. Never the word "scratch"
@@ -1010,13 +1010,23 @@ fn lead(r: &Request) -> Option<Route> {
 /// which may be none; where the agent should work when no project is known
 /// at all. Never a project only because it was worked on lately.
 pub fn unsure(r: &Request) -> Route {
-    let candidates: Vec<Candidate> = (offered(r, CHOICES).into_iter())
+    let mut candidates: Vec<Candidate> = (offered(r, CHOICES).into_iter())
         .map(|(p, why)| Candidate {
             label: p.name.clone(),
             to: p.to,
             why,
         })
         .collect();
+    // The workspace in view leads, where a model was to decide (only then
+    // is it told).
+    let view = r.view.map(Destination::New);
+    if let Some(p) = r.projects.iter().find(|p| Some(p.to) == view) {
+        candidates.retain(|c| c.to != p.to);
+        let why = String::new();
+        let (label, to) = (p.name.clone(), p.to);
+        candidates.insert(0, Candidate { label, to, why });
+        candidates.truncate(CHOICES);
+    }
     let prompt = match r.projects.is_empty() {
         true => WORK,
         false => WHERE,
@@ -1526,8 +1536,9 @@ const WORK: &str = "Where should the agent work?";
 /// each session's first and last request, how long ago its last turn
 /// began (`now`: the time the ages count to), what its agent last answered
 /// and whether it waits on a question; each project's earlier tasks; then
-/// [`order`]'s 8 projects and 8 sessions, each project with the names at
-/// the top of its folder, and the 3 latest exchanges with those sessions.
+/// [`order`]'s 8 projects and 8 sessions, and the 3 latest exchanges with
+/// those sessions. The tops of their folders are read after, off the
+/// core's thread ([`tops`]).
 pub fn narrow(tx: &Tx, mut r: Request, now: Time) -> store::Result<Request> {
     for s in &mut r.sessions {
         let turns = tx.turns(s.id)?;
@@ -1544,10 +1555,6 @@ pub fn narrow(tx: &Tx, mut r: Request, now: Time) -> store::Result<Request> {
     }
     r.earlier = earlier(tx, &r)?;
     let mut r = order(r);
-    r.top = (r.projects.iter())
-        .map(|p| (p.to, heads(&p.folder)))
-        .filter(|(_, names)| !names.is_empty())
-        .collect();
     for (t, result) in tx.exchanges(4 * OFFERED)? {
         let session = t
             .session_id
@@ -1624,7 +1631,7 @@ pub fn order(mut r: Request) -> Request {
 /// Most earlier tasks of a project a model is shown, and most characters
 /// of each one's title.
 const EARLIER: usize = 5;
-const EARLIER_TITLE: usize = 80;
+pub const EARLIER_TITLE: usize = 80;
 /// Most names at the top of a project's folder a model is shown.
 const TOP: usize = 15;
 
@@ -1689,13 +1696,87 @@ fn heads(folder: &str) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return Vec::new();
     };
-    let mut names: Vec<String> = (entries.filter_map(Result::ok))
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| !n.starts_with('.'))
+    let entries = (entries.filter_map(Result::ok)).take(TOP_READ).map(|e| {
+        let folder = e.file_type().is_ok_and(|t| t.is_dir());
+        (e.file_name().to_string_lossy().into_owned(), folder)
+    });
+    top_of(entries)
+}
+
+/// Most entries of a project's folder read for its top.
+const TOP_READ: usize = 2000;
+
+/// Files that say what a project is, by name alone: the only files at a
+/// project's top a model is told of.
+const KNOWN_FILES: &[&str] = &[
+    "package.json",
+    "cargo.toml",
+    "pyproject.toml",
+    "setup.py",
+    "requirements.txt",
+    "go.mod",
+    "gemfile",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "composer.json",
+    "mix.exs",
+    "deno.json",
+    "pubspec.yaml",
+    "package.swift",
+    "cmakelists.txt",
+    "makefile",
+    "dockerfile",
+    "docker-compose.yml",
+    "readme",
+    "readme.md",
+    "readme.rst",
+    "readme.txt",
+    "license",
+    "claude.md",
+    "agents.md",
+    "gemini.md",
+];
+
+/// The names at a project's top a model is told of, from its entries
+/// (`name`, whether a folder): its folders and the well-known project
+/// files ([`KNOWN_FILES`]), none hidden, in order, at most [`TOP`]. No
+/// other file's name.
+pub fn top_of(entries: impl IntoIterator<Item = (String, bool)>) -> Vec<String> {
+    let mut names: Vec<String> = (entries.into_iter())
+        .filter(|(n, folder)| {
+            !n.starts_with('.') && (*folder || KNOWN_FILES.contains(&n.to_lowercase().as_str()))
+        })
+        .map(|(n, _)| n)
         .collect();
     names.sort();
     names.truncate(TOP);
     names
+}
+
+/// The tops of the projects a model is given (`(place, folder)`), read
+/// off the core's thread ([`top_of`]); a folder that does not answer
+/// within `within` is sent without names, and placing goes on.
+pub fn tops(
+    folders: Vec<(Destination, String)>,
+    within: std::time::Duration,
+) -> Vec<(Destination, Vec<String>)> {
+    let (tell, told) = std::sync::mpsc::channel();
+    for (to, folder) in folders {
+        let tell = tell.clone();
+        std::thread::spawn(move || drop(tell.send((to, heads(&folder)))));
+    }
+    drop(tell);
+    let until = std::time::Instant::now() + within;
+    let mut out = Vec::new();
+    while let Ok(top) =
+        told.recv_timeout(until.saturating_duration_since(std::time::Instant::now()))
+    {
+        if !top.1.is_empty() {
+            out.push(top);
+        }
+    }
+    out
 }
 
 /// `all` with those that are `first` before the others, each in their order.
@@ -1706,7 +1787,7 @@ fn first<T>(all: Vec<T>, first: impl Fn(&T) -> bool) -> Vec<T> {
 }
 
 /// The first `chars` characters of `text` on one line.
-fn cut(text: &str, chars: usize) -> String {
+pub fn cut(text: &str, chars: usize) -> String {
     let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
     line.chars().take(chars).collect()
 }
@@ -1756,25 +1837,21 @@ pub fn question(r: &Request) -> String {
 pub fn asked(r: &Request) -> String {
     let project = |id: ProjectId| key(r, Destination::New(id));
     let session = |id: SessionId| key(r, Destination::Session(id));
-    // A text that looks like a secret is left out; what it belongs to is not.
-    let shown = |text: &str| (!secretish(text)).then(|| text.to_owned());
-    let plain = |text: &str| shown(text).unwrap_or_default();
+    // Every text a word at a time: what looks like a secret is left out.
+    let plain = |text: &str| redact(text);
     let of = |list: &[(Destination, Vec<String>)], to: Destination| -> Vec<String> {
         let all = list
             .iter()
             .find(|(d, _)| *d == to)
             .map(|(_, l)| l.as_slice());
-        all.unwrap_or_default()
-            .iter()
-            .filter_map(|t| shown(t))
-            .collect()
+        all.unwrap_or_default().iter().map(|t| redact(t)).collect()
     };
     let projects: Vec<_> = (r.projects.iter())
         .map(|p| {
             let aliases: Vec<_> = (p.aliases.iter().take(3))
-                .filter_map(|a| shown(&cut(a, 60)))
+                .map(|a| redact(&cut(a, 60)))
                 .collect();
-            json!({ "id": key(r, p.to), "name": cut(&p.name, 100), "aliases": aliases,
+            json!({ "id": key(r, p.to), "name": redact(&cut(&p.name, 100)), "aliases": aliases,
                     "about": plain(&cut(&p.about, 160)), "earlier": of(&r.earlier, p.to),
                     "top": of(&r.top, p.to) })
         })
@@ -1787,7 +1864,7 @@ pub fn asked(r: &Request) -> String {
                 SessionState::Idle | SessionState::Ended => "finished",
             };
             json!({ "id": session(s.id),
-                    "name": s.name.as_deref().and_then(|n| shown(&cut(n, 140))),
+                    "name": s.name.as_deref().map(|n| redact(&cut(n, 140))),
                     "first": plain(&s.first), "task": plain(&s.task),
                     "project": project(s.project), "agent": s.agent, "state": state,
                     "ago": s.ago.map(ago), "summary": plain(&s.summary) })
@@ -1800,7 +1877,7 @@ pub fn asked(r: &Request) -> String {
         })
         .collect();
     let request = json!({
-        "thought": r.text,
+        "thought": redact(&r.text),
         "current": r.current.and_then(session),
         "view": r.view.and_then(project),
         "picked": r.picked.and_then(|to| key(r, to)),
@@ -1822,66 +1899,166 @@ fn ago(ms: u64) -> String {
     }
 }
 
-/// Whether a text looks like it holds a secret: a key, a token or a
-/// password, said so ("password: …", "token=…"), or a word that is one by
-/// its shape (a known key's beginning, or a long run of letters and digits
-/// of mixed case). Such a text is never sent to a model; the project or
-/// session it belongs to is, without it.
-pub fn secretish(text: &str) -> bool {
-    const SAID: &[&str] = &[
-        "password",
-        "passwort",
-        "passwd",
-        "secret",
-        "token",
-        "api key",
-        "api_key",
-        "apikey",
-        "private key",
+/// What stands in a text sent to a model where a word looked like a secret.
+pub const LEFT_OUT: &str = "[left out]";
+
+/// A text as a model is sent it: each word that looks like a secret (a
+/// key, a token, a password) replaced by [`LEFT_OUT`], the rest as it is,
+/// so a task or a session keeps the words that place it. A wrong match
+/// costs one word, so it leans towards leaving out:
+///
+/// - the word after one that says a secret follows (password, Passwort,
+///   passphrase, secret, token, key, Bearer and the like), with or without
+///   ":" or "=", over "is" and the like;
+/// - a value given to a name that says so (`DB_PASS=…`, `API_TOKEN: …`);
+/// - a web address with a password in it (`https://me:pw@host`), and a
+///   webhook's address;
+/// - a word with a known key's beginning (`sk-`, `ghp_`, `xoxb-`, `AKIA`,
+///   `eyJ`, …), also inside it;
+/// - a long run of letters and digits, or of letters in mixed case.
+pub fn redact(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    // Words still to pass before the value a word said follows, or none.
+    let mut after: Option<usize> = None;
+    let mut rest = text;
+    while !rest.is_empty() {
+        let space = rest
+            .find(|c: char| !c.is_whitespace())
+            .unwrap_or(rest.len());
+        out.push_str(&rest[..space]);
+        rest = &rest[space..];
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        if end == 0 {
+            break;
+        }
+        let word = &rest[..end];
+        rest = &rest[end..];
+        let bare = word.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c));
+        let lower = bare.to_lowercase();
+        let (name, value) = match lower.split_once(['=', ':']) {
+            Some((n, v)) if !v.starts_with("//") => (n.to_owned(), v.to_owned()),
+            _ => (lower.clone(), String::new()),
+        };
+        let between = after.is_some() && BETWEEN.contains(&lower.as_str());
+        let secret =
+            (after.is_some() && !between) || (!value.is_empty() && tells(&name)) || shaped(bare);
+        if secret {
+            out.push_str(LEFT_OUT);
+            after = None;
+            continue;
+        }
+        out.push_str(word);
+        after = match after {
+            Some(left) if between && left > 1 => Some(left - 1),
+            Some(_) => None,
+            None if value.is_empty() && tells(&name) => Some(3),
+            None => None,
+        };
+    }
+    out
+}
+
+/// Words that say a secret follows them, and the parts of a name that do
+/// (`DB_PASS`, `api-token`) ([`redact`]).
+const SAYS: &[&str] = &[
+    "password",
+    "passwords",
+    "passwort",
+    "passphrase",
+    "passwd",
+    "kennwort",
+    "secret",
+    "secrets",
+    "token",
+    "tokens",
+    "key",
+    "keys",
+    "apikey",
+    "bearer",
+    "credentials",
+];
+const PARTS: &[&str] = &[
+    "pass", "passwd", "password", "pwd", "secret", "token", "key", "apikey", "auth",
+];
+/// Words between the one that says a secret follows and the secret.
+const BETWEEN: &[&str] = &[
+    "is", "was", "ist", "lautet", "=", ":", "-", "of", "for", "für", "to", "the", "my", "our", "a",
+    "an",
+];
+
+/// Whether a word, or a name a value is given to, says a secret follows.
+fn tells(name: &str) -> bool {
+    let parts: Vec<&str> = name
+        .split(['_', '-', '.'])
+        .filter(|p| !p.is_empty())
+        .collect();
+    SAYS.contains(&name) || (parts.len() > 1 && parts.iter().any(|p| PARTS.contains(p)))
+}
+
+/// Whether a word looks like a secret by its shape alone ([`redact`]).
+fn shaped(word: &str) -> bool {
+    // A key's beginning, at the word's start.
+    const START: &[&str] = &[
+        "sk-", "sk_", "pk_live_", "rk_live_", "whsec_", "npm_", "pypi-", "hf_", "dop_v1_",
     ];
-    const KEYS: &[&str] = &[
-        "sk-",
-        "sk_live_",
-        "pk_live_",
-        "rk_live_",
+    // One that is a key's wherever it stands in a word, as written.
+    const INSIDE: &[&str] = &[
         "ghp_",
         "gho_",
         "ghu_",
         "ghs_",
+        "ghr_",
         "github_pat_",
         "glpat-",
         "xoxb-",
         "xoxp-",
+        "xoxa-",
         "xapp-",
-        "akia",
-        "aiza",
-        "eyj",
+        "shpat_",
+        "AKIA",
+        "ASIA",
+        "AIza",
+        "eyJ",
     ];
-    let lower = text.to_lowercase();
-    if lower.contains("-----begin") {
+    const HOOKS: &[&str] = &[
+        "hooks.slack.com/",
+        "discord.com/api/webhooks/",
+        "discordapp.com/api/webhooks/",
+        "webhook.office.com/",
+        "outlook.office.com/webhook",
+    ];
+    let lower = word.to_lowercase();
+    if HOOKS.iter().any(|h| lower.contains(h)) || lower.contains("-----begin") {
         return true;
     }
-    let said = SAID.iter().any(|w| {
-        lower.match_indices(w).any(|(at, _)| {
-            let after = lower[at + w.len()..].trim_start();
-            after.starts_with(':') || after.starts_with('=')
-        })
-    });
-    let shaped =
-        (text.split(|c: char| c.is_whitespace() || "\"'`()[]{}<>,;".contains(c))).any(|w| {
-            let lw = w.to_lowercase();
-            let long = w.chars().count();
-            let digits = w.chars().any(|c| c.is_ascii_digit());
-            let letters = w.chars().any(|c| c.is_ascii_alphabetic());
-            let mixed = w.chars().any(|c| c.is_ascii_uppercase())
-                && w.chars().any(|c| c.is_ascii_lowercase());
-            let plain = w
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "_-+/=".contains(c));
-            let known = KEYS.iter().any(|k| lw.starts_with(k)) && long >= 16;
-            known || (plain && digits && letters && ((long >= 24 && mixed) || long >= 40))
-        });
-    said || shaped
+    // A web address with a user's password: scheme://user:password@host.
+    if let Some((_, after)) = lower.split_once("://")
+        && let Some((user, _)) = after.split_once('@')
+        && user.contains(':')
+    {
+        return true;
+    }
+    let long = |from: usize| word.len() - from >= 8;
+    let started = START.iter().any(|k| lower.starts_with(k) && long(k.len()));
+    let inside = INSIDE
+        .iter()
+        .any(|k| word.match_indices(k).any(|(at, _)| long(at + k.len())));
+    let count = word.chars().count();
+    let digits = word.chars().any(|c| c.is_ascii_digit());
+    let letters = word.chars().any(|c| c.is_ascii_alphabetic());
+    let mixed = word.chars().any(|c| c.is_ascii_uppercase())
+        && word.chars().any(|c| c.is_ascii_lowercase());
+    let plain = word
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_-+=".contains(c));
+    let base64 = word
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "+/=".contains(c));
+    started
+        || inside
+        || (plain && digits && letters && count >= 24)
+        || (plain && mixed && count >= 32)
+        || (base64 && digits && mixed && count >= 40)
 }
 
 /// A word of the protocol as the protocol writes it.
@@ -2002,7 +2179,8 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
             let to = offered(&a.to)?.to;
             let quote = a.quote.trim();
             let quoted = quote.chars().count() >= 3 && says(&r.text, quote);
-            let follows = matches!(to, Destination::Session(id) if Some(id) != r.current);
+            // Also to the session in view: the view tells which, not whether.
+            let follows = matches!(to, Destination::Session(_));
             if follows && !quoted {
                 return Err("the words it quotes for a follow-up are not in the task".into());
             }
@@ -2014,8 +2192,10 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
             ))
         }
         Confidence::New => {
-            let name = folder_name(&a.folder)
-                .ok_or("it proposes a new project with no folder name for it")?;
+            // A name that ends up empty is no new project: the question.
+            let Some(name) = folder_name(&a.folder) else {
+                return Ok((Route::Unknown, found(None)));
+            };
             let route = Route::Create {
                 prompt: WHERE.into(),
                 project: NewProject {
@@ -2030,10 +2210,18 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
             Ok((route, found(None)))
         }
         Confidence::Ambiguous => {
+            let quote = a.quote.trim();
+            let quoted = quote.chars().count() >= 3 && says(&r.text, quote);
             let mut candidates: Vec<Candidate> = Vec::new();
             for key in &a.candidates {
-                let choice = offered(key)?;
-                if !candidates.contains(&choice) {
+                let mut choice = offered(key)?;
+                // A follow-up needs the task's words that lean on its
+                // session, as a sure one does; without, a new run there.
+                if let (Destination::Session(id), false) = (choice.to, quoted) {
+                    let Some(run) = run_in(r, id) else { continue };
+                    choice = run;
+                }
+                if !candidates.iter().any(|c| c.to == choice.to) {
                     candidates.push(choice);
                 }
             }
@@ -2046,25 +2234,44 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
                 candidates,
                 brief: Some(brief()?),
             };
-            Ok((route, found(None)))
+            Ok((route, found(quoted.then_some(quote))))
         }
     }
 }
 
+/// A new run in the project of a session the request offers, as a choice.
+fn run_in(r: &Request, session: SessionId) -> Option<Candidate> {
+    let s = r.sessions.iter().find(|s| s.id == session)?;
+    let p = (r.projects.iter()).find(|p| p.to == Destination::New(s.project))?;
+    Some(Candidate {
+        label: p.name.clone(),
+        to: p.to,
+        why: String::new(),
+    })
+}
+
 /// A folder name as a model proposes one for a new project, made safe for
-/// a folder: lower case, words joined with hyphens, at most 60 characters,
-/// nothing that is no letter, digit, hyphen, dot or underscore; none when
-/// nothing is left.
-fn folder_name(proposed: &str) -> Option<String> {
-    let lower = proposed.trim().to_lowercase();
-    let words = lower.split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '_'));
+/// a folder on every system: lower-case ASCII letters and digits, words
+/// joined by single dashes, beginning and ending with a letter or a digit,
+/// at most 40 characters, and no name Windows keeps for a device; none
+/// when nothing is left.
+pub fn folder_name(proposed: &str) -> Option<String> {
+    const KEPT: &[&str] = &["con", "prn", "aux", "nul"];
+    let lower = proposed.trim().to_ascii_lowercase();
+    let words = lower.split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()));
     let joined = words
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    let name: String = joined.trim_matches('.').chars().take(60).collect();
-    let name = name.trim_end_matches(['-', '.']).to_owned();
-    (!name.is_empty()).then_some(name)
+    let name: String = joined.chars().take(40).collect();
+    let name = name.trim_end_matches('-').to_owned();
+    let device = |n: &str| {
+        KEPT.contains(&n)
+            || ((n.starts_with("com") || n.starts_with("lpt"))
+                && n.len() == 4
+                && n.as_bytes()[3].is_ascii_digit())
+    };
+    (!name.is_empty() && !device(&name)).then_some(name)
 }
 
 /// Where a new project goes: the folder that holds the most of the
@@ -2108,34 +2315,42 @@ pub fn vehicle(r: &Request, to: Destination) -> Option<Destination> {
     }
 }
 
-/// A new project a model proposed, as the person is asked about it: in
-/// the folder where most of their projects are (`home`), offered first in
-/// the question the match on names asks (`unsure`), as the folder that is
-/// there where one has its name. Without such a folder, that question alone.
+/// A new project a model proposed, as the person is asked about it,
+/// completed where the core decides it: in the folder where most of their
+/// projects are (`home`), first in the question the names ask (`unsure`,
+/// whose places follow it). Where that folder is there already it is
+/// offered only as the project Tasktap knows there (`known`); a folder
+/// Tasktap knows as no project is never offered, and no project row is.
+/// Without a home, that question alone.
 pub fn create(
-    project: NewProject,
-    brief: Option<String>,
+    route: Route,
     home: Option<&std::path::Path>,
     unsure: &Route,
+    known: impl FnOnce(&std::path::Path) -> bool,
 ) -> Route {
     let (
+        Route::Create {
+            mut project, brief, ..
+        },
         Some(home),
         Route::Ambiguous {
             prompt, candidates, ..
         },
-    ) = (home, unsure)
+    ) = (route, home, unsure)
     else {
         return unsure.clone();
     };
     let folder = home.join(&project.name);
+    let exists = folder.exists();
+    if exists && !known(&folder) {
+        return unsure.clone();
+    }
+    project.place = as_known(home);
+    project.folder = folder.to_string_lossy().into_owned();
+    project.exists = exists;
     Route::Create {
         prompt: prompt.clone(),
-        project: NewProject {
-            place: as_known(home),
-            folder: folder.to_string_lossy().into_owned(),
-            exists: folder.is_dir(),
-            name: project.name,
-        },
+        project,
         candidates: candidates.clone(),
         brief,
     }
@@ -2243,6 +2458,14 @@ impl Asker {
         match self {
             Asker::Agent(_, how) => how.model,
             Asker::ChatGpt(model) => model,
+        }
+    }
+
+    /// Its name, as the person reads it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Asker::Agent(agent, _) => agent.name(),
+            Asker::ChatGpt(_) => "ChatGPT",
         }
     }
 }
@@ -2427,9 +2650,10 @@ fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
 
 /// `route.hint`: the match on names for a capture being typed, which the
 /// chip says: where the names it says send it, or `unknown` while they say
-/// nothing (the capture then asks). With a model the person agreed to,
-/// `unknown` always: the model decides every thought, the names it says
-/// among what it reads. It stores nothing and starts nothing.
+/// nothing (the capture then asks). `unknown` too wherever `effects::route`
+/// asks a model: one the person agreed to that this core can still ask,
+/// with a project known, and the Scratchpad not said as the place. It
+/// stores nothing and starts nothing.
 pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
     let (request, by, chatgpt) = effects::read(cx.core, |tx| {
         let by = match tx.pref(tasktap_proto::PrefKey::RouteBy)?.map(|p| p.value) {
@@ -2439,12 +2663,14 @@ pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
         let chatgpt = crate::chatgpt::model(tx)?;
         Ok((request(tx, &args.text, args.current)?, by, chatgpt))
     })?;
-    // With a model the person agreed to, the model decides: the chip says so.
-    let agreed = |by: RouteBy| agreed(&by, chatgpt.as_deref()).is_ok();
-    let model = by.is_some_and(agreed);
+    let names = by_names(&request);
+    let pad = matches!(&names, Some(Route::Clear { to: Destination::New(p), .. }) if Some(*p) == request.scratch);
+    let tools = by.filter(|_| !pad && !request.projects.is_empty());
+    let tools = tools.and_then(|by| agreed(&by, chatgpt.as_deref()).ok());
+    let model = tools.is_some_and(|tools| tools.iter().any(|t| !cx.core.seams.gone(t.id())));
     Ok(match model {
         true => tasktap_proto::Route::Unknown,
-        false => wire(by_names(&request).unwrap_or(Route::Unknown)),
+        false => wire(names.unwrap_or(Route::Unknown)),
     })
 }
 
@@ -2471,13 +2697,8 @@ pub fn wire(route: Route) -> tasktap_proto::Route {
                 })
                 .collect(),
         },
-        // What a model alone answers: never a hint's.
-        Route::Torn { candidates, .. } => wire(Route::Ambiguous {
-            prompt: WHERE.into(),
-            candidates,
-            brief: None,
-        }),
-        Route::Create { .. } | Route::Unknown => tasktap_proto::Route::Unknown,
+        Route::Unknown => tasktap_proto::Route::Unknown,
+        Route::Torn { .. } | Route::Create { .. } => unreachable!("only a model answers so"),
     }
 }
 

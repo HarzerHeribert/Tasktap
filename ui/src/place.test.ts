@@ -20,7 +20,7 @@ test('Auto with nothing known yet is one word under the arrow, and its tooltip s
   assert.equal(says('words', { place: '', is: 'folder', ...K }).title, AUTO);
   // An agent may choose: the tooltip names the agent that reads the task.
   assert.equal(says('model', { place: '', is: 'folder', agent: 'Claude Code', ...K }).title,
-    'Auto: Tasktap sends the task to the project the task names. When the task names none, Claude Code reads the task and chooses the project. Click (or ⌘K) to choose the place yourself.');
+    'Auto: Claude Code reads the task and chooses its project, and whether an agent at work there continues. Click (or ⌘K) to choose the place yourself.');
   // Off the Mac the key is spelled as that system's keyboard has it.
   assert.ok(says('ask', { place: '', is: 'folder', key: 'Ctrl+K' }).title.includes('Click (or Ctrl+K) to choose'));
 });

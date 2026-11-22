@@ -14,12 +14,15 @@
 //! filter and order (`route::top_of`), a name with no dot taken for a
 //! folder unless it is a well-known file (`route::folder_named`: gradlew,
 //! Brewfile, LICENSE), as the corpus does not say; a session's first and last request
-//! are the one the corpus gives it.
+//! are the one the corpus gives it. What the real app knows of recency and
+//! of the last task is given only where the corpus says it: a project's
+//! `used` (milliseconds), a task's `last` (the project its predecessor went
+//! to) and a state's `view`; without them the projects count as never used.
 
 use serde::Deserialize;
 use tasktap_core::route::{self, Exchange, Followed, Named, Request};
 use tasktap_core::state::Destination;
-use tasktap_proto::{ProjectId, SessionId, SessionState, Status};
+use tasktap_proto::{ProjectId, SessionId, SessionState, Status, Time};
 
 #[derive(Deserialize)]
 struct Corpus {
@@ -45,17 +48,30 @@ struct Project {
     history: Vec<serde_json::Value>,
     #[serde(default)]
     top: Vec<String>,
+    /// When work last happened there, in milliseconds since 1970: what the
+    /// core knows of each project's use (`route::Named::used`). Without it
+    /// the projects count as never used, and the corpus's own order is the
+    /// only recency there is.
+    #[serde(default)]
+    used: Option<u64>,
 }
 
 #[derive(Deserialize)]
 struct Task {
     id: String,
     text: String,
+    /// The project the newest thought that had a place went to, as the core
+    /// keeps it (`route::Request::last`); the corpus's states have it.
+    #[serde(default)]
+    last: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct State {
     current: Option<String>,
+    /// The project in view when the task was said in Tasktap's window.
+    #[serde(default)]
+    view: Option<String>,
     sessions: Vec<Open>,
     tasks: Vec<Task>,
 }
@@ -85,7 +101,7 @@ fn main() {
         let plain = person.tasks.iter().map(|t| (t, None));
         let said = (person.states.iter()).flat_map(|s| s.tasks.iter().map(move |t| (t, Some(s))));
         if let Some((task, state)) = plain.chain(said).find(|(t, _)| t.id == *id) {
-            print!("{}", route::question(&request(person, &task.text, state)));
+            print!("{}", route::question(&request(person, task, state)));
             return;
         }
     }
@@ -95,12 +111,10 @@ fn main() {
 
 /// The request for a task of a person, as the core would make it: every
 /// project of theirs, every session open, ordered and cut by `route::order`.
-fn request(person: &Person, text: &str, state: Option<&State>) -> Request {
+fn request(person: &Person, task: &Task, state: Option<&State>) -> Request {
     let ids: Vec<ProjectId> = person.projects.iter().map(|_| ProjectId::mint()).collect();
-    let id_of = |name: &str| {
-        let at = person.projects.iter().position(|p| p.name == name);
-        ids[at.unwrap_or_else(|| panic!("no project {name}"))]
-    };
+    let find = |name: &str| person.projects.iter().position(|p| p.name == name);
+    let id_of = |name: &str| ids[find(name).unwrap_or_else(|| panic!("no project {name}"))];
     let projects: Vec<Named> = (person.projects.iter().zip(&ids))
         .map(|(p, id)| Named {
             about: p.about.clone(),
@@ -109,6 +123,11 @@ fn request(person: &Person, text: &str, state: Option<&State>) -> Request {
                 &p.name,
                 &p.aliases.iter().map(String::as_str).collect::<Vec<_>>(),
             )
+        })
+        .zip(&person.projects)
+        .map(|(named, p)| Named {
+            used: p.used.and_then(Time::new),
+            ..named
         })
         .collect();
     let to = |id: &ProjectId| Destination::New(*id);
@@ -147,16 +166,23 @@ fn request(person: &Person, text: &str, state: Option<&State>) -> Request {
     let current = state.and_then(|s| s.current.as_deref());
     let current = (open.iter()).find(|(o, _)| Some(o.key.as_str()) == current);
     let mut r = route::order(Request {
-        text: text.into(),
+        text: task.text.clone(),
         current: current.map(|(_, id)| *id),
         picked: None,
         recent: Vec::new(),
         scratch: None,
         projects,
         sessions,
-        last: None,
+        // A project that was not there yet when the task was said is none.
+        last: task
+            .last
+            .as_deref()
+            .and_then(find)
+            .map(|k| Destination::New(ids[k])),
         words: Default::default(),
-        view: None,
+        view: (state.and_then(|s| s.view.as_deref()))
+            .and_then(find)
+            .map(|k| ids[k]),
         earlier,
         top,
     });

@@ -60,7 +60,7 @@ test('Windows has Control for Command, with Shift where the key is a letter', ()
 });
 
 test('a few keys are as Windows itself has them', () => {
-  for (const [k, said] of [['⇧⌘D', 'Ctrl+Shift+E'], ['⌘⇧D', 'Ctrl+Shift+E'], ['⌘[', 'Alt+←'], ['⌘↓', 'Ctrl+End'], ['⌘Z', 'Ctrl+Z']] as const) assert.equal(spell(k, false), said);
+  for (const [k, said] of [['⇧⌘D', 'Ctrl+Shift+E'], ['⌘⇧D', 'Ctrl+Shift+E'], ['⇧⌘N', 'Ctrl+Shift+M'], ['⌘[', 'Alt+←'], ['⌘↓', 'Ctrl+End'], ['⌘Z', 'Ctrl+Z']] as const) assert.equal(spell(k, false), said);
 });
 
 test('a key without Command is the same key, in the words Windows prints', () => {
@@ -70,7 +70,7 @@ test('a key without Command is the same key, in the words Windows prints', () =>
 
 test('no two commands share a key on either system', () => {
   // The menu's commands and the Composer's own: ⌘K the place's list, ⌘J the agent control's (rings.tsx AGENT_KEY).
-  const all = ['⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘K', '⌘J'];
+  const all = ['⌘N', '⇧⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘K', '⌘J'];
   for (const onMac of [true, false]) assert.equal(new Set(all.map((k) => spell(k, onMac))).size, all.length);
 });
 
@@ -155,6 +155,6 @@ test('the table of Tasktap\'s own keys says what this file says, on both systems
     }
   }
   // The menu's commands are the table's.
-  assert.deepEqual(Object.keys(COMMANDS), ['new-task', 'new-terminal', 'open-workspace', 'close-tab', 'find', 'sidebar', 'split-right', 'split-down', 'preview', 'reload-preview', 'bigger', 'smaller', 'reset', 'settings', 'back', 'session']);
+  assert.deepEqual(Object.keys(COMMANDS), ['new-task', 'new-terminal', 'open-workspace', 'pop-out', 'close-tab', 'find', 'sidebar', 'split-right', 'split-down', 'preview', 'reload-preview', 'bigger', 'smaller', 'reset', 'settings', 'back', 'session']);
   assert.equal(COMMANDS['split-down'], '⇧⌘D');
 });

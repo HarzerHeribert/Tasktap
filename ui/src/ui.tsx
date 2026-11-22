@@ -9,6 +9,7 @@ import { letters, lettersOf } from './way.ts';
 
 /** One owned set of icons on a 16 px grid, drawn as strokes. */
 const icons = {
+  window: () => <><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.25" /><path d="M1.75 6.25h12.5" /></>,
   sidebar: () => <><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.25" /><path d="M5.75 2.75v10.5" /></>,
   splitr: () => <><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.25" /><path d="M8 2.75v10.5" /></>,
   splitd: () => <><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.25" /><path d="M1.75 8h12.5" /></>,

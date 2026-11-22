@@ -98,6 +98,8 @@ pub const FIELD_KEYS: &[FieldKey] = &[
 pub const WINDOWS_KEYS: &[(&str, &str)] = &[
     // ⌘D is Ctrl+Shift+D already: the split below it takes the key beside it.
     ("⇧⌘D", "⌃⇧E"),
+    // ⌘N is Ctrl+Shift+N already: opening a workspace in a window takes the key beside it.
+    ("⇧⌘N", "⌃⇧M"),
     // Back, as Windows has it; Ctrl+[ is Escape to a terminal.
     ("⌘[", "⌥←"),
     // To the end, as Windows has it.

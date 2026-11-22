@@ -441,6 +441,8 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
   const hostValue = (name, a) => {
     // The page's word that it has drawn, which shows the window: when, and what its status line said then.
     if (name === 'host.ready') return ((window.__fake.ready ??= { at: performance.now(), rail: document.querySelector('.rail-l')?.textContent ?? null }), null);
+    // What the page asked of its window (host.window): kept in order; `out`, the workspaces that are out, as the records say.
+    if (name === 'host.window') return ((window.__fake.windows ??= []).push(a), a.do === 'out' ? (records.out ?? []) : null);
     if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
     if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
     if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());
@@ -618,7 +620,7 @@ function findCore() {
   return FIND;
 }
 const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0';
-async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions, system, fixed, init }) {
+async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions, system, fixed, init, query = '' }) {
   const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: Number(process.env.WIDTH) || 1180, height: 760 });
   if (TEXT !== 'default' && !(records.prefs || []).some((p) => p.id === 'text_size')) records = { ...records, prefs: [...(records.prefs || []), { id: 'text_size', value: TEXT, rev: 1 }] };
   const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}), ...(system === 'windows' ? { userAgent: WINDOWS } : {}) });
@@ -638,7 +640,7 @@ async function open(browser, { label, records = {}, viewport, dpr = 2, url, vide
   // `projects.find`, answered by the core's own code when it is built (`findCore`).
   if (fs.existsSync(FIND)) await page.exposeFunction('__coreFind', (asked) => require('node:child_process').execFileSync(FIND, { input: `${asked}\n` }).toString());
   await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS }, terms: TERMS, keys: OWN_KEYS });
-  await page.goto(`${url}/${label}.html`);
+  await page.goto(`${url}/${label}.html${query}`);
   if (label === 'notch') await page.evaluate(() => { document.documentElement.style.background = '#3a4048'; });
   await page.waitForTimeout(400); // welcome, sub and first paint
   return page;

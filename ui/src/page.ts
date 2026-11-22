@@ -52,13 +52,13 @@ export const fail = (e: unknown) => {
 /** Where Tasktap shows itself (docs/rebuild-plan.md, "Where Tasktap shows itself"), as the host last said it to both
  *  pages at once (the `ui` event `where`, and the reply to `host.where`). Until it has said, the notch is where
  *  Tasktap is, as it is with the window behind. */
-export const where: Where = { front: false, full: false, notch: true, place: null, question: null };
+export const where: Where = { front: false, full: false, notch: true, place: null, question: null, window: '' };
 /** Takes what the host said; the answer is whether anything changed. A host that says nothing (a page shown without
  *  the app, as the headless checks show it) changes nothing. */
 export function heardWhere(w: Partial<Where> | null | undefined) {
   if (!w || typeof w !== 'object') return false;
   const before = JSON.stringify(where);
-  Object.assign(where, { front: !!w.front, full: !!w.full, notch: !!w.notch, place: w.place ?? null, question: w.question ?? null });
+  Object.assign(where, { front: !!w.front, full: !!w.full, notch: !!w.notch, place: w.place ?? null, question: w.question ?? null, window: w.window ?? '' });
   return JSON.stringify(where) !== before;
 }
 /** Whether a waiting question is shown by this page now, the rule both pages and their question sheets follow: the

@@ -24,6 +24,8 @@ export type Where = {
   notch: boolean;
   place: 'needs-you' | 'strip' | 'line' | 'notch' | 'notification' | 'icon' | null;
   question: string | null;
+  /** The workspace window in front (its label): the one that has or last had the keyboard. */
+  window?: string;
 };
 
 /** The host's abilities this slice has. */
@@ -37,8 +39,18 @@ export type HostCalls = {
   /** The workspace page has drawn: its window may show. */
   'host.ready': { args: Record<string, never>; result: null };
   /** The window minimised, maximised or put back, or closed: for the page's own caption buttons and menu (Windows);
-   *  `quit` ends the app, which closing its window does not. */
-  'host.window': { args: { do: 'minimize' | 'maximize' | 'close' | 'quit' }; result: null };
+   *  `quit` ends the app, which closing its window does not. `pop` takes a workspace out into a window of its own, of
+   *  the size `w` by `h`; `front` brings that window forward, at `at`; `title` names this window; `out` says which
+   *  workspaces are out (their projects); `menu` is a command only the main window carries out. */
+  'host.window': {
+    args:
+      | { do: 'minimize' | 'maximize' | 'close' | 'quit' | 'out' }
+      | { do: 'title'; text: string }
+      | { do: 'menu'; id: string }
+      | { do: 'pop'; project: string; w: number; h: number }
+      | { do: 'front'; project: string; at?: string };
+    result: string[] | null;
+  };
   /** Where Tasktap shows itself (docs/rebuild-plan.md, "Where Tasktap shows itself"), as the host decides it for both
    *  pages at once; the host says it again whenever it changes (the `ui` event `where`). With `shows`, the workspace
    *  says what its window shows: Home with no sheet, the New Task sheet, a workspace's terminals (the sessions shown),

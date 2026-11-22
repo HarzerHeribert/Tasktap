@@ -6,7 +6,7 @@ import { Spark } from './light.tsx';
 import { command } from './main.tsx';
 import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, agentName, closeTab, closeWorkspace, cue, details, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, questionOf,
+  LOOSE, agentName, closeTab, closeWorkspace, cue, details, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, popOut, questionOf,
   records, redraw, runs, sessionOf, show, thoughtOf, ui, workspaces,
 } from './model.ts';
 import { I, Seat, elapsed, madeAt, when } from '../ui.tsx';
@@ -58,21 +58,27 @@ function Workspace({ id, name, folder }: { id: string; name: string; folder?: st
   const rows = [...L.tabs(l).filter((t) => !records.previews.has(t)).map((t) => ({ t, bg: false })), ...l.background.map((t) => ({ t, bg: true }))]
     .sort((a, b) => (ORDER[cue(a.t).s] ?? 9) - (ORDER[cue(b.t).s] ?? 9) || Number(a.bg) - Number(b.bg));
   const agents = [...records.agents.values()].filter(runs);
-  const menu: Item[] = [
+  const out = ui.out.has(id);
+  // A workspace that is out is arranged in its own window: here its row brings that window forward, or closes the workspace.
+  const menu: Item[] = out ? [
+    { text: 'Show Window', do: () => show(id) },
+    '-' as const, { text: 'Close Workspace…', do: () => closeWorkspace(id) },
+  ] : [
     { text: 'New Terminal', do: () => newTerminal(id) },
     ...(id === LOOSE ? [] : agents.map((a) => ({ text: `New ${agentName(a.id)} Session`, do: () => void startAgent(id, a.id) }))),
-    ...(id === LOOSE ? [] : ['-' as const, { text: 'Close Workspace…', do: () => closeWorkspace(id) }]),
+    ...(id === LOOSE ? [] : [{ text: 'Open in New Window', ...(ui.view === id ? { key: '⇧⌘N' } : {}), do: () => popOut(id) }, '-' as const, { text: 'Close Workspace…', do: () => closeWorkspace(id) }]),
   ];
   return (
     <section class="ws" data-workspace={id}>
-      <div class={`row w${ui.view === id ? ' on' : ''}`} onContextMenu={(e) => popup(e, menu)}>
+      <div class={`row w${ui.view === id ? ' on' : ''}${out ? ' out' : ''}`} onContextMenu={(e) => popup(e, menu)}>
         <button type="button" class="fold" aria-expanded={!folded} aria-label={`${folded ? 'Show' : 'Hide'} the sessions of ${name}`}
           onClick={() => (folded ? ui.folded.delete(id) : ui.folded.add(id), redraw())}>
           <I n="chev" />
         </button>
         <button type="button" class="name" title={folder} aria-current={ui.view === id ? 'page' : undefined} onClick={() => show(id)}>
-          <span class="lbl">{name}</span><span class="cnt">{rows.length || ''}</span>
+          <span class="lbl">{name}</span><span class="cnt">{rows.length || ''}</span>{out && <span class="mark"><I n="window" /></span>}
         </button>
+        {!out && id !== LOOSE && <button type="button" class="pop" title="Open in new window" aria-label="Open in new window" onClick={() => popOut(id)}><I n="window" /></button>}
       </div>
       {!folded && rows.map(({ t, bg }) => <Session key={t} project={id} id={t} bg={bg} />)}
     </section>

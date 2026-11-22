@@ -256,12 +256,14 @@ jobs:
       - name: Build the site
         run: python3 scripts/build-site.py
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npx --no-install playwright install --with-deps chromium
+      - run: npx --no-install playwright install --with-deps chromium webkit
       - name: Exercise the built site
         run: |
           export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/site-shots"
           mkdir -p "$TASKTAP_SCREENSHOTS"
           node scripts/verify-pages.cjs
+      - name: Scroll the product page's story
+        run: TASKTAP_SCREENSHOTS="$RUNNER_TEMP/site-shots" node scripts/story-check.cjs
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

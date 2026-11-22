@@ -65,6 +65,12 @@ function shots() {
     // The home folder, searched through the same call, is called what it is.
     'first-home-none': { records: { ...projects('first-searched', { end: { state: 'ready' } }), pick: '/Users/someone' },
       act: both(allow, wait(600), search, wait(600)), says: ['No projects found in your home folder', 'Search in a folder…'], unsaid: ['in someone', 'in ~'] },
+    // The core answers look.add before the look's record comes: in that gap the sheet is still searching, never empty.
+    'first-gap': { records: { ...projects('first-agents'), lookLateMs: 500 }, act: both(allow, wait(150)), settle: 0,
+      says: ['Searching…'], unsaid: ['No projects found', 'Found no projects'] },
+    // Each project found has a switch, on; one switched off is kept as set aside (Settings › Projects › Not projects).
+    'first-chosen': { records: projects('first-found'), act: both(allow, wait(1400), (p) => p.click('.fr >> nth=1 >> [role=switch]'), wait(300)),
+      says: ['Found 9 projects'], off: 1 },
     // From the first step, Search in a folder… shows what the folder holds, in the same sheet.
     'first-search-folder': { records: { ...projects('first-searched', { some: 6 }), pick: '/Users/someone/git' },
       act: both(search, wait(1400)), says: ['Found 6 projects', 'cuegrid', 'Search in a folder…'], unsaid: ['No project is open yet', 'Open a folder'] },
@@ -113,11 +119,11 @@ function begins() {
 // sentence and the rest behind the "What exactly is read" that follows it, which the check has opened by a click: the
 // note is read with the text that fold shows.
 function promises() {
-  const bad = [], cards = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden);
+  const bad = [], every = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside), cards = every.filter((c) => !c.hidden);
   const text = (sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent).join(' ');
   if (/\band \d+ more\b/i.test(text('.found, .set-pane'))) bad.push('a list of projects says "and N more"');
   const found = document.querySelector('.sheet .found .fr-s');
-  if (found && document.querySelectorAll('.found .fr').length !== cards.length) bad.push(`the first run shows ${document.querySelectorAll('.found .fr').length} of ${cards.length} projects found`);
+  if (found && document.querySelectorAll('.found .fr').length !== every.length) bad.push(`the first run shows ${document.querySelectorAll('.found .fr').length} of ${every.length} projects found`);
   if (document.querySelector('.home .found, .home .fr')) bad.push('what was found stands on Home, not in its sheet');
   const rows = document.querySelectorAll('.pjs > .line.pj');
   if (document.querySelector('.pjs') && !document.querySelector('.set-pane .field input')?.value && rows.length !== cards.length) bad.push(`Settings › Projects shows ${rows.length} of ${cards.length} projects`);
@@ -203,6 +209,10 @@ async function main(out, dprs, only, check) {
           const first = await page.evaluate(begins);
           await unfold(page);
           const own = [...first, ...await page.evaluate(promises), ...await page.evaluate(said, [s.says ?? [], s.unsaid ?? []])];
+          if (s.off !== undefined) {
+            const off = await page.locator('.fr [role=switch][aria-checked=false]').count(), rows = await page.locator('.fr').count();
+            if (off !== s.off || rows !== 9) failures.push(`${name}: ${off} rows are switched off of ${rows}, not ${s.off} of 9`);
+          }
           const line = s.setup && await setupSays(page);
           if (line !== s.setup) failures.push(`${name} (${TEXT}): Setup's line says "${line}", not "${s.setup}"`);
           for (const b of [...r.bad, ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);

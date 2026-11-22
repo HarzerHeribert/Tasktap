@@ -262,13 +262,15 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     if (name === 'projects.offer') return void setTimeout(() => reply(id, records.offer || { agents: [], places: [] }), records.offerMs || 0);
     if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
     const look = (row) => {
-      push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] });
+      // `lookLateMs`: the look's record comes this long after the core's answer to `look.add` (the core answers first).
+      const late = records.lookLateMs || 0;
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] }), late);
       if (!row.on) return;
       const found = (records.found || []).filter((c) => !(records.cards || []).some((x) => x.id === c.id));
-      found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), 90 * (i + 1)));
+      found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), late + 90 * (i + 1)));
       // `lookEnds`: how a search in a folder ends instead (its `state` and `note`, as the core records them).
       const end = row.kind === 'folder' ? records.lookEnds : undefined;
-      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now(), ...end }] }] }), 90 * (found.length + 1));
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now(), ...end }] }] }), late + 90 * (found.length + 1));
     };
     if (name === 'look.add') {
       const had = (records.looks || []).find((l) => (args.agent && l.agent === args.agent) || (args.folder && l.folder === args.folder));

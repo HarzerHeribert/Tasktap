@@ -11,7 +11,7 @@ import type { AddLook, Card, Isolate, Look, Offer, Project } from '../../../core
 import { Component, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
-import { HERE, mac, shownPath } from '../system.ts';
+import { HERE, mac, plain, shownPath } from '../system.ts';
 import { Glyph, I, Key, Mark, ago, plural } from '../ui.tsx';
 import { Choice, Switch } from './form.tsx';
 import { agentName, call, dismiss, fail, focus, records, redraw } from './model.ts';
@@ -60,8 +60,10 @@ const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(name
 const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
 /** As many folders as one search in a folder goes through (core/src/map.rs, `ENTRIES`). */
 const BUDGET = 5000;
+/** The home folder as either system writes it: /Users/name, /home/name, C:\Users\name. */
+const HOME_FOLDER = /^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)[\\/]?$/;
 /** A folder as a person names it: the last part of its path, and the home folder as what it is. */
-const folderName = (folder: string) => (shownPath(folder) === '~' ? 'your home folder' : (shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder));
+const folderName = (folder: string) => (HOME_FOLDER.test(plain(folder)) ? 'your home folder' : (shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder));
 /** A search in a folder that found no project, or could not search it: why, in a title and a line, as the core recorded
  *  it. The first run's sheet, Setup's line and Settings › Projects say the same. */
 function nothing(l: Look): { title: string; line: string } | undefined {
@@ -88,8 +90,10 @@ function nothingFound(): { title: string; line: string } | undefined {
   return (last && nothing(last)) || (trouble && nothing(trouble))
     || (folders.length ? { title: `No projects found in ${and(folders.map((l) => folderName(l.folder ?? '')))}`, line: '' } : undefined);
 }
-/** A look is asked for or reads. */
-const searching = () => begun.asking > 0 || looks().some(reading);
+/** A look is asked for, or the core has named it and its record has not come yet, or it reads. */
+const searching = () => begun.asking > 0 || [...named].some((id) => !records.looks.has(id)) || looks().some(reading);
+/** The looks the core named in its answer to `look.add`. */
+const named = new Set<string>();
 /** What was found, in a few words: the first run's sheet's title, and Setup's line once Tasktap searches. */
 const foundTitle = (n: number) => (searching() && !n ? 'Searching…' : n ? `Found ${plural(n, 'project', 'projects')}` : (nothingFound()?.title ?? 'No projects found'));
 const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} Tasktap opens no project until a task goes there.`;
@@ -101,6 +105,8 @@ const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of e
 export function known(): Card[] {
   return [...records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden).sort(recent);
 }
+/** What a search found, for the first run's sheet: the projects, also those the person switched off there. */
+const found = () => [...records.cards.values()].filter((c) => !c.copy_of && !c.inside).sort(recent);
 const recent = (a: Card, b: Card) => (b.used ?? 0) - (a.used ?? 0) || a.name.localeCompare(b.name);
 const looks = () => [...records.looks.values()];
 /** An agent's history or a folder, being read now. */
@@ -123,7 +129,7 @@ function useOffer(): Offer | undefined {
   return offered.now;
 }
 /** Something is still to come: a look is asked for or reads, or what is offered after it is not answered yet. */
-const settling = () => begun.asking > 0 || looks().some(reading) || offered.for !== stand();
+const settling = () => searching() || offered.for !== stand();
 /** The agents whose history is offered and was never asked about: no look names them, on or off. */
 const unasked = (o: Offer) => o.agents.filter((a) => !looks().some((l) => l.kind === 'agent' && l.agent === a.agent));
 /** A folder that holds several projects Tasktap found and was not looked in: a place the person keeps them. */
@@ -132,7 +138,7 @@ const derived = (o: Offer | undefined) => o?.places.find((p) => p.projects >= 2)
 /** Adds looks; until the core has them, the first run counts them as reading. */
 const add = (asked: AddLook[]) => {
   begun.asking += asked.length;
-  return Promise.all(asked.map((l) => call('look.add', l).finally(() => (begun.asking--, redraw())))).catch(fail);
+  return Promise.all(asked.map((l) => call('look.add', l).then((id) => (named.add(id), id)).finally(() => (begun.asking--, redraw())))).catch(fail);
 };
 const lookAgents = (agents: string[], on: boolean) => add(agents.map((agent) => ({ id: uuid7(), agent, on })));
 /** Folders to search: the last of them is what the first run's sheet then speaks of. */
@@ -275,7 +281,7 @@ const answered = () => void (records.prefs.has('setup_hidden') || call('put', { 
  *  folder and why, in a list that scrolls in the sheet. Under it, where most of them are, if Tasktap has not looked
  *  there. */
 function Found({ o, other }: { o: Offer | undefined; other: Act }) {
-  const all = known(), coming = settling(), busy = searching();
+  const all = found(), coming = settling(), busy = searching();
   const place = derived(o), most = place && place.projects * 2 >= all.length;
   const none = nothingFound(), title = foundTitle(all.length);
   // A search that stopped at its budget says so under what it found.
@@ -289,6 +295,7 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
             {all.map((c) => (
               <div class="fr" key={c.id} title={[c.name, shownPath(c.folder), c.about].filter(Boolean).join('\n')}>
                 <I n="folder" /><span class="fr-n">{c.name}</span><span class="fr-f">{shownPath(c.folder)}</span><span class="fr-w">{reason(c)}</span>
+                <span class="fr-c"><Switch on={!c.hidden} name={`${c.name} is a project`} set={(on) => void call('put', { c: 'cards', id: c.id, patch: { hidden: !on } }).catch(fail)} /></span>
               </div>
             ))}
           </div>

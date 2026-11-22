@@ -156,6 +156,10 @@ pub enum Event {
     },
     /// The asker withdraws its question.
     Withdraw { question: QuestionId },
+    /// The asker had the answer but could not give it to its agent (its
+    /// form takes nothing of that kind): a task whose words were that
+    /// answer is not done.
+    Undelivered { question: QuestionId },
 }
 
 /// A `session.event` with what the guards need: who sent it and for which turn.
@@ -626,6 +630,11 @@ impl Machine<'_, '_> {
             (E::Capture { capture, agent }, _, None, ..) => {
                 self.capture(capture, agent, some(attempt)?)
             }
+            // A task's words were its agent's answer and could not reach it.
+            (E::Undelivered { .. }, _, Some(P::Done), _, Some(Q::Answered)) if router => {
+                self.undelivered(some(thought)?, some(question)?)
+            }
+            (E::Undelivered { .. }, ..) => Ok(()),
             (E::Capture { .. }, _, Some(_), ..) => Err(Error::Conflict(
                 "this task's id was used for another capture",
             )),
@@ -1065,6 +1074,17 @@ impl Machine<'_, '_> {
             Event::Answer { question, .. } | Event::Withdraw { question } => {
                 let q = self.tx.question(*question)?.ok_or(Error::Gone)?;
                 self.around(&mut s, q.thought_id, q.session_id)?;
+                s.question = Some(q);
+            }
+            // The question that offered to answer it with a task's words.
+            Event::Undelivered { question } => {
+                let Some(q) = self.tx.answering(*question)? else {
+                    return Ok(None);
+                };
+                s.thought = match q.thought_id {
+                    Some(t) => self.tx.thought(t)?,
+                    None => None,
+                };
                 s.question = Some(q);
             }
         }
@@ -1560,8 +1580,8 @@ impl Machine<'_, '_> {
         self.unwait(&t);
         // Checked again as it starts: what was decided may be gone by now.
         match self.unfit(&t)? {
-            Some(Unfit::Ask(why)) => return self.ask_again(t, why, None),
-            Some(Unfit::Asking(why, q)) => return self.ask_again(t, why, Some(*q)),
+            Some(Unfit::Ask(why)) => return self.ask_again(t, why, None, false),
+            Some(Unfit::Asking(why, q)) => return self.ask_again(t, why, Some(*q), true),
             None => {}
         }
         let target = match (t.mode, t.session_id) {
@@ -1718,11 +1738,18 @@ impl Machine<'_, '_> {
     /// the router's question, which says why, the other places it was
     /// offered first. Where its session's agent asks (`asking`), a new run
     /// in that project stands for the session; and where that question is
-    /// the agent's own and takes free words, the question offers first to
-    /// answer it with the thought's words (`Question::answers`), on the
-    /// person's key alone. A permission or a menu its terminal takes is
-    /// never answered from here.
-    fn ask_again(&mut self, mut t: Thought, why: String, asking: Option<Question>) -> Result<()> {
+    /// the agent's own and its words can reach the agent (`offer`; free
+    /// words, or a choice: never a yes or no, which a form may take nothing
+    /// else for), the question offers first to answer it with the thought's
+    /// words (`Question::answers`), on the person's key alone. A permission
+    /// or a menu its terminal takes is never answered from here.
+    fn ask_again(
+        &mut self,
+        mut t: Thought,
+        why: String,
+        asking: Option<Question>,
+        offer: bool,
+    ) -> Result<()> {
         if t.hold_until.take().is_some() {
             self.effects.push(Effect::Unhold(t.id));
         }
@@ -1735,8 +1762,9 @@ impl Machine<'_, '_> {
             (None, Some(p), _) => Some(Destination::New(p)),
             (None, None, c) => c.map(Destination::Card),
         };
-        let answers = asking
-            .filter(|q| q.source == QuestionSource::Agent && q.reply_via == ReplyVia::Core)
+        let answers = (asking.as_ref())
+            .filter(|q| offer && q.source == QuestionSource::Agent && q.reply_via == ReplyVia::Core)
+            .filter(|q| matches!(q.kind, QuestionKind::Text | QuestionKind::Choice { .. }))
             .map(|q| q.id);
         let others = t
             .route
@@ -1812,6 +1840,26 @@ impl Machine<'_, '_> {
         self.answer(a, Response::Text { text }, device)?;
         t.phase = P::Done;
         self.save(t)
+    }
+
+    /// The words a task answered its agent's question with did not reach
+    /// the agent: the task is not done, and is asked about again, told so,
+    /// a new run in that project standing for the session.
+    fn undelivered(&mut self, t: Thought, q: Question) -> Result<()> {
+        let asked = match q.answers {
+            Some(id) => self.tx.question(id)?,
+            None => None,
+        };
+        let session = match asked.as_ref().and_then(|a| a.session_id) {
+            Some(s) => self.tx.session(s)?,
+            None => None,
+        };
+        let name = session.map_or_else(
+            || "The agent".to_owned(),
+            |s| crate::agents::find(&s.agent).map_or(s.agent.clone(), |a| a.name().into()),
+        );
+        let why = format!("{name} could not take these words");
+        self.ask_again(t, why, asked, false)
     }
 
     /// A thought that waited for the person's key (a model was torn, or

@@ -3207,10 +3207,42 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
             "redis://:hunter2@localhost:6379",
             "redis://[left out]@localhost:6379",
         ),
+        // Only a parameter that names a secret, or looks like one.
         (
             "curl https://api.example.com/v1/items?api_key=abc&page=2#top",
-            "curl https://api.example.com/v1/items?api_key=[left out]&page=[left out]#top",
+            "curl https://api.example.com/v1/items?api_key=[left out]&page=2#top",
         ),
+        (
+            "see https://s3.example.com/f?X-Amz-Signature=ab&code=x&ref=sk-abcdefghijklmnop",
+            "see https://s3.example.com/f?X-Amz-Signature=[left out]&code=[left out]&ref=[left out]",
+        ),
+        // The joiner a few words after "password for".
+        (
+            "the password for staging is hunter2",
+            "the password for staging is [left out]",
+        ),
+        (
+            "the passphrase for the gpg key is correct horse battery staple",
+            "the passphrase for the gpg key is [left out] [left out] [left out] [left out]",
+        ),
+        (
+            "set the password for the admin account to hunter2",
+            "set the password for the admin account to [left out]",
+        ),
+        (
+            "das Passwort für staging ist Sommer",
+            "das Passwort für staging ist [left out]",
+        ),
+        // A user's password on a command line.
+        (
+            "curl -u admin:hunter2 https://api.example.com",
+            "curl -u [left out] https://api.example.com",
+        ),
+        (
+            "curl --user deploy:s3cret https://api.example.com",
+            "curl --user [left out] https://api.example.com",
+        ),
+        ("curl --user=deploy:s3cret", "curl [left out]"),
         ("use sk-proj-abcdefghijklmnop", "use [left out]"),
         (
             "use ghp_abcdefghijklmnopqrstuvwxyz0123 please",
@@ -3357,6 +3389,13 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
         "credentials are stored in the keychain",
         "the credentials page is blank",
         "image sha256:9b2f0c1d3e4a5b6c7d8e9f00112233445566778899aabbccddeeff0011223344",
+        // A search's words and a page's number place the task.
+        "open https://example.com/search?q=invoice+export&page=2",
+        // "password for" a joiner further on than five words, or in the next
+        // sentence, says nothing of a password.
+        "the password for the new admin user that we add is fine",
+        "check the password for staging. It is broken",
+        "git add -u src",
     ];
     for said in kept {
         let got = redact(said);

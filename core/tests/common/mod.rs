@@ -737,6 +737,7 @@ impl Agent {
     pub fn received(&mut self, request: &str) -> Result<(), Error> {
         let key = AskKey {
             request: request.into(),
+            undelivered: false,
         };
         self.c.call::<call::QuestionReceived>(&key).unwrap()
     }
@@ -744,6 +745,7 @@ impl Agent {
     pub fn withdraw(&mut self, request: &str) -> Result<(), Error> {
         let key = AskKey {
             request: request.into(),
+            undelivered: false,
         };
         self.c.call::<call::QuestionWithdraw>(&key).unwrap()
     }

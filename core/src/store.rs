@@ -890,6 +890,13 @@ impl<'s> Tx<'s> {
         self.value("SELECT request_key FROM questions WHERE id = ?1", &question)
     }
 
+    /// The router's question that offered to answer `question`, an agent's,
+    /// with its thought's words (`Question::answers`).
+    pub fn answering(&self, question: QuestionId) -> Result<Option<Question>> {
+        let id = key(&question)?;
+        self.one(Table::Questions, "WHERE q.data ->> 'answers' = ?1", [id])
+    }
+
     /// Every open question, oldest first.
     pub fn open_questions(&self) -> Result<Vec<Question>> {
         self.all(Table::Questions, "WHERE state = 'open' ORDER BY id", [])

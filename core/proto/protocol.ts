@@ -250,7 +250,12 @@ source?: QuestionSource | null, } & ({ "kind": "confirm" } | { "kind": "choice",
  * by its own key, the only name it holds while it waits. The key reaches
  * only its own session's questions.
  */
-export type AskKey = { request: string, };
+export type AskKey = { request: string,
+/**
+ * `question.received` only: the answer came, but could not be given
+ * to the agent (its form takes nothing of that kind), so nothing was.
+ */
+undelivered?: boolean, };
 
 /**
  * `thought.update`: sends a thought to a project, or on to a session: a

@@ -2012,7 +2012,11 @@ pub const LEFT_OUT: &str = "[left out]";
 /// - after a password word (password, Passwort, passphrase; pass, pw and
 ///   pin too) joined by "is", "to", "ist", "lautet", ":" or "=", every word
 ///   to the end of the sentence or the line, six at most; right after one,
-///   a word with a digit or a sign in it ("password hunter2");
+///   a word with a digit or a sign in it ("password hunter2"); after one
+///   and "for", "of" and the like, the joiner up to five words on in the
+///   same sentence ("the password for staging is hunter2"), never a noun
+///   it names ("the password reset email is broken");
+/// - after `-u` or `--user` on a command line, a `user:password`;
 /// - after key, token or secret, only a word that looks like a secret by
 ///   itself; after Bearer, also a long one; after a "/" standing alone
 ///   ("admin / hunter2"), one with a digit or a sign;
@@ -2020,8 +2024,10 @@ pub const LEFT_OUT: &str = "[left out]";
 ///   (`PGPASSWORD=…`, `DB_PASS=…`, `x-api-key: …`, `token=…`, `pw: …`);
 ///   a word that names a secret itself is never taken for the value
 ///   ("ssh key passphrase: …");
-/// - in a web address, the values of its query and a user's password;
-///   a webhook's address whole;
+/// - in a web address, a user's password, and the value of a query's
+///   parameter that names a secret (key, token, secret, pass, pwd, sig,
+///   auth, code) or looks like one by its shape; `?q=invoice+export` and
+///   `?page=2` stay; a webhook's address whole;
 /// - a word with a known key's beginning (`sk-`, `ghp_`, `xoxb-`, `AKIA`,
 ///   `eyJ`, …), also inside it;
 /// - a long run of letters and digits, or of letters in mixed case.
@@ -2034,8 +2040,11 @@ pub fn redact(text: &str) -> String {
         let space = rest
             .find(|c: char| !c.is_whitespace())
             .unwrap_or(rest.len());
-        // A line ends what a password word said, once it took a word.
-        if rest[..space].contains('\n') && matches!(after, Some(Want::Rest(n)) if n < REST) {
+        // A line ends what a password word said, once it took a word, and
+        // the search for its joiner.
+        let ended = matches!(after, Some(Want::Rest(n)) if n < REST)
+            || matches!(after, Some(Want::Seek(_)));
+        if rest[..space].contains('\n') && ended {
             after = None;
         }
         out.push_str(&rest[..space]);
@@ -2066,17 +2075,22 @@ pub fn redact(text: &str) -> String {
         // What the word says of the next. A label ("passphrase:", "key")
         // is never taken for the value: it says the next word is.
         let own = (value.is_empty()).then(|| wants(name, joined)).flatten();
-        let plain = [PASSWORD, PASS, MAYBE, &["bearer", "/"]]
+        let plain = [PASSWORD, PASS, MAYBE, &["bearer", "/", "-u", "--user"]]
             .iter()
             .any(|l| l.contains(&lower.as_str()));
         let label = own.is_some() && (joined || plain);
         let connects = CONNECT.contains(&lower.as_str());
         // "pass to", "pin to": verbs too, so joined by the other words only.
         let joins = |of: Of| connects && !(of == Of::Pass && lower == "to");
+        // A user's password given to `--user=`.
+        let user = name == "--user" && value.contains(':');
         let secret = shaped(bare)
+            || user
             || (!value.is_empty() && holds(name))
             || match after {
                 _ if label => false,
+                Some(Want::Seek(_)) => false,
+                Some(Want::User) => bare.contains(':'),
                 Some(Want::Rest(_)) => true,
                 Some(Want::Next) => !connects,
                 Some(Want::Long) => !connects && (looks(bare) || bare.chars().count() >= 16),
@@ -2087,11 +2101,25 @@ pub fn redact(text: &str) -> String {
         let ends = word
             .trim_end_matches(['"', '\'', '`', ')', ']'])
             .ends_with(['.', '!', '?']);
+        // A key's or a token's word does not stop the search for the joiner
+        // ("the passphrase for the gpg key is …"); a password's does.
+        let passes = matches!(
+            own,
+            None | Some(Want::Looks(Of::Key) | Want::Next | Want::Long)
+        );
+        let colon = joined && value.is_empty();
         after = match after {
+            Some(Want::Seek(_)) if passes && (connects || colon) => Some(Want::Rest(REST)),
+            Some(Want::Seek(n)) if passes && n > 1 && !ends => Some(Want::Seek(n - 1)),
+            Some(Want::Seek(_)) if passes => None,
             _ if label || (own.is_some() && !secret) => own,
             // "password is", "Passwort lautet": the rest of the sentence.
             Some(Want::Looks(of @ (Of::Password | Of::Pass))) if joins(of) => {
                 Some(Want::Rest(REST))
+            }
+            // "the password for staging is …": the joiner a few words on.
+            Some(Want::Looks(Of::Password)) if FOR.contains(&lower.as_str()) && !ends => {
+                Some(Want::Seek(SEEK))
             }
             Some(Want::Rest(n)) if secret && n > 1 && !ends => Some(Want::Rest(n - 1)),
             Some(w @ (Want::Looks(Of::Key) | Want::Next | Want::Long)) if connects => Some(w),
@@ -2116,6 +2144,12 @@ enum Want {
     /// After a password word and a joining word: every word to the end of
     /// the sentence or the line, this many at most.
     Rest(u8),
+    /// After a password word and "for", "of" and the like: a joining word
+    /// within this many words more, in the same sentence, turns it into
+    /// [`Want::Rest`].
+    Seek(u8),
+    /// After `-u` or `--user`: a `user:password`.
+    User,
 }
 
 /// The word a [`Want::Looks`] came after.
@@ -2132,6 +2166,14 @@ enum Of {
 
 /// How many words a password word and a joining word leave out at most.
 const REST: u8 = 6;
+/// How many words after "password for" a joining word is looked for: up
+/// to five after the password word.
+const SEEK: u8 = 4;
+/// Words after a password word that say which one it is, before its
+/// joiner: "the password for staging is …", "das Passwort für …".
+const FOR: &[&str] = &[
+    "for", "of", "on", "in", "at", "from", "für", "von", "vom", "zu", "zum", "bei", "auf",
+];
 
 /// Words that say a password follows them, and those that may say a key
 /// or a token does.
@@ -2162,6 +2204,7 @@ fn wants(name: &str, joined: bool) -> Option<Want> {
         _ if password => Some(Want::Looks(Of::Password)),
         _ if pass => Some(Want::Looks(Of::Pass)),
         _ if MAYBE.contains(&lower.as_str()) || name == "/" => Some(Want::Looks(Of::Key)),
+        _ if !joined && (name == "-u" || name == "--user") => Some(Want::User),
         _ if lower == "bearer" => Some(Want::Long),
         Some(true) if joined => Some(Want::Rest(REST)),
         Some(true) => Some(Want::Looks(Of::Password)),
@@ -2214,7 +2257,8 @@ fn named(name: &str) -> Option<bool> {
 }
 
 /// A web address as a model is sent it: a user's password and the values
-/// of its query left out, the rest as it is.
+/// of its query that name or look like a secret left out, the rest as it
+/// is.
 fn address(word: &str) -> String {
     let Some(at) = word.find("://") else {
         return word.to_owned();
@@ -2237,9 +2281,20 @@ fn address(word: &str) -> String {
     out.push_str(path);
     if let Some(query) = query {
         let (query, fragment) = query.split_at(query.find('#').unwrap_or(query.len()));
+        // Only what names a secret, or looks like one by its shape: a
+        // search's words and a page's number place the task.
+        const NAMES: &[&str] = &[
+            "key", "token", "secret", "pass", "pwd", "sig", "auth", "code",
+        ];
         let values: Vec<String> = (query.split('&'))
             .map(|pair| match pair.split_once('=') {
-                Some((name, value)) if !value.is_empty() => format!("{name}={LEFT_OUT}"),
+                Some((name, value))
+                    if !value.is_empty()
+                        && (NAMES.iter().any(|n| name.to_lowercase().contains(n))
+                            || shaped(value)) =>
+                {
+                    format!("{name}={LEFT_OUT}")
+                }
                 _ => pair.to_owned(),
             })
             .collect();

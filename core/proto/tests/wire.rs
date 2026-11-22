@@ -303,6 +303,7 @@ fn every_call_round_trips() {
     round_trip::<call::QuestionWithdraw>(
         AskKey {
             request: "r".into(),
+            undelivered: false,
         },
         (),
         seen,
@@ -310,6 +311,7 @@ fn every_call_round_trips() {
     round_trip::<call::QuestionReceived>(
         AskKey {
             request: "r".into(),
+            undelivered: false,
         },
         (),
         seen,

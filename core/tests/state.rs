@@ -5025,14 +5025,34 @@ fn a_held_task_is_checked_again_as_it_starts() {
     // person is asked, the agent's question named, a new run in that
     // project standing for the session. Only the agent's own question that
     // takes free words is offered an answer in the task's words.
-    for (via, source, offered) in [
-        (ReplyVia::Terminal, QuestionSource::Agent, false),
-        (ReplyVia::Core, QuestionSource::Permission, false),
-        (ReplyVia::Core, QuestionSource::Agent, true),
+    // (how it is answered, who asks, of what kind, whether the words may
+    // answer it): a yes or no, as OpenCode's yes-or-no form, takes no words.
+    let yes_or_no = QuestionKind::Confirm;
+    for (via, source, kind, offered) in [
+        (
+            ReplyVia::Terminal,
+            QuestionSource::Agent,
+            QuestionKind::Text,
+            false,
+        ),
+        (
+            ReplyVia::Core,
+            QuestionSource::Permission,
+            yes_or_no.clone(),
+            false,
+        ),
+        (ReplyVia::Core, QuestionSource::Agent, yes_or_no, false),
+        (
+            ReplyVia::Core,
+            QuestionSource::Agent,
+            QuestionKind::Text,
+            true,
+        ),
     ] {
         let (_, s) = w.turn();
         let q = Question {
             source,
+            kind,
             ..question(&w.session(s), via)
         };
         let asked = q.id;
@@ -5077,6 +5097,27 @@ fn a_held_task_is_checked_again_as_it_starts() {
             })
         );
         assert_eq!(w.thought(f).phase, Phase::Done);
+        // Where the agent could not take them after all, the task is not
+        // done: it is asked about again, told so, the session's project
+        // offered for a new run, and no answer in its words again.
+        w.tick(1000);
+        w.ok(Event::Undelivered { question: asked });
+        let th = w.thought(f);
+        assert_eq!((th.phase, th.status), (Phase::Captured, Status::NeedsYou));
+        let q = question_of(&mut w, f);
+        let name = tasktap_core::agents::find(&w.session(s).agent)
+            .unwrap()
+            .name();
+        assert_eq!(
+            q.prompt,
+            format!("{name} could not take these words. Which project is this task for?")
+        );
+        assert_eq!(q.answers, None);
+        let places = q.places.unwrap_or_default();
+        assert_eq!(
+            places.first(),
+            Some(&tasktap_proto::Place::Project(project))
+        );
     }
 }
 

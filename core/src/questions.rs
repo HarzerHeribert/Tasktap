@@ -196,8 +196,17 @@ pub fn withdraw(cx: &mut Cx, args: AskKey) -> Result<(), Error> {
 }
 
 /// `question.received`: the asker has the answer; the receipt says when.
+/// One it could not give its agent (`undelivered`) leaves a task whose words
+/// were that answer not done (`Event::Undelivered`).
 pub fn received(cx: &mut Cx, args: AskKey) -> Result<(), Error> {
     let q = own(cx, &args)?;
+    if args.undelivered && q.state == Q::Answered {
+        let event = Event::Undelivered { question: q.id };
+        match effects::call(cx.core, "question.received", event) {
+            Err(e) if e.code != Code::Gone => return Err(e),
+            _ => {}
+        }
+    }
     match (q.state, q.answer) {
         (Q::Answered, Some(answer)) if answer.delivered.is_some() => Ok(()),
         (Q::Answered, _) => {

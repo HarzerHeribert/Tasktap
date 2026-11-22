@@ -635,6 +635,11 @@ pub struct HostNotify {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AskKey {
     pub request: String,
+    /// `question.received` only: the answer came, but could not be given
+    /// to the agent (its form takes nothing of that kind), so nothing was.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub undelivered: bool,
 }
 
 /// `question.answer`. Settles only the question it names.

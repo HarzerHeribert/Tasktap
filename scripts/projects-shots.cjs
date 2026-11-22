@@ -19,6 +19,7 @@ const allow = async (page) => {
   await page.waitForSelector('.sheet .sh-f .key');
   await page.click('.sheet .sh-f .key');
 };
+const search = (p) => p.click('.sheet .sh-f >> text=Search in a folder…');
 const both = (...fs) => async (page) => { for (const f of fs) await f(page); };
 /** Scrolls Settings' pane so that what `sel` names is at its top. */
 const scrollTo = (sel, by = 0) => (page) => page.evaluate(([s, b]) => {
@@ -44,23 +45,29 @@ function shots() {
     'first-folders-narrow': { records: projects('first-folders'), viewport: NARROW },
     // A search in a folder that found nothing says why, in the sheet and in Setup's line, with the way to another folder.
     'first-denied': { records: projects('first-searched', { end: { state: 'denied', note: 'Operation not permitted' } }), act: allow,
-      says: ['Tasktap may not read git', 'macOS keeps Tasktap out of ~/git. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search git again.', 'Choose another folder…'],
+      says: ['Tasktap may not read git', 'macOS keeps Tasktap out of ~/git. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search git again.', 'Search in a folder…'],
       setup: 'Tasktap may not read git' },
     'first-denied-windows': { records: projects('first-searched', { end: { state: 'denied', note: 'Access is denied.' } }), act: allow, system: 'windows',
-      says: ['Tasktap may not read git', 'Windows keeps Tasktap out of ~/git. Search git again once your account may read it.', 'Choose another folder…'] },
+      says: ['Tasktap may not read git', 'Windows keeps Tasktap out of ~/git. Search git again once your account may read it.', 'Search in a folder…'] },
     // A folder's own rights (EACCES) are a read error like any other, in the system's words; `denied` is its privacy rule.
     'first-unreadable': { records: projects('first-searched', { end: { state: 'failed', note: 'Permission denied' } }), act: allow,
-      says: ['git could not be read', '~/git: Permission denied.', 'Choose another folder…'], setup: 'git could not be read' },
+      says: ['git could not be read', '~/git: Permission denied.', 'Search in a folder…'], setup: 'git could not be read' },
     'first-too-many': { records: projects('first-searched', { end: { state: 'many' } }), act: allow,
-      says: ['Too many folders in git', 'Over 5,000 folders in ~/git. Choose the folder inside git that holds your projects.', 'Choose another folder…'], setup: 'Too many folders in git' },
+      says: ['Too many folders in git', 'Over 5,000 folders in ~/git. Choose the folder inside git that holds your projects.', 'Search in a folder…'], setup: 'Too many folders in git' },
     'first-gone': { records: projects('first-searched', { end: { state: 'gone' } }), act: allow,
-      says: ['git is not there now', 'Nothing is at ~/git now. Tasktap searches git again when git is back.', 'Choose another folder…'], setup: 'git is not there now' },
+      says: ['git is not there now', 'Nothing is at ~/git now. Tasktap searches git again when git is back.', 'Search in a folder…'], setup: 'git is not there now' },
     'first-none': { records: projects('first-searched', { end: { state: 'ready' } }), act: allow,
-      says: ['Found no projects in git', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.', 'Choose another folder…'],
-      setup: 'Found no projects in git' },
-    // Choose another folder… asks the system's folder panel, searches the folder chosen there, and speaks of that one.
+      says: ['No projects found in git', 'Search in a folder…'], unsaid: ['A folder counts as a project', 'Found no projects', 'No project is open yet'],
+      setup: 'No projects found in git' },
+    // Search in a folder… (⌘O) asks the system's folder panel, searches the folder chosen there, and speaks of that one.
     'first-another': { records: { ...projects('first-searched', { end: { state: 'ready' } }), pick: '/Users/someone/code' },
-      act: both(allow, wait(600), (p) => p.click('.found-s .btn'), wait(600)), says: ['Found no projects in code'], unsaid: ['in git'], setup: 'Found no projects in code' },
+      act: both(allow, wait(600), search, wait(600)), says: ['No projects found in code'], unsaid: ['in git'], setup: 'No projects found in code' },
+    // The home folder, searched through the same call, is called what it is.
+    'first-home-none': { records: { ...projects('first-searched', { end: { state: 'ready' } }), pick: '/Users/someone' },
+      act: both(allow, wait(600), search, wait(600)), says: ['No projects found in your home folder', 'Search in a folder…'], unsaid: ['in someone', 'in ~'] },
+    // From the first step, Search in a folder… shows what the folder holds, in the same sheet.
+    'first-search-folder': { records: { ...projects('first-searched', { some: 6 }), pick: '/Users/someone/git' },
+      act: both(search, wait(1400)), says: ['Found 6 projects', 'cuegrid', 'Search in a folder…'], unsaid: ['No project is open yet', 'Open a folder'] },
     // A search that stopped at its budget keeps what it found, and says it stopped.
     'first-stopped': { records: projects('first-searched', { some: 3, end: { state: 'ready', note: 'Tasktap searched the first 5,000 folders in git and stopped there. Add the folder inside git that holds the rest of your projects.' } }),
       act: both(allow, wait(800)), says: ['Found 3 projects', 'Tasktap searched the first 5,000 folders in git and stopped there.'] },
@@ -72,7 +79,7 @@ function shots() {
     // Settings says what the first run's sheet says of a search that found nothing.
     'settings-gone': { records: projects('settings-gone'), act: settings,
       says: ['Too many folders in Downloads', 'Over 5,000 folders in ~/Downloads. Choose the folder inside Downloads that holds your projects.',
-        'Found no projects in src', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.',
+        'No projects found in src',
         'Tasktap may not read code', 'macOS keeps Tasktap out of ~/Documents/code. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search code again.',
         'git could not be read', '/Volumes/nas/git: Input/output error.'] },
     'settings-remove': { records: projects('settings-gone'), act: both(settings, wait(300), (p) => p.click('.line.pl:has(.t.path:text("~/projects")) >> text=Remove'), wait(100), scrollTo('.line-n.ask', 160)) },

@@ -14,7 +14,7 @@ import { uuid7 } from '../client.ts';
 import { HERE, mac, shownPath } from '../system.ts';
 import { Glyph, I, Key, Mark, ago, plural } from '../ui.tsx';
 import { Choice, Switch } from './form.tsx';
-import { agentName, call, dismiss, fail, focus, open, records, redraw } from './model.ts';
+import { agentName, call, dismiss, fail, focus, records, redraw } from './model.ts';
 import { type Act, Frame } from './sheets.tsx';
 
 // ——— Words ———
@@ -58,12 +58,10 @@ const READS_AGENTS = (names: string[]) =>
 /** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */
 const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, never what was said there, and keeps what it learns on ${HERE}.`;
 const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
-/** What makes a folder a project, said where a search found none. */
-const COUNTS = 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.';
 /** As many folders as one search in a folder goes through (core/src/map.rs, `ENTRIES`). */
 const BUDGET = 5000;
-/** A folder as a person names it: the last part of its path. */
-const folderName = (folder: string) => shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder;
+/** A folder as a person names it: the last part of its path, and the home folder as what it is. */
+const folderName = (folder: string) => (shownPath(folder) === '~' ? 'your home folder' : (shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder));
 /** A search in a folder that found no project, or could not search it: why, in a title and a line, as the core recorded
  *  it. The first run's sheet, Setup's line and Settings › Projects say the same. */
 function nothing(l: Look): { title: string; line: string } | undefined {
@@ -76,7 +74,7 @@ function nothing(l: Look): { title: string; line: string } | undefined {
     case 'failed': return { title: `${name} could not be read`, line: `${path}: ${said}${/[.!?]$/.test(said) ? '' : '.'}` };
     case 'many': return { title: `Too many folders in ${name}`, line: `Over ${BUDGET.toLocaleString('en')} folders in ${path}. Choose the folder inside ${name} that holds your projects.` };
     case 'gone': return { title: `${name} is not there now`, line: `Nothing is at ${path} now. Tasktap searches ${name} again when ${name} is back.` };
-    case 'ready': return l.found ? undefined : { title: `Found no projects in ${name}`, line: COUNTS };
+    case 'ready': return l.found ? undefined : { title: `No projects found in ${name}`, line: '' };
     default: return undefined;
   }
 }
@@ -88,12 +86,12 @@ const stuck = () => looks().find((l) => l.kind === 'folder' && l.on && ['denied'
 function nothingFound(): { title: string; line: string } | undefined {
   const folders = looks().filter((l) => l.kind === 'folder' && l.on), last = folders.find((l) => l.id === begun.last), trouble = stuck();
   return (last && nothing(last)) || (trouble && nothing(trouble))
-    || (folders.length ? { title: `Found no projects in ${and(folders.map((l) => folderName(l.folder ?? '')))}`, line: COUNTS } : undefined);
+    || (folders.length ? { title: `No projects found in ${and(folders.map((l) => folderName(l.folder ?? '')))}`, line: '' } : undefined);
 }
 /** A look is asked for or reads. */
 const searching = () => begun.asking > 0 || looks().some(reading);
 /** What was found, in a few words: the first run's sheet's title, and Setup's line once Tasktap searches. */
-const foundTitle = (n: number) => (searching() && !n ? 'Searching…' : n ? `Found ${plural(n, 'project', 'projects')}` : (nothingFound()?.title ?? 'Found no projects'));
+const foundTitle = (n: number) => (searching() && !n ? 'Searching…' : n ? `Found ${plural(n, 'project', 'projects')}` : (nothingFound()?.title ?? 'No projects found'));
 const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} Tasktap opens no project until a task goes there.`;
 
 // ——— What Tasktap knows ———
@@ -140,11 +138,13 @@ const lookAgents = (agents: string[], on: boolean) => add(agents.map((agent) => 
 /** Folders to search: the last of them is what the first run's sheet then speaks of. */
 const lookIn = (folders: string[], on = true) =>
   add(folders.map((folder) => ({ id: uuid7(), folder, on }))).then((ids) => void (on && ids?.length && ((begun.last = ids.at(-1)!), redraw())));
-/** A folder chosen in the system's folder panel, searched at once. */
-const pickAndLook = async () => {
+/** A folder chosen in the system's folder panel, searched at once; what it holds is then what the first run's sheet shows. */
+export const searchInFolder = async () => {
   const f = await call('host.pick', { folder: true }).catch(fail);
-  if (f) await lookIn([f]);
+  if (f) ((begun.looked = true), await lookIn([f]));
 };
+/** The home folder, searched at once (the core names it `~`). */
+export const searchHome = () => ((begun.looked = true), lookIn(['~']));
 
 // ——— The first run: Setup's first step, as a sheet ———
 
@@ -193,12 +193,12 @@ export function Details({ text, label = 'What exactly is read' }: { text: string
  *  shows what was found, filling in as the looks read, every project in a list that scrolls inside it; never on Home.
  *  `auto`: it is up by itself at the first start, part of Home's first picture, its facts filling in as the core says
  *  what there is; it takes a key only after 600 ms without one (Frame `guard`), and a key it does not take puts it away
- *  and types into the Composer. Put away in any way (Escape, a click beside it, Open a folder…), it was answered Not
+ *  and types into the Composer. Put away in any way (Escape, a click beside it), it was answered Not
  *  now, and it does not come by itself again. */
 export function ProjectsSheet({ auto }: { auto?: boolean }) {
   const o = useOffer();
   const at = step(o);
-  const other: Act = { k: '⌘O', label: 'Open a folder…', do: () => open({ kind: 'open-workspace' }) };
+  const other: Act = { k: '⌘O', label: 'Search in a folder…', do: () => void searchInFolder() };
   // Not now, as the step stands when the sheet goes, whichever way it goes, the moment it goes (after the next frame it
   // could come after an answer given in a sheet opened again); nothing once it was answered here.
   const notNow = useRef<() => void>(() => {});
@@ -284,7 +284,6 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
     // It only reports (what it found stays in Setup and Settings): text typed in the Composer under it puts it away.
     <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} typed={dismiss} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
       <section class="found" aria-busy={busy}>
-        {all.length > 0 && <p class="found-o">No project is open yet. A task that names a project opens that project.</p>}
         {all.length > 0 && (
           <div class="fr-s">
             {all.map((c) => (
@@ -295,8 +294,7 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
           </div>
         )}
         {all.length > 0 && stopped && <p class="found-n">{stopped}</p>}
-        {!busy && !all.length && <p class="found-n">{none?.line ?? COUNTS}</p>}
-        {!busy && !all.length && none && <p class="found-s"><button type="button" class="btn" onClick={() => void pickAndLook()}>Choose another folder…</button></p>}
+        {!busy && !all.length && none?.line && <p class="found-n">{none.line}</p>}
         {place && !coming && (
           <p class="found-s">
             <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Search there for the others too?</span>
@@ -357,7 +355,7 @@ export function ProjectsPane() {
             <span class="acts"><button type="button" class="btn" onClick={() => void (s.look ? call('put', { c: 'looks', id: s.look.id, patch: { on: true } }).catch(fail) : lookIn([s.folder]))}>Search it</button></span>
           </div>
         ))}
-        <button type="button" class="line fold-l" onClick={() => void pickAndLook()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
+        <button type="button" class="line fold-l" onClick={() => void searchInFolder()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
       </div>
       <p class="note">{SAYS_FOLDERS}</p>
       <button type="button" class="more-l" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>What exactly is read</span></button>

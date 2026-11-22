@@ -35,7 +35,10 @@
 //! is a group (a stray `package.json` hides no repository). Deeper, only Git
 //! counts (Go's module cache is no project). The named folder with its own
 //! `.git` is a project, and so is every repository in it; marked without
-//! Git, it is the one project when its walk finds none. A folder an agent
+//! Git, or with no mark, it is the one project when its walk, to its end,
+//! finds none. The home folder may be named too (`~`): its Desktop,
+//! Documents and the like, which the system asks about, and its system
+//! folders are not entered; the person names those themselves. A folder an agent
 //! was started in below a named folder is inside the project the walk found
 //! it in; in none, it is a project of its own, the named folder too
 //! ([`Walked::kind`]).
@@ -1154,7 +1157,10 @@ fn read_telling(input: Input, now: &Reading) -> Output {
                             found.insert(top);
                         }
                         walked.named.push(folder.clone());
-                        (LookState::Ready, walk.short.then(|| stopped(&folder)))
+                        (
+                            LookState::Ready,
+                            walk.short.then(|| stopped(&folder, rule.home())),
+                        )
                     }
                 }
             }
@@ -1240,11 +1246,14 @@ fn read_telling(input: Input, now: &Reading) -> Output {
 }
 
 /// What a look that stopped at [`ENTRIES`] folders says, with what it found.
-fn stopped(folder: &Path) -> String {
-    let name = folder
-        .file_name()
-        .map_or(folder.as_os_str(), |n| n)
-        .to_string_lossy();
+fn stopped(folder: &Path, home: &Path) -> String {
+    let name = match folder == home {
+        true => "your home folder".into(),
+        false => folder
+            .file_name()
+            .map_or(folder.as_os_str(), |n| n)
+            .to_string_lossy(),
+    };
     let most = format!("{},{:03}", ENTRIES / 1000, ENTRIES % 1000);
     format!(
         "Tasktap searched the first {most} folders in {name} and stopped there. Add the folder inside {name} that holds the rest of your projects."
@@ -1336,6 +1345,7 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
             Err(e) if depth == 0 => return Err(unread(&e)),
             Err(_) => continue,
         };
+        let at_home = at == rule.home();
         listed.push((at, time, under));
         // Folders only, by the listing's own type; a link is followed: its
         // card is the real folder's. All of them, in order, so that what the
@@ -1344,7 +1354,9 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
             .filter(|e| {
                 let name = e.file_name();
                 let name = name.to_string_lossy();
-                !name.starts_with('.') && !SKIP.contains(&name.as_ref())
+                let apart =
+                    at_home && (PLAIN.contains(&name.as_ref()) || SYSTEM.contains(&name.as_ref()));
+                !name.starts_with('.') && !SKIP.contains(&name.as_ref()) && !apart
             })
             .filter_map(|e| match e.file_type().ok()? {
                 t if t.is_dir() => Some(e.path()),
@@ -1391,7 +1403,9 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
             found.push((path.clone(), kind.clone()));
         }
     }
-    let one = found.is_empty() && matches!(named, Kind::Top { .. });
+    // A folder that holds no project, searched through to its end, is the one the person means.
+    let one =
+        found.is_empty() && (matches!(named, Kind::Top { .. }) || (!short && named == Kind::Bare));
     if one {
         found.push((folder.to_owned(), named));
     }
@@ -2054,8 +2068,12 @@ pub fn add_look(cx: &mut Cx, args: AddLook) -> Option<Control> {
                 return reply(cx, invalid("this system names no home folder".into()));
             };
             let rule = Rule::new(&home, cx.core.terminals.data());
-            let path = canonical(Path::new(folder));
-            let refused = !path.is_dir() || (rule.never(&path) && !named_plain(&rule, &path));
+            let path = match folder.as_str() {
+                "~" => home.clone(),
+                _ => canonical(Path::new(folder)),
+            };
+            let refused =
+                !path.is_dir() || (rule.never(&path) && path != home && !named_plain(&rule, &path));
             if refused || !path.is_absolute() {
                 let why = format!(
                     "{folder} is no folder Tasktap may look in: name one inside your home folder or on another volume"

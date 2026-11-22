@@ -166,6 +166,7 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     // The own model (core own.rs): the models a server lists (`records.servers`, by address; one not there does not
     // answer), setting it up (the preference, a key's address in `keys`, and its row first in the agreement) and taking it away.
     if (name === 'own_model.list') {
+      (window.__fake.listed ??= []).push(args);
       const models = (records.servers || {})[args.address];
       return models ? reply(id, { models }) : refuse('failed', 'the server could not be reached');
     }

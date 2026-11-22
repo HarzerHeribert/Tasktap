@@ -117,6 +117,14 @@ fn quoted(value: &str) -> Option<String> {
     ))
 }
 
+/// Whether an address is on this machine or a private network.
+fn near(url: &str) -> bool {
+    let (scheme, rest) = url.split_once("://").unwrap_or_default();
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let reach = crate::speech::server(&format!("{scheme}://{host}"));
+    reach.is_ok_and(|reach| reach.here || reach.near)
+}
+
 /// What curl is told: one option a line, as its `--config` reads them.
 /// Every option is older than the curl of Windows 10.
 fn configuration(post: &Request) -> Option<String> {
@@ -126,11 +134,18 @@ fn configuration(post: &Request) -> Option<String> {
         "proto = \"=http,https\"".to_owned(),
         format!("max-time = {:.3}", post.limit.as_secs_f64()),
         format!("connect-timeout = {CONNECT}"),
+        // `{a,b}` and `[1-9]` in an address are no patterns.
+        "globoff".to_owned(),
         "silent".to_owned(),
         "show-error".to_owned(),
         // The status is the last line of what it prints.
         "write-out = \"\\n%{http_code}\"".to_owned(),
     ];
+    // A call to this machine or a private network goes by no proxy, whatever
+    // the environment says: what stays there does not leave.
+    if near(post.url) {
+        lines.push("noproxy = \"*\"".to_owned());
+    }
     if let Some(key) = post.key {
         let header = format!("Authorization: Bearer {key}");
         lines.push(format!("header = {}", quoted(&header)?));
@@ -224,6 +239,22 @@ pub fn send(post: &Request, wait: Wait) -> Result<Answer, Failed> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_call_is_told_no_globbing_and_no_proxy_where_it_stays_near() {
+        let get = |url| Request {
+            url,
+            key: None,
+            body: Body::None,
+            limit: Duration::from_secs(1),
+        };
+        let near = configuration(&get("http://192.168.1.4:1234/v1/models")).unwrap();
+        assert!(near.contains("globoff\n") && near.contains("noproxy = \"*\"\n"));
+        let far = configuration(&get("https://api.example.com/v1/models")).unwrap();
+        assert!(far.contains("globoff\n") && !far.contains("noproxy"));
+        let local = configuration(&get("http://[::1]:11434/v1/models?x=1")).unwrap();
+        assert!(local.contains("noproxy"));
+    }
 
     #[test]
     fn no_time_left_is_no_call_at_all() {

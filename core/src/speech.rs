@@ -556,6 +556,17 @@ pub fn server(server: &str) -> Result<Reach, String> {
     if server.ends_with('/') {
         return Err("a server's address does not end with /".into());
     }
+    // No curl pattern ({a,b}, [1-9]) in it: only an IPv6 address has brackets.
+    let mut outside = server.to_owned();
+    if host.starts_with('[') {
+        if name.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err("a server's address has brackets only around an IPv6 address".into());
+        }
+        outside = outside.replacen('[', "", 1).replacen(']', "", 1);
+    }
+    if outside.contains(|c| "{},[]".contains(c)) {
+        return Err("a server's address has no braces, brackets or commas".into());
+    }
     let ip = name.parse::<std::net::IpAddr>().ok();
     let near = |ip: &std::net::IpAddr| match ip {
         std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),

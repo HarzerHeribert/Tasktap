@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { Glyph, I } from '../ui.tsx';
-import { AGAIN, type Rank, agreement, chatgptOffer, chatgptRow, moved, ownOffer, placeWhy, places, placing, proposed, ranked } from '../way.ts';
+import { AGAIN, type Rank, ownMark, agreement, chatgptOffer, chatgptRow, moved, ownOffer, placeWhy, places, placing, proposed, ranked } from '../way.ts';
 import { CHATGPT, OWN, agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
@@ -84,7 +84,7 @@ export function Ranks({ rows, set, lead, onHint }: { rows: Rank[]; set: (rows: R
             aria-label={`${n[i] ? `${n[i]}, ` : ''}${agentName(r.agent)}, ${r.on ? 'on' : 'off'}, ${why}`}
             onKeyDown={keys(i)} onFocus={() => onHint?.(MOVES)} onBlur={() => onHint?.(null)} onPointerDown={press(i)} onPointerMove={drag} onPointerUp={drop} onPointerCancel={drop}>
             <span class="n">{n[i] ?? ''}</span>
-            <Glyph agent={r.agent} tone={r.on ? undefined : 'quiet'} />
+            <Glyph agent={r.agent === OWN ? ownMark(pref('own_model')?.address ?? '') : r.agent} tone={r.on ? undefined : 'quiet'} />
             <span class="t">{agentName(r.agent)}</span>
             <span class="x m" title={model}>{model}</span>
             {r.agent === OWN ? <span class="x"><button type="button" class="btn" onClick={() => openOwn()}>Change</button></span>
@@ -145,7 +145,7 @@ function look(wait = 400) {
     const address = trimmed();
     if (!address) return ((own.models = null), redraw());
     const gone = () => address !== trimmed();
-    void call('own_model.list', { address, key: own.key.trim() || undefined }).then(
+    void call('own_model.list', { address }).then(
       ({ models }) => !gone() && ((own.models = models), !own.model && models[0] && (own.model = models[0]), redraw()),
       () => !gone() && ((own.models = null), redraw()));
   }, wait);
@@ -179,7 +179,7 @@ const takeAway = () => void call('own_model.remove', {}).then(() => ((own.open =
 export function OwnFields({ then }: { then?: () => void }) {
   if (!own.open) return null;
   const set = pref('own_model'), keyed = pref('keys').includes(trimmed());
-  const type = (what: 'address' | 'model' | 'key') => (e: Event) => ((own[what] = (e.currentTarget as HTMLInputElement).value), (own.err = ''), what === 'model' ? redraw() : look());
+  const type = (what: 'address' | 'model' | 'key') => (e: Event) => ((own[what] = (e.currentTarget as HTMLInputElement).value), (own.err = ''), what === 'address' ? look() : redraw());
   const enter = (e: KeyboardEvent) => e.key === 'Enter' && !e.isComposing && (e.preventDefault(), e.stopPropagation(), setUp(then));
   const models = own.models?.length ? (own.models.includes(own.model) || !own.model ? own.models : [own.model, ...own.models]) : null;
   return (
@@ -210,12 +210,12 @@ export function OwnRow({ then }: { then?: () => void }) {
   return (
     <>
       {!pref('own_model') && (
-        <div class="line rank sign mine off" role="listitem" aria-label={found ? `Ollama on ${HERE}, not used` : 'Your own model, not set up'}>
+        <div class="line rank sign mine" role="listitem" aria-label={found ? `Ollama on ${HERE}, not used` : 'Your own model, not set up'} onClick={() => openOwn(found ? OLLAMA : undefined)}>
           <span class="n" />
-          <Glyph agent={OWN} tone="quiet" />
+          <Glyph agent={found ? 'ollama' : OWN} />
           {found ? <span class="t wide">Ollama on {HERE}</span> : <><span class="t">Your own model</span><span /></>}
           <span />
-          <button type="button" class="btn" onClick={() => openOwn(found ? OLLAMA : undefined)}>{found ? 'Use…' : 'Set up…'}</button>
+          <button type="button" class="btn">{found ? 'Use…' : 'Set up…'}</button>
         </div>
       )}
       <OwnFields then={then} />

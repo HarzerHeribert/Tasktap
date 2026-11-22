@@ -561,8 +561,12 @@ fn the_first_answer_after_a_start_may_take_longer_than_later_ones() {
     let (by, fallback) = Placing::by(&p.placed(slow(1800)));
     assert_eq!(by, "local");
     assert_eq!(fallback, "own: it did not answer within 1 s");
-    // A server that answers in time is asked again.
-    assert_eq!(Placing::by(&p.placed(slow(100))).0, "own");
+    // That server is left out now (see below); a fast one is taken as ever.
+    let other = Server::start();
+    p.set_up(&other.address(), "tiny", None);
+    other.says(slow(100));
+    let t = p.capture(SPOKEN);
+    assert_eq!(Placing::by(&p.settled(t)).0, "own");
 }
 
 #[test]
@@ -583,12 +587,17 @@ fn plain_http_goes_only_to_this_machine_or_a_private_network_and_a_key_only_over
         "http://127.0.0.1:11434/v1/",
         "http://127.0.0.1:11434/v1?x=1",
         "http://user@127.0.0.1/v1",
+        // curl would take these for patterns, and call several hosts.
+        "https://{a.com,b.com}/v1",
+        "https://api[1-9].example.com/v1",
+        "https://api.example.com/{v1,v2}",
+        "http://[1-9]/v1",
+        "http://[127.0.0.1]/v1",
     ] {
         let refused = p.w.refused::<call::OwnModelSet>(&set(address, None));
         assert_eq!(refused.code, Code::Invalid, "{address}");
         let listed = ListModels {
             address: address.into(),
-            key: None,
         };
         assert_eq!(
             p.w.refused::<call::OwnModelList>(&listed).code,
@@ -701,50 +710,202 @@ fn a_key_goes_only_to_its_address_follows_no_redirect_and_is_struck_from_what_is
 }
 
 #[test]
-fn the_models_a_server_lists_are_listed_for_the_chooser() {
+fn the_models_a_server_lists_are_listed_for_the_chooser_with_no_key() {
     let mut p = Placing::new("own-models");
     let address = p.server.address();
     p.server
         .with(|s| s.models = vec!["llama3.1:8b", "qwen2.5-coder:7b"]);
-    let list = |key: Option<&str>| ListModels {
-        address: address.clone(),
-        key: key.map(Into::into),
+    let list = |address: &str| ListModels {
+        address: address.into(),
     };
-    let models = p.w.ok::<call::OwnModelList>(&list(None)).models;
+    let models = p.w.ok::<call::OwnModelList>(&list(&address)).models;
     assert_eq!(models, ["llama3.1:8b", "qwen2.5-coder:7b"]);
     assert_eq!(p.server.with(|s| s.seen[0].path.clone()), "/v1/models");
-    assert_eq!(p.server.with(|s| s.seen[0].authorization.clone()), None);
-    // A key typed is sent with the look, and with that alone.
-    p.w.ok::<call::OwnModelList>(&list(Some(KEY)));
-    assert_eq!(
-        p.server.with(|s| s.seen[1].authorization.clone()),
-        Some(format!("Bearer {KEY}"))
-    );
-    // Without one typed, the key stored for the address is used.
+    // The address may be half typed: no key is sent with a look, not even
+    // the one stored for this very address.
     p.set_up(&address, "llama3.1:8b", Some(KEY));
-    p.w.ok::<call::OwnModelList>(&list(None));
+    p.w.ok::<call::OwnModelList>(&list(&address));
     assert_eq!(
-        p.server
-            .with(|s| s.seen.last().unwrap().authorization.clone()),
-        Some(format!("Bearer {KEY}"))
+        p.server.with(|s| s.seen.last().unwrap().path.clone()),
+        "/v1/models"
     );
-    // The stored key is not sent to another address.
-    let other = Server::start();
-    other.with(|s| s.models = vec!["x"]);
-    p.w.ok::<call::OwnModelList>(&ListModels {
-        address: other.address(),
-        key: None,
-    });
-    assert_eq!(other.with(|s| s.seen[0].authorization.clone()), None);
+    assert!(
+        p.server
+            .with(|s| s.seen.iter().all(|r| r.authorization.is_none()))
+    );
     // A server that refuses, and one nobody listens at, say so.
     p.server.with(|s| s.list_status = Some(401));
-    let refused = p.w.refused::<call::OwnModelList>(&list(None));
+    let refused = p.w.refused::<call::OwnModelList>(&list(&address));
     assert_eq!(refused.code, Code::Failed);
     assert!(!refused.message.contains(KEY));
-    let none = p.w.refused::<call::OwnModelList>(&ListModels {
-        address: "http://127.0.0.1:9/v1".into(),
-        key: None,
-    });
+    let none =
+        p.w.refused::<call::OwnModelList>(&list("http://127.0.0.1:9/v1"));
     assert_eq!(none.code, Code::Failed);
     p.key_kept_nowhere(KEY);
+}
+
+/// The agreement as it stands: `(agent, model, on)` of each row.
+fn rows(p: &Placing) -> Vec<(String, String, bool)> {
+    let by = p.route_by().unwrap();
+    (by.agents.into_iter())
+        .map(|a| (a.agent, a.model, a.on))
+        .collect()
+}
+
+impl Placing {
+    /// Agrees to these rows, `(agent, model, on)`, in this order.
+    fn agree(&mut self, rows: &[(&str, &str, bool)]) {
+        let agents = (rows.iter())
+            .map(|(agent, model, on)| Placer {
+                agent: (*agent).into(),
+                model: (*model).into(),
+                on: *on,
+            })
+            .collect();
+        let target =
+            tasktap_proto::PutTarget::Prefs(tasktap_proto::PrefPatch::RouteBy(Some(RouteBy {
+                agents,
+                terms: TERMS,
+            })));
+        self.w.ok::<call::Put>(&tasktap_proto::Put {
+            target,
+            if_rev: None,
+        });
+    }
+}
+
+#[test]
+fn a_call_to_this_machine_goes_by_no_proxy_whatever_the_environment_says() {
+    let proxy = Server::start();
+    let url = proxy.base.clone();
+    let mut p = Placing::with(
+        "own-proxy",
+        &[
+            ("http_proxy", &url),
+            ("HTTP_PROXY", &url),
+            ("all_proxy", &url),
+        ],
+    );
+    p.set_up(&p.server.address(), "tiny", None);
+    let th = p.placed(Reply::Says(answer("clear", "p2", "Brief.")));
+    assert_eq!(Placing::by(&th).0, "own");
+    let address = p.server.address();
+    p.w.ok::<call::OwnModelList>(&ListModels { address });
+    assert_eq!(proxy.with(|s| s.seen.len()), 0);
+}
+
+#[test]
+fn a_key_kept_for_speech_at_the_address_stays_when_the_own_model_is_set_up_or_removed() {
+    let mut p = Placing::new("own-shared-key");
+    let address = p.server.address();
+    let key = tasktap_proto::SetKey {
+        server: address.clone(),
+        key: KEY.into(),
+    };
+    p.w.ok::<call::KeySet>(&key);
+    let by = tasktap_proto::SpeechBy {
+        server: address.clone(),
+        model: "whisper".into(),
+    };
+    let target = tasktap_proto::PutTarget::Prefs(tasktap_proto::PrefPatch::SpeechBy(Some(by)));
+    p.w.ok::<call::Put>(&tasktap_proto::Put {
+        target,
+        if_rev: None,
+    });
+    // Set up with no key typed, the address stays among the keys.
+    p.set_up(&address, "tiny", None);
+    p.w.sync();
+    assert_eq!(p.keys(), std::slice::from_ref(&address));
+    // So does it when the own model's key goes with a removal.
+    p.set_up(&address, "tiny", Some(KEY));
+    p.w.ok::<call::OwnModelRemove>(&Empty {});
+    p.w.sync();
+    assert_eq!(p.keys(), std::slice::from_ref(&address));
+    // Another address, left for this one, takes its key and nothing more.
+    let elsewhere = Server::start();
+    p.set_up(&elsewhere.address(), "tiny", Some(KEY));
+    p.set_up(&address, "tiny", None);
+    assert_eq!(p.keys(), std::slice::from_ref(&address));
+}
+
+#[test]
+fn what_a_server_repeats_of_the_key_is_struck_before_the_message_is_cut() {
+    let mut p = Placing::new("own-strike");
+    p.set_up(&p.server.address(), "tiny", Some(KEY));
+    // The key stands where a cut at 200 characters would leave half of it.
+    let message = format!("{}{KEY}", "x".repeat(190));
+    let th = p.placed(Reply::Status(
+        401,
+        json!({ "error": { "message": message } }),
+    ));
+    let (_, fallback) = Placing::by(&th);
+    assert!(fallback.contains("(key)"), "{fallback}");
+    assert!(!fallback.contains(&KEY[..8]), "{fallback}");
+}
+
+#[test]
+fn each_server_has_its_own_first_time_and_one_that_did_not_answer_is_left_out() {
+    // The limits are 3 s, then 1 s.
+    let mut p = Placing::with("own-per-server", &[("TASKTAP_OWN_LIMITS", "3000,1000")]);
+    p.set_up(&p.server.address(), "tiny", None);
+    let slow = |ms| Reply::After(ms, Box::new(Reply::Says(answer("clear", "p2", "Brief."))));
+    assert_eq!(Placing::by(&p.placed(slow(0))).0, "own");
+    // Another server has not answered yet: it has the first time too.
+    let other = Server::start();
+    p.set_up(&other.address(), "tiny", None);
+    other.says(slow(1800));
+    let t = p.capture(SPOKEN);
+    assert_eq!(Placing::by(&p.settled(t)).0, "own");
+    // One that does not answer within its time is left out: no task asks it
+    // again, and none waits for it.
+    p.set_up(&p.server.address(), "tiny", None);
+    let (by, fallback) = Placing::by(&p.placed(slow(2500)));
+    assert_eq!(by, "local");
+    assert!(
+        fallback.starts_with("own: it did not answer within 1 s"),
+        "{fallback}"
+    );
+    let asked = p.server.asked().len();
+    let began = std::time::Instant::now();
+    let t = p.capture(SPOKEN);
+    let (by, fallback) = Placing::by(&p.settled(t));
+    assert_eq!(by, "local");
+    assert!(fallback.contains("left out"), "{fallback}");
+    assert!(began.elapsed() < Duration::from_millis(900));
+    assert_eq!(p.server.asked().len(), asked);
+}
+
+#[test]
+fn the_time_the_own_model_waited_takes_nothing_from_the_next_placers() {
+    // The own model may wait 9.5 s, more than the 8 s the others share.
+    let mut p = Placing::with("own-budget", &[("TASKTAP_OWN_LIMITS", "9500,9500")]);
+    p.set_up(&p.server.address(), "tiny", None);
+    p.agree(&[("own", "tiny", true), ("fixture", "fixture-small", true)]);
+    std::fs::write(
+        p.data.0.join("route").join("ask"),
+        format!("print:{}", answer("clear", "p1", "Brief.")),
+    )
+    .unwrap();
+    let silent = Reply::After(
+        11_000,
+        Box::new(Reply::Says(answer("clear", "p2", "Brief."))),
+    );
+    let th = p.placed(silent);
+    let (by, fallback) = Placing::by(&th);
+    assert_eq!(by, "fixture", "{fallback}");
+}
+
+#[test]
+fn changing_the_own_model_keeps_its_switch_and_its_place_in_the_order() {
+    let mut p = Placing::new("own-change");
+    p.set_up(&p.server.address(), "tiny", None);
+    p.agree(&[("fixture", "fixture-small", true), ("own", "tiny", false)]);
+    p.set_up(&p.server.address(), "small", None);
+    assert_eq!(
+        rows(&p),
+        [
+            ("fixture".into(), "fixture-small".into(), true),
+            ("own".into(), "small".into(), false)
+        ]
+    );
 }

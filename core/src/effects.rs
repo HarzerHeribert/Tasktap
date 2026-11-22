@@ -566,6 +566,7 @@ fn route(
         why: Vec::new(),
         tried: false,
         lost: false,
+        spent: Duration::ZERO,
     };
     // The tops of the projects' folders, off the core's thread and in a
     // bounded time; then the chain.
@@ -622,6 +623,9 @@ struct Chain {
     tried: bool,
     /// A tool was found to no longer offer its model ([`Routing::lost`]).
     lost: bool,
+    /// How long the own model was waited for: it has a time of its own, which takes
+    /// nothing from the others' budget.
+    spent: Duration,
 }
 
 /// The least time worth asking an agent in: less than it usually takes to
@@ -645,7 +649,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             break None;
         };
         let name = asker.id();
-        let left = BUDGET.saturating_sub(chain.began.elapsed());
+        let left = BUDGET.saturating_sub(chain.began.elapsed().saturating_sub(chain.spent));
         let usual = Duration::from_millis(typical(name).map_or(0, u64::from)).max(LEAST);
         let why = match asker {
             _ if left < usual && name == crate::chatgpt::ID => {
@@ -654,7 +658,13 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             Asker::ChatGpt(model) => {
                 break Some((Asker::ChatGpt(model), crate::chatgpt::LIMIT.min(left)));
             }
-            Asker::Own(own) => break Some((Asker::Own(own), core.own.limit())),
+            Asker::Own(own) if core.own.left_out(&own.address) => {
+                format!("{name}: it did not answer a moment ago and is left out for now")
+            }
+            Asker::Own(own) => {
+                let limit = core.own.limit(&own.address);
+                break Some((Asker::Own(own), limit));
+            }
             Asker::Agent(agent, how) => {
                 let health = core.detected(name);
                 let rests = health.and_then(|h| h.limited).filter(|&until| until > now);
@@ -704,6 +714,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
     let number = core.seams.asked;
     core.seams.routes.insert(chain.id, (number, hear.clone()));
     chain.tried = true;
+    let started = Instant::now();
     let ask: Box<dyn FnOnce() -> Result<String, Failed> + Send> = match &asker {
         &Asker::Agent(agent, how) => {
             let (how, text) = (agents::Headless { limit, ..how }, question(&chain.asked));
@@ -748,6 +759,9 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             return;
         }
         core.seams.routes.remove(&id);
+        if matches!(asker, Asker::Own(_)) {
+            chain.spent += started.elapsed();
+        }
         // The last question may have kept the core alive.
         core.events.notify_one();
         let ms = Some(u32::try_from(chain.began.elapsed().as_millis()).unwrap_or(u32::MAX));

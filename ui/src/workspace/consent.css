@@ -24,6 +24,12 @@
 .line.rank.sign{cursor:default}
 .line.rank.held{cursor:grabbing;background:var(--sel);box-shadow:0 1px 0 var(--line2),0 -1px 0 var(--line2)}
 .line.rank .t.wide{grid-column:span 2}
+/* The row that offers the own model is one target: its rim is the Composer's lit edge under the pointer or the keyboard. */
+.line.rank.mine{position:relative;cursor:pointer}
+.line.rank.mine::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--edge,var(--lit));opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
+  mask:linear-gradient(#000,rgb(0 0 0/.4) 14px,transparent 90%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
+.line.rank.mine:is(:hover,:focus-within)::after{opacity:.9}
+.line.rank.mine:is(:hover,:focus-within){background:var(--hover)}
 .line.rank .x:has(.btn){overflow:visible}
 .own{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:8px 12px;padding:10px 14px 10px 10px;border-bottom:1px solid var(--line)}
 .own label{font:var(--f-small);color:var(--fg3)}

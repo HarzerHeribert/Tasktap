@@ -94,7 +94,7 @@ export function WelcomeRow() {
 
 // ——— The page of a step ———
 
-type Act = { label: string; do: () => void; off?: boolean };
+type Act = { label: string; do: () => void; off?: boolean; card?: boolean };
 /** One step on one panel: its headline (with `aside`, quiet data beside it), at most a sentence, what it shows, its one
  *  primary action, the quiet ones, and at the foot where the person is and Skip. Return takes the primary action (unless
  *  a control has it), Escape leaves, Skip goes on and leaves the step open. */
@@ -111,7 +111,7 @@ function Page({ title, aside, says, primary, other, children }: { title: string;
         {says && <p class="wc-s">{says}</p>}
         <div class="wc-b">{children}</div>
         <div class="wc-a">
-          {primary && <button type="button" class="key" id="wc-go" disabled={primary.off} onClick={primary.do}><I n="ret" /><span>{primary.label}</span></button>}
+          {primary && !primary.card && <button type="button" class="key" id="wc-go" disabled={primary.off} onClick={primary.do}><I n="ret" /><span>{primary.label}</span></button>}
           {other && <button type="button" class="btn lg" onClick={other.do}>{other.label}</button>}
         </div>
         <footer class="wc-f">
@@ -179,6 +179,18 @@ function Agents() {
 
 // ——— 3. Placing ———
 
+/** One way to have tasks placed: the whole card is the one target, the action's words at its foot. `primary`: the one
+ *  Return takes (the page's key stands in the card). */
+function Card({ id, title, off, go, primary, action, children }: { id?: string; title: string; off?: boolean; go: () => void; primary?: boolean; action: string; children: ComponentChildren }) {
+  return (
+    <button type="button" class="wc-card" id={id} disabled={off} onClick={go}>
+      <span class="wc-t">{title}</span>
+      <span class="wc-c2">{children}</span>
+      <span class={primary ? 'key lg' : 'btn lg'}>{primary && <I n="ret" />}<span>{action}</span></span>
+    </button>
+  );
+}
+
 function Placing() {
   const { t, rows, write, tools } = useRanks();
   useEffect(() => void loadTerms(), []);
@@ -189,24 +201,20 @@ function Placing() {
   const here = foundOllama();
   return (
     <Page title={PLACING_TITLE} says={PLACING_SAYS}
-      primary={signed ? { label: 'Use ChatGPT', do: () => agree((a) => a === CHATGPT), off: !t } : { label: 'Sign in with ChatGPT', do: signInWithChatGPT, off: waiting }}>
+      primary={{ ...(signed ? { label: 'Use ChatGPT', do: () => agree((a) => a === CHATGPT), off: !t } : { label: 'Sign in with ChatGPT', do: signInWithChatGPT, off: waiting }), card: true }}>
       <div class="wc-o" role="group" aria-label="Who finds the project" data-n={here ? 3 : 2}>
-        <section>
-          <h2>ChatGPT</h2>
-          <Glyph agent={CHATGPT} size={28} />
-          {(signed || waiting) && <p class="x">{signed ? 'Signed in' : 'Waiting for your browser'}</p>}
-        </section>
-        <section>
-          <h2>Your agents</h2>
-          <ol class="wc-q">{asked.map((r) => <li key={r.agent}><Glyph agent={r.agent} size={16} /><span>{agentName(r.agent)}</span></li>)}</ol>
-          <button type="button" class="btn lg" disabled={!t || !asked.length} onClick={() => agree((a) => a !== CHATGPT && a !== OWN)}>Use my agents</button>
-        </section>
+        <Card id="wc-go" title="ChatGPT" off={signed ? !t : waiting} go={signed ? () => agree((a) => a === CHATGPT) : signInWithChatGPT} primary action={signed ? 'Use ChatGPT' : 'Sign in with ChatGPT'}>
+          <Glyph agent={CHATGPT} size={40} />
+          {(signed || waiting) && <span class="x">{signed ? 'Signed in' : 'Waiting for your browser'}</span>}
+        </Card>
+        <Card title="Your agents" off={!t || !asked.length} go={() => agree((a) => a !== CHATGPT && a !== OWN)} action="Use my agents">
+          <span class="wc-q">{asked.slice(0, 4).map((r) => <Glyph key={r.agent} agent={r.agent} size={32} />)}</span>
+          <span class="x">{asked.map((r) => agentName(r.agent)).join(', ')}</span>
+        </Card>
         {here && (
-          <section>
-            <h2>On {HERE}</h2>
-            <Glyph agent={OWN} size={28} />
-            <button type="button" class="btn lg" onClick={() => openOwn(OLLAMA)}>Use Ollama</button>
-          </section>
+          <Card title={`On ${HERE}`} go={() => openOwn(OLLAMA)} action="Use Ollama">
+            <Glyph agent="ollama" size={40} />
+          </Card>
         )}
       </div>
       <OwnFields then={next} />

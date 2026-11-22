@@ -4,6 +4,7 @@
 // by a model is on, what a ring says of its agent,
 // the time a recording shows, where heard words go in a field, and what a field holds while its thought is sent. The
 // pages draw these and decide nothing themselves.
+import { SERVERS } from './marks.ts';
 import { type ChatGpt, DECIDED_HOLD, type Place, type PlaceTool, type RouteBy, type Thought } from '../../core/proto/protocol.ts';
 
 /** The two letters of an agent the app has no mark for, from its id, which is what a person types to start it: the
@@ -232,6 +233,13 @@ export const chatgptOffer = (model: string) =>
 
 /** Whether an address is on this machine, as the core takes it (speech.rs `server`). */
 export const onThisMachine = (address: string) => /^https?:\/\/(localhost|127(\.\d{1,3}){3}|\[::1\])([:/]|$)/i.test(address);
+
+/** The mark of the model at an address: the product of the server where the address names one the marks know (a word
+ *  of it, or Ollama's usual port), else the plain one of an own model. */
+export function ownMark(address: string): string {
+  const words = address.toLowerCase().replace(/^https?:\/\//, '').split(/[^a-z0-9]+/);
+  return SERVERS.find((s) => words.includes(s)) ?? (/^[^/]*:11434(\/|$)/.test(address.replace(/^https?:\/\//, '')) ? 'ollama' : 'own');
+}
 
 /** What "What is sent" says of the own model: to which address each task goes, and where that address is this machine,
  *  that the task does not leave it (`here` names it: this Mac or this PC). */

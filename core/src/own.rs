@@ -28,7 +28,7 @@
 //! the first answer after a start may take [`FIRST`], later ones [`LATER`],
 //! whatever [`route::BUDGET`] says of the agents.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -128,12 +128,24 @@ impl Form {
     }
 }
 
-/// What the own model shares between placings: the credential store, whether
-/// a server answered since the core started, and the form each server took.
+/// How long a server that did not answer within its time is left out.
+const LEFT_OUT: Duration = Duration::from_secs(120);
+
+/// What is known of one server since the core started.
+#[derive(Default)]
+struct Seen {
+    /// It has answered: its model is loaded.
+    warm: bool,
+    /// When it last did not answer within its time.
+    silent: Option<Instant>,
+}
+
+/// What the own model shares between placings: the credential store, what
+/// each server did, and the form each server took.
 #[derive(Clone)]
 pub struct Own {
     vault: Arc<dyn Vault>,
-    warm: Arc<AtomicBool>,
+    seen: Arc<Mutex<HashMap<String, Seen>>>,
     form: Arc<Mutex<Option<(String, Form)>>>,
 }
 
@@ -141,17 +153,30 @@ impl Default for Own {
     fn default() -> Own {
         Own {
             vault: secrets::vault(),
-            warm: Default::default(),
+            seen: Default::default(),
             form: Default::default(),
         }
     }
 }
 
 impl Own {
-    /// How long the next placing may take: [`FIRST`] until a server has
-    /// answered, then [`LATER`]. A build with the test fixtures takes both
-    /// from `TASKTAP_OWN_LIMITS`, in milliseconds as `first,later`.
-    pub fn limit(&self) -> Duration {
+    fn seen<T>(&self, address: &str, f: impl FnOnce(&mut Seen) -> T) -> T {
+        let mut all = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        f(all.entry(address.to_owned()).or_default())
+    }
+
+    /// Whether the server at `address` did not answer within its time a
+    /// moment ago: it is left out, and no task waits for it again.
+    pub fn left_out(&self, address: &str) -> bool {
+        self.seen(address, |s| {
+            s.silent.is_some_and(|at| at.elapsed() < LEFT_OUT)
+        })
+    }
+
+    /// How long the next placing at `address` may take: [`FIRST`] until that
+    /// server has answered, then [`LATER`]. A build with the test fixtures
+    /// takes both from `TASKTAP_OWN_LIMITS`, in milliseconds as `first,later`.
+    pub fn limit(&self, address: &str) -> Duration {
         #[cfg(feature = "fixtures")]
         let (first, later) = match std::env::var("TASKTAP_OWN_LIMITS") {
             Ok(limits) => {
@@ -162,7 +187,7 @@ impl Own {
         };
         #[cfg(not(feature = "fixtures"))]
         let (first, later) = (FIRST, LATER);
-        match self.warm.load(Ordering::Relaxed) {
+        match self.seen(address, |s| s.warm) {
             true => later,
             false => first,
         }
@@ -233,14 +258,23 @@ impl Own {
                 body: Body::Json(&body),
                 limit: left,
             };
-            let answer = http::send(&post, wait)
-                .map_err(|e| why(&chatgpt::unanswered(e, WHO, limit), key))?;
+            let answer = http::send(&post, wait).map_err(|e| {
+                if e == http::Failed::Slow {
+                    self.seen(&to.address, |s| s.silent = Some(Instant::now()));
+                }
+                why(&chatgpt::unanswered(e, WHO, limit), key)
+            })?;
             let text = String::from_utf8_lossy(&answer.body);
             let parsed: Value = serde_json::from_str(&text).unwrap_or_default();
-            let words = || chatgpt::said(&parsed, answer.status);
+            let words = || chatgpt::said(&parsed, answer.status, key);
             let sentence = match answer.status {
                 200 => {
-                    self.warm.store(true, Ordering::Relaxed);
+                    self.seen(&to.address, |s| {
+                        *s = Seen {
+                            warm: true,
+                            silent: None,
+                        }
+                    });
                     let text = reply(&parsed).map_err(|e| why(&e, key))?;
                     *self.form.lock().unwrap_or_else(PoisonError::into_inner) = Some((same, form));
                     return Ok(text);
@@ -263,14 +297,7 @@ impl Own {
 /// A text from a server or from here, with the key struck from it, as the
 /// reason a placing gives for passing on.
 fn why(text: &str, key: Option<&str>) -> Failed {
-    Failed::Why(strike(text, key))
-}
-
-fn strike(text: &str, key: Option<&str>) -> String {
-    match key {
-        Some(key) => text.replace(key, "(key)"),
-        None => text.to_owned(),
-    }
+    Failed::Why(chatgpt::strike(text, key))
 }
 
 /// The JSON text in a chat completion's answer, or why there is none.
@@ -402,9 +429,6 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
     let dropped = before
         .clone()
         .filter(|p| p.address != address && p.keyed && !spoken(&p.address));
-    let kept = before
-        .as_ref()
-        .is_some_and(|p| p.address == address && p.keyed);
     let (vault, own) = (cx.core.own.vault.clone(), (address.clone(), model));
     let work = {
         let (address, key, dropped) = (address.clone(), key.clone(), dropped.clone());
@@ -419,7 +443,7 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
         let lost = || Err("the credential store ended without an answer".to_owned());
         let (address, model) = own;
         let result = (done.unwrap_or_else(lost))
-            .map_err(|e| Error::new(Code::Failed, strike(&e, key.as_deref())))
+            .map_err(|e| Error::new(Code::Failed, chatgpt::strike(&e, key.as_deref())))
             .and_then(|()| {
                 effects::write(core, |tx| {
                     let own = PrefValue::OwnModel(Some(OwnModel {
@@ -427,7 +451,7 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
                         model: model.clone(),
                     }));
                     let put = tx.put_pref(&own);
-                    put.and_then(|()| chatgpt::agree(tx, ID, &model))
+                    put.and_then(|()| chatgpt::agree(tx, ID, &model, true))
                         .map_err(effects::stored)
                 })
             })
@@ -435,23 +459,33 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
                 Some(p) => speech::listed(core, &p.address, false),
                 None => Ok(()),
             })
-            .and_then(|()| speech::listed(core, &address, key.is_some() || kept));
+            .and_then(|()| match key {
+                Some(_) => speech::listed(core, &address, true),
+                None => Ok(()),
+            });
         link.send(&call::OwnModelSet::reply(id, result));
     });
     None
 }
 
 /// `own_model.remove`: no own model is set up; its row leaves the agreement,
-/// and its key the credential store.
+/// and its key the credential store, unless a speech service keeps that
+/// address and its key.
 pub fn remove(cx: &mut Cx, _: Empty) -> Option<Control> {
     let (link, id) = (cx.link.clone(), cx.id);
-    let before = match effects::read(cx.core, placing) {
-        Ok(before) => before,
+    let known = effects::read(cx.core, |tx| {
+        let speech = tx.pref(PrefKey::SpeechBy)?.map(|p| p.value);
+        Ok((placing(tx)?, speech))
+    });
+    let (before, speech) = match known {
+        Ok(known) => known,
         Err(e) => return Some(call::OwnModelRemove::reply(id, Err(e))),
     };
+    let spoken = |address: &str| matches!(&speech, Some(PrefValue::SpeechBy(Some(by))) if by.server == address);
+    let keyed = before.filter(|p| p.keyed && !spoken(&p.address));
     let vault = cx.core.own.vault.clone();
-    let keyed = before.clone().filter(|p| p.keyed);
-    let work = move || keyed.map_or(Ok(()), |p| vault.remove(&p.address));
+    let unkeyed = keyed.clone();
+    let work = move || unkeyed.map_or(Ok(()), |p| vault.remove(&p.address));
     crate::calls::aside(cx.core, work, move |core, done| {
         let lost = || Err("the credential store ended without an answer".to_owned());
         let result = (done.unwrap_or_else(lost))
@@ -464,9 +498,9 @@ pub fn remove(cx: &mut Cx, _: Empty) -> Option<Control> {
                         .map_err(effects::stored)
                 })
             })
-            .and_then(|()| match &before {
-                Some(p) if p.keyed => speech::listed(core, &p.address, false),
-                _ => Ok(()),
+            .and_then(|()| match &keyed {
+                Some(p) => speech::listed(core, &p.address, false),
+                None => Ok(()),
             });
         link.send(&call::OwnModelRemove::reply(id, result));
     });
@@ -474,58 +508,35 @@ pub fn remove(cx: &mut Cx, _: Empty) -> Option<Control> {
 }
 
 /// `own_model.list`: the models the server at an address lists, for the
-/// chooser. A server that does not answer is an error the page may ignore:
-/// that is how one on this machine is found, or not.
+/// chooser, asked with no key: the address may be half typed. A server that
+/// does not answer is an error the page may ignore: that is how one on this
+/// machine is found, or not.
 pub fn list(cx: &mut Cx, args: ListModels) -> Option<Control> {
-    let ListModels { address, key } = args;
     let (link, id) = (cx.link.clone(), cx.id);
-    let refused = |why: String| {
-        Some(call::OwnModelList::reply(
-            id,
-            Err(Error::new(Code::Invalid, why)),
-        ))
-    };
-    let reach = match reached(&address) {
-        Ok(reach) => reach,
-        Err(why) => return refused(why),
-    };
-    let key = key.filter(|key| !key.is_empty());
-    if key
-        .as_ref()
-        .is_some_and(|key| !reach.keeps() || !secrets::plain(key))
-    {
-        return refused("a key is only sent over https or to this machine, and is 1 to 512 printable characters".into());
+    if let Err(why) = reached(&args.address) {
+        let invalid = Error::new(Code::Invalid, why);
+        return Some(call::OwnModelList::reply(id, Err(invalid)));
     }
-    // No key typed: the one stored for this address, where the model is set up at it.
-    let stored = match effects::read(cx.core, placing) {
-        Ok(set) => set.filter(|p| p.keyed && p.address == address && key.is_none()),
-        Err(e) => return Some(call::OwnModelList::reply(id, Err(e))),
-    };
-    let vault = cx.core.own.vault.clone();
-    let work = move || -> Result<Vec<String>, String> {
-        let key = match (key, stored) {
-            (Some(key), _) => Some(key),
-            (None, Some(_)) => vault.get(&address)?,
-            (None, None) => None,
-        };
-        models(&address, key.as_deref()).map_err(|e| strike(&e, key.as_deref()))
-    };
-    crate::calls::aside(cx.core, work, move |_, done| {
-        let lost = || Err("it ended without an answer".to_owned());
-        let result = (done.unwrap_or_else(lost))
-            .map(|models| Models { models })
-            .map_err(|e| Error::new(Code::Failed, e));
-        link.send(&call::OwnModelList::reply(id, result));
-    });
+    crate::calls::aside(
+        cx.core,
+        move || models(&args.address),
+        move |_, done| {
+            let lost = || Err("it ended without an answer".to_owned());
+            let result = (done.unwrap_or_else(lost))
+                .map(|models| Models { models })
+                .map_err(|e| Error::new(Code::Failed, e));
+            link.send(&call::OwnModelList::reply(id, result));
+        },
+    );
     None
 }
 
 /// The names of the models a server lists (`GET {address}/models`).
-fn models(address: &str, key: Option<&str>) -> Result<Vec<String>, String> {
+fn models(address: &str) -> Result<Vec<String>, String> {
     let url = format!("{address}/models");
     let get = Request {
         url: &url,
-        key,
+        key: None,
         body: Body::None,
         limit: LIST,
     };
@@ -534,7 +545,7 @@ fn models(address: &str, key: Option<&str>) -> Result<Vec<String>, String> {
     if answer.status != 200 {
         return Err(format!(
             "the server did not list its models ({})",
-            chatgpt::said(&body, answer.status)
+            chatgpt::said(&body, answer.status, None)
         ));
     }
     let listed = (body["data"].as_array())

@@ -580,12 +580,25 @@ async function main(out, dist) {
     m = await own(page);
     expect(/^Ollama on this (Mac|PC)$/.test(m?.name ?? '') && m.button === 'Use…', `a server found on this machine: "${m?.name}", "${m?.button}"`);
     await fits(page, 'the sheet with a server found');
+    await page.mouse.move(2, 2);
+    await page.waitForTimeout(300);
+    const rim = () => page.evaluate(() => { const r = document.querySelector('.sheet .rank.mine'); return [getComputedStyle(r, '::after').opacity, getComputedStyle(r).cursor, !!r.querySelector('svg.amark path')]; });
+    const at = await rim();
     await shoot(page, out, '4-server-found');
-    await page.locator('.sheet .rank.mine .btn').click();
+    await page.locator('.sheet .rank.mine .t').hover();
+    await page.waitForTimeout(500);
+    const over = await rim();
+    expect(at[0] === '0' && over[0] !== '0' && over[1] === 'pointer' && at[2], `the row is one target: its rim lights under the pointer (${at[0]} to ${over[0]}), the pointer says so, and it has Ollama's mark`);
+    await shoot(page, out, '4-server-found-pointer');
+    // A click anywhere on the row takes its action: here on its words.
+    await page.locator('.sheet .rank.mine .t').click();
     await page.waitForTimeout(500);
     f = await fields(page);
     expect(f?.address === OLLAMA && f.model === 'SELECT' && f.options.join() === 'llama3.1:8b,qwen2.5-coder:7b,gemma3:4b' && f.chosen === 'llama3.1:8b', `Use… opens the fields with the address filled and the models listed: ${JSON.stringify(f)}`);
     await page.locator('#own-key').fill('a-key-of-no-service');
+    await page.waitForTimeout(700);
+    const listed = await page.evaluate(() => window.__fake.listed);
+    expect(listed.length > 0 && listed.every((a) => Object.keys(a).join() === 'address'), `the look at the models sends the address and no key, the key typed or not: ${JSON.stringify(listed)}`);
     await fits(page, 'the sheet with the three fields open');
     await shoot(page, out, '2-fields-open');
     await page.locator('#own-model').selectOption('qwen2.5-coder:7b');

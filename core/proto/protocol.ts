@@ -979,10 +979,10 @@ export type LayoutPatch = { tree: unknown, };
 export type Limit = number;
 
 /**
- * `own_model.list`: the models the server at `address` lists, asked with
- * `key` where one is given, else with the one stored for that address.
+ * `own_model.list`: the models the server at `address` lists. No key is
+ * sent with it, ever: the address may be half typed.
  */
-export type ListModels = { address: string, key?: string | null, };
+export type ListModels = { address: string, };
 
 /**
  * The reply to `dictation.start`.

@@ -431,7 +431,6 @@ fn every_call_round_trips() {
     round_trip::<call::OwnModelRemove>(Empty {}, (), seen);
     let list = ListModels {
         address: "http://127.0.0.1:11434/v1".into(),
-        key: None,
     };
     let models = Models {
         models: vec!["llama3.1:8b".into()],

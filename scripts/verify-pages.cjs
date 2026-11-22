@@ -1,14 +1,17 @@
 // Exercises the built site (build/pages) under the repository subpath it is published at. No external service is
 // contacted, and the run fails if the pages try to reach one. What it holds the site to:
 //   - both pages at six sizes: one headline, the skip link first, no sideways scroll, every picture there and shown
-//     at its own size (never scaled), every link and anchor inside the site resolving
+//     at its own size (never scaled; the one picture of Tasktap's window is scaled to its column, never wider), every
+//     link and anchor inside the site resolving
 //   - the words: nothing of what was true only of 1.2, its update feed not published; downloads only by the release's
 //     fixed names; both systems' download and install line, the visitor's system first, each in its order (a Mac's
 //     download first, Windows' line first), with Copy, which selects the line where there is no clipboard; the install
 //     scripts published as they are in site/, and as .txt to read; and one metal key in view at a time
-//   - with scripts off the page still explains the product; under Reduce Motion nothing moves by itself
-//   - the live notch (the app's own page): it plays, it can be paused and stepped, it never takes the keyboard, and
-//     it rests while the top is out of sight
+//   - with scripts off the page still explains the product, every chapter of its story with its still picture; under
+//     Reduce Motion nothing is held and nothing moves by itself
+//   - the live notch (the app's own page), held beside the story, in Chromium and in WebKit: scrolled to a chapter it
+//     shows that chapter's state, it never takes the keyboard (Tab goes through the page, a digit answers nothing), it
+//     rests while out of sight, and it holds a question open past its own ten seconds
 //   - every word keeps the app's floor of 4.5 : 1 against what it stands on
 //   - what it shows of the app (site/app) is made from the app as it is: the sources scripts/render-site.cjs makes it
 //     from hash as they did when it was made (site/app/SOURCE). Stale pictures are a NOTE, so work on the interface
@@ -20,7 +23,8 @@ const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const root = path.resolve(__dirname, '../build/pages');
+// TASKTAP_PAGES=<dir> exercises another build, as story-check.cjs does.
+const root = path.resolve(process.env.TASKTAP_PAGES || path.join(__dirname, '../build/pages'));
 const prefix = '/Tasktap/';
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.png': 'image/png', '.txt': 'text/plain; charset=utf-8' };
 // True of 1.2 and not of this app (docs/rebuild-plan.md, "Repository cutover"): none of it may come back.
@@ -66,6 +70,14 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
       return page;
     };
     const fits = (page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
+    /** Every chapter's two stills put in, as scrolling past each does (site.js puts each in as it comes near). */
+    const inflate = async (p) => {
+      for (const id of ['say', 'place', 'work', 'ask', 'result']) for (const which of ['form', 'shot']) {
+        await p.evaluate(([id, which]) => document.querySelector(`#${id} .slot.${which}`).scrollIntoView({ block: 'center' }), [id, which]);
+        await p.waitForFunction(([id, which]) => !!document.querySelector(`#${id} .slot.${which} img`)?.complete, [id, which]);
+      }
+      await p.evaluate(() => scrollTo(0, 0));
+    };
 
     // ---- both pages, at every size, at rest ----
     const still = await browser.newContext({ reducedMotion: 'reduce' });
@@ -81,13 +93,31 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
         assert.ok(await fits(page), `${name} fits ${width}px`);
         // Every picture is there, and is shown at its own size (the browser gives a picture's width in CSS pixels,
         // whatever its density): one picture pixel to one screen pixel.
+        // (Every picture: the chapters' stills and Tasktap's window come only as they are scrolled near, so the page
+        // is scrolled from end to end first.)
+        if (!suffix) (await inflate(page), await page.locator('#terminals').scrollIntoViewIfNeeded(), await page.waitForFunction(() => !!document.querySelector('#terminals img')), await page.evaluate(() => scrollTo(0, 0)));
         const pictures = await page.locator('img').evaluateAll((images) => Promise.all(images.map(async (image) => {
           image.loading = 'eager';
           await image.decode();
           return { src: image.currentSrc, natural: image.naturalWidth, shown: image.clientWidth, attr: Number(image.getAttribute('width')), hidden: image.clientWidth === 0 };
         })));
-        for (const p of pictures.filter((p) => !p.hidden && !/band/.test(p.src)))
-          assert.equal(p.natural, p.shown, `${name} at ${width}px shows ${p.src} unscaled`);
+        // The notch's stills, the chrome's and Tasktap's window fit their place: shown smaller where the place is, never
+        // larger.
+        for (const p of pictures.filter((p) => !p.hidden))
+          if (/story-|chrome-|workspace/.test(p.src)) assert.ok(p.shown <= p.natural, `${name} at ${width}px never shows ${p.src} larger than it was drawn`);
+          else assert.equal(p.natural, p.shown, `${name} at ${width}px shows ${p.src} unscaled`);
+        if (!suffix) assert.ok(pictures.filter((p) => !p.hidden && /story-/.test(p.src)).length === 5 && pictures.filter((p) => !p.hidden && /chrome-(say|place|work|ask|result)/.test(p.src)).length === 5 && pictures.some((p) => !p.hidden && /workspace/.test(p.src)), `home at ${width}px: every chapter's two stills and Tasktap's window were looked at (${pictures.length} pictures)`);
+        // Tasktap's window: inside the screen, never panned.
+        if (!suffix) {
+          await page.locator('#terminals').scrollIntoViewIfNeeded();
+          const w = await page.locator('#terminals img').evaluate(async (image) => {
+            await image.decode();
+            const slot = image.closest('.slot'), r = slot.getBoundingClientRect();
+            return { inside: r.left >= 0 && r.right <= innerWidth + 1, overflow: getComputedStyle(slot).overflowX, larger: image.clientWidth > image.naturalWidth + 1 };
+          });
+          assert.ok(w.inside && w.overflow === 'clip' && !w.larger, `home at ${width}px shows Tasktap's window inside the screen, unpanned (${JSON.stringify(w)})`);
+          await page.evaluate(() => scrollTo(0, 0));
+        }
         const refs = await page.locator('a[href]').evaluateAll((links) => links.map((link) => link.href));
         for (const ref of new Set(refs.filter((ref) => ref.startsWith(url)))) {
           const target = new URL(ref), response = await page.request.get(target.href);
@@ -114,9 +144,11 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     // Both systems, the visitor's first: anywhere but Windows the Mac's download, then its line; on Windows its line
     // first, since SmartScreen stops a browser's download of the installer, which is not code-signed.
     const MAC = 'curl -fsSL https://harzerheribert.github.io/Tasktap/install.sh | sh', WIN = 'irm https://harzerheribert.github.io/Tasktap/install.ps1 | iex';
-    const offered = (p) => p.locator('#get :is(a[href*="releases"], pre)').evaluateAll((all) => all.filter((el) => el.getClientRects().length).map((el) => (el.tagName === 'PRE' ? el.textContent : el.href.split('/').pop())));
+    const offered = (p) => p.locator('#install :is(a[href*="releases"], pre)').evaluateAll((all) => all.filter((el) => el.getClientRects().length).map((el) => (el.tagName === 'PRE' ? el.textContent : el.href.split('/').pop())));
     assert.deepEqual(await offered(page), ['Tasktap_aarch64.dmg', MAC, WIN, 'Tasktap_x64-setup.exe']);
-    assert.match(await page.locator('.words .fine').innerText(), /Windows on x64/, 'the top says Windows is offered too');
+    assert.match(await page.locator('.top .runs').innerText(), /Windows on x64/, 'the top says Windows is offered too');
+    // The first screen's line is the visitor's system's: anywhere but Windows, the Mac's.
+    assert.deepEqual(await page.locator('.top pre').evaluateAll((all) => all.filter((el) => el.getClientRects().length).map((el) => el.textContent)), [MAC]);
     assert.match(await page.locator('.foot .license').innerText(), /source-available under Apache License 2\.0 with the Commons Clause/);
     // The scripts the lines run are published as they are in site/, and as a .txt copy a browser shows.
     for (const name of ['install.sh', 'install.ps1']) {
@@ -130,22 +162,27 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     const win = watch(await windows.newPage());
     await win.goto(url);
     assert.deepEqual(await offered(win), [WIN, 'Tasktap_x64-setup.exe', 'Tasktap_aarch64.dmg', MAC]);
-    const copy = win.locator('#get .copy').first();
+    const copy = win.locator('#install .copy').first();
     await copy.click();
     assert.equal(await win.evaluate(() => navigator.clipboard.readText()), WIN, 'Copy puts the line on the clipboard');
     assert.equal(await copy.textContent(), 'Copied');
-    if (shots) await win.locator('#get').screenshot({ path: path.join(shots, 'get-windows-1440.png') });
+    // At the top, Windows' line, and its Copy copies that line.
+    await win.evaluate(() => navigator.clipboard.writeText(''));
+    await win.locator('.top .copy').click();
+    assert.equal(await win.evaluate(() => navigator.clipboard.readText()), WIN, 'the top\'s Copy on Windows copies the PowerShell line');
+    if (shots) await win.locator('#install').screenshot({ path: path.join(shots, 'install-windows-1440.png') });
     await windows.close();
     // Where there is no clipboard, Copy selects the line, and nothing goes wrong.
     const bareClip = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     await bareClip.addInitScript(() => Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined }));
     const noClip = watch(await bareClip.newPage());
     await noClip.goto(url);
-    await noClip.locator('#get .copy').first().click();
+    await noClip.locator('#install .copy').first().click();
     assert.equal(await noClip.evaluate(() => getSelection().toString()), MAC, 'without a clipboard, Copy selects the line');
     await bareClip.close();
-    // One metal key in view: the page's two keys are further apart than any window is tall.
-    const keys = await page.locator('a.key').evaluateAll((all) => all.map((k) => k.getBoundingClientRect().top + scrollY));
+    // One metal key in view: the page's two keys shown (Copy at the top, the Mac's download) are further apart than
+    // any window is tall.
+    const keys = await page.locator('.key').evaluateAll((all) => all.filter((k) => k.getClientRects().length).map((k) => k.getBoundingClientRect().top + scrollY));
     assert.equal(keys.length, 2);
     assert.ok(keys[1] - keys[0] > 2000, 'the two keys never share a view');
     // The app's floor for words: 4.5 : 1 on what they stand on; in the top, on the light at its brightest.
@@ -157,7 +194,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
         const out = [];
         for (const el of document.querySelectorAll('body *')) {
           if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) || el.closest('.sr, .skip, noscript, [hidden]') || !el.getClientRects().length) continue;
-          let ground = el.closest('.top') ? [29, 26, 34] : [10, 10, 11];
+          let ground = [10, 10, 11];
           if (el.closest('.key, kbd')) ground = [221, 224, 229];
           else for (let at = el; at; at = at.parentElement) {
             const c = rgb(getComputedStyle(at).backgroundColor);
@@ -171,45 +208,47 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
       assert.deepEqual(low, [], 'every word keeps 4.5 : 1');
     }
 
-    // ---- Reduce Motion: the notch shows one telling state, and nothing moves by itself ----
+    // ---- Reduce Motion: nothing is held, every chapter stands with its still, and nothing moves by itself ----
     await page.goto(url);
-    const frame = page.frameLocator('.notch iframe');
-    await frame.locator('[data-question] .qp').waitFor();
-    assert.equal(await page.locator('.steps [aria-current]').textContent(), 'Needs you');
-    assert.equal(await page.locator('.hold').isVisible(), false, 'nothing plays, so nothing is paused');
-    await page.waitForTimeout(2500);
-    assert.equal(await page.locator('.steps [aria-current]').textContent(), 'Needs you', 'it stays where it is');
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('held')), false, 'under Reduce Motion the stage is not held');
+    assert.equal(await page.locator('.notch iframe').count(), 0, 'and the live notch is not loaded');
+    assert.equal(await page.locator('#stage').evaluate((el) => getComputedStyle(el).position), 'static', 'the stage scrolls with the page');
+    await inflate(page);
+    assert.equal(await page.locator('.still img').evaluateAll((all) => all.filter((i) => i.getClientRects().length).length), 10, 'every chapter has its two stills: the chrome\'s form, and the notch');
+    await page.waitForTimeout(1500);
     assert.equal(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length), 0, 'no animation runs');
-    assert.equal(await page.locator('.light').getAttribute('data-moves'), 'false');
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
-    await frame.locator('.result .qp').waitFor();
-    assert.match(await frame.locator('.result').innerText(), /Keep/);
     await still.close();
 
     // ---- at 2x the sharper pictures are the ones shown ----
     const dense = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
     const sharp = watch(await dense.newPage());
     await sharp.goto(url);
-    const chosen = await sharp.locator('.shot img').evaluateAll((images) => Promise.all(images.map(async (image) => {
+    await inflate(sharp);
+    const chosen = await sharp.locator('.still img').evaluateAll((images) => Promise.all(images.map(async (image) => {
       image.loading = 'eager';
       await image.decode();
       return [image.currentSrc, image.naturalWidth, image.clientWidth];
     })));
-    assert.equal(chosen.length, 3);
-    for (const [src, natural, shown] of chosen) assert.ok(src.includes('@2x') && natural === shown, `${src} is the 2x picture, unscaled`);
+    assert.equal(chosen.length, 10);
+    for (const [src, natural, shown] of chosen) assert.ok(src.includes('@2x') && shown <= natural, `${src} is the 2x picture, never larger than drawn`);
     await dense.close();
 
-    // ---- scripts off: the page still explains the product ----
+    // ---- scripts off: the page still explains the product, each chapter with its still ----
     const plain = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
     const bare = watch(await plain.newPage());
     await bare.goto(url);
     assert.ok(await bare.locator('h1').isVisible());
-    assert.ok(await bare.locator('.notch-ask img').evaluate(async (image) => (await image.decode(), image.naturalWidth > 0 && image.clientWidth > 0)), 'the notch is a picture');
-    assert.ok(await bare.locator('.still-says').isVisible(), 'and its caption says what it shows');
-    assert.equal(await bare.locator('.steps').isVisible(), false);
-    assert.equal(await bare.locator('main section:visible').count(), 9);
-    assert.equal(await bare.locator('#get pre:visible').count(), 2, 'without scripts both lines stand');
-    assert.equal(await bare.locator('#get .copy:visible').count(), 0, 'and no Copy, which needs a script');
+    const stills = await bare.locator('.still img').evaluateAll((all) => Promise.all(all.map(async (image) => {
+      image.loading = 'eager';
+      await image.decode();
+      return image.naturalWidth > 0 && image.clientWidth > 0;
+    })));
+    assert.deepEqual(stills, Array(10).fill(true), 'every chapter has a picture of the chrome\'s form and one of the notch in that state');
+    assert.equal(await bare.locator('.chapters-nav').isVisible(), false, 'nothing is held, so no list of chapters beside it');
+    assert.equal(await bare.locator('main section:visible').count(), 3);
+    assert.equal(await bare.locator('.top pre:visible').count(), 1, 'the first screen has one install line');
+    assert.equal(await bare.locator('#install pre:visible').count(), 2, 'without scripts both lines stand');
+    assert.equal(await bare.locator('.copy:visible').count(), 0, 'and no Copy, which needs a script');
     assert.ok(await fits(bare));
     if (shots) await bare.screenshot({ path: path.join(shots, 'home-noscript-390.png'), fullPage: true });
     await bare.goto(url + 'docs/');
@@ -217,102 +256,120 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.equal(await bare.locator('article section:visible').count(), 11);
     await plain.close();
 
-    // ---- the live notch ----
-    const moving = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    const live = watch(await moving.newPage());
-    await live.goto(url);
-    const notch = live.frameLocator('.notch iframe');
-    await live.locator('.stage.live').waitFor();
-    // It plays: the thought is typed into the app's own capture line.
-    await live.locator('.steps [aria-current]').filter({ hasText: 'Tell the agent' }).waitFor();
-    await live.waitForFunction(() => document.querySelector('.notch iframe').contentDocument.querySelector('#capture-input')?.value.length > 4);
-    assert.notEqual(await live.evaluate(() => document.activeElement?.tagName), 'IFRAME', 'the notch never takes the keyboard');
-    // Paused, it holds where it is.
-    await live.getByRole('button', { name: 'Pause', exact: true }).click();
-    await live.waitForTimeout(300);
-    const typed = () => notch.locator('#capture-input').inputValue();
-    const held = await typed();
-    await live.waitForTimeout(900);
-    assert.equal(await typed(), held, 'paused, the walk-through holds');
-    assert.equal(await live.locator('.light').getAttribute('data-moves'), 'false');
-    await live.getByRole('button', { name: 'Play', exact: true }).click();
-    // A step can be chosen: the question, in full, in the app's own card.
-    await live.getByRole('button', { name: 'Needs you', exact: true }).click();
-    await notch.locator('[data-question] .qp').waitFor();
-    await live.locator('.light[data-state=needs][data-moves=true]').waitFor();
-    assert.equal(await notch.locator('[data-question] .ans').count(), 2);
-    // The chrome: drawn live where the browser can, else its picture stands.
-    const drawn = await live.locator('#band').evaluate((band) => !!band.querySelector('canvas') || band.querySelector('img').clientWidth > 0);
-    assert.ok(drawn, 'the chrome is drawn, or its picture stands in');
-    // Out of sight it rests.
-    await live.locator('#get').scrollIntoViewIfNeeded();
-    await live.locator('.light[data-moves=false]').waitFor();
-    await live.evaluate(() => scrollTo(0, 0));
-    await live.locator('.light[data-moves=true]').waitFor();
-    if (shots) await live.screenshot({ path: path.join(shots, 'home-live-1280.png') });
-    await moving.close();
-
-    // ---- over time, on a virtual clock (a minute in a few seconds) ----
-    // The app's notch folds a question nobody touched after ten seconds; the page must hold whatever it shows. Under
-    // Reduce Motion the question stays; with motion, paused on the question it stays, and played round, the notch is
-    // shut only at Working (its count), between rounds, and for a beat as a result comes back.
-    for (const reduced of [true, false]) {
-      const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: reduced ? 'reduce' : 'no-preference' });
-      // The chrome's picture instead of its engine (site.js leaves the engine out on a machine of few cores): drawn
-      // frame by frame on a virtual clock it would make this the slowest part of the run, and it is not what is checked.
-      await context.addInitScript(() => Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { get: () => 2 }));
-      const p = watch(await context.newPage());
-      await p.clock.install();
-      await p.goto(url);
-      const now = () => p.evaluate(() => {
-        const d = document.querySelector('.notch iframe')?.contentDocument;
-        return { step: document.querySelector('.steps [aria-current]')?.textContent ?? null, open: d?.getElementById('tab')?.getAttribute('aria-expanded') === 'true', asks: !!d?.querySelector('[data-question] .qp') };
-      });
-      const until = async (want, what) => {
-        for (let t = 0; t < 60000; t += 100) {
-          await p.clock.runFor(100);
-          if (want(await now())) return;
+    // ---- no graphics card: the chrome's stills stand for the chrome, never larger than they were drawn ----
+    for (const dpr of [1, 2]) {
+      const bare = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: dpr });
+      const flat = watch(await bare.newPage());
+      await flat.goto(url);
+      await flat.waitForFunction(() => document.querySelector('#stage.drawn, #stage.flat'));
+      if (await flat.locator('#stage.flat').count()) {
+        const mark = await flat.locator('.mark-big img').evaluate(async (i) => (await i.decode(), [i.clientWidth, i.naturalWidth]));
+        assert.ok(mark[1] > 0 && mark[0] <= mark[1], `at ${dpr}x the mark's still is shown ${mark[0]} px wide, drawn ${mark[1]}`);
+        for (const id of ['say', 'place', 'work', 'ask', 'result']) {
+          await flat.evaluate((id) => document.getElementById(id).scrollIntoView({ block: 'start', behavior: 'instant' }), id);
+          await flat.waitForFunction((id) => { const i = document.querySelector('.form-still'); return i && i.complete && i.naturalWidth > 0 && i.currentSrc.includes(`chrome-${id}`); }, id);
+          const still = await flat.locator('.form-still').evaluate((i) => [Math.round(i.clientWidth * devicePixelRatio), i.naturalWidth]);
+          assert.ok(still[0] <= still[1] + 1, `at ${dpr}x the chrome's still of ${id} is shown ${still[0]} device pixels wide, drawn ${still[1]}`);
+          // Its words are words: the seats over it, not letters in the picture.
+          if (id !== 'say') assert.equal(await flat.locator('.seat').evaluateAll((all) => all.filter((el) => +getComputedStyle(el).opacity > 0.99 && el.querySelector('b').getClientRects().length).length), 3, `at ${dpr}x the still of ${id} has its three seats' words over it`);
         }
-        assert.fail(`${reduced ? 'Reduce Motion' : 'played'}: ${what} never came`);
-      };
-      if (!reduced) {
-        // Straight to the question, as a visitor's click on its step goes.
-        await until((s) => s.step !== null, 'the walk-through');
-        await p.evaluate(() => document.querySelector('.steps [data-step=ask]').click());
-      }
-      await until((s) => s.step === 'Needs you' && s.asks && s.open, 'the question');
-      if (!reduced) await p.evaluate(() => document.querySelector('.steps .hold').click());
-      // Jumped, firing the notch's own fold timer once it is due, as fifteen real seconds would.
-      await p.clock.fastForward(15000);
-      await p.clock.runFor(500);
-      const s = await now();
-      assert.ok(s.asks && s.open, `${reduced ? 'Reduce Motion' : 'paused'}: past the notch's own ten seconds, the question is still shown (step ${s.step}, open ${s.open})`);
-      if (!reduced) {
-        await p.evaluate(() => document.querySelector('.steps .hold').click());
-        // The round from the question on, through the result, the next thought typed and handed off, watched from inside
-        // the page every 100 ms of its clock: every step but Working is shown open, but for a moment. (Run, not jumped:
-        // the walk-through goes on by its own timers; this is most of the 11 s this part adds to the run.)
-        await p.evaluate(() => {
-          const w = (window.__watch = { shut: 0, longest: 0, at: '', seen: [] });
-          setInterval(() => {
-            const step = document.querySelector('.steps [aria-current]')?.textContent ?? null;
-            const open = document.querySelector('.notch iframe')?.contentDocument?.getElementById('tab')?.getAttribute('aria-expanded') === 'true';
-            if (step && !w.seen.includes(step)) w.seen.push(step);
-            w.shut = step && step !== 'Working' && !open ? w.shut + 100 : 0;
-            if (w.shut > w.longest) (w.longest = w.shut, w.at = step);
-          }, 100);
+      } else console.log(`NOTE: this browser draws the chrome itself, so its stills in the chrome's place were not looked at (at ${dpr}x)`);
+      await bare.close();
+    }
+
+    // ---- the live notch and its clock, in Chromium and in WebKit ----
+    const { webkit } = require('playwright');
+    const other = await webkit.launch();
+    try {
+      for (const engine of [browser, other]) {
+        const kind = engine === browser ? 'Chromium' : 'WebKit';
+        // ---- the live notch, held beside the story ----
+        const moving = await engine.newContext({ viewport: { width: 1280, height: 900 } });
+        const live = watch(await moving.newPage());
+        await live.goto(url);
+        const notch = live.frameLocator('.notch iframe');
+        const inside = () => live.evaluate(() => {
+          const d = document.querySelector('.notch iframe')?.contentDocument;
+          return { open: d?.getElementById('tab')?.getAttribute('aria-expanded') === 'true', asks: !!d?.querySelector('[data-question] .qp'), held: !!d?.documentElement.hasAttribute('data-held') };
         });
-        await p.clock.runFor(35000);
-        const w = await p.evaluate(() => window.__watch);
-        assert.equal(w.seen.length, 5, `played round, every step comes (${w.seen.join(', ')})`);
-        assert.ok(w.longest <= 2000, `played round, the notch is shut for ${w.longest} ms while the step says ${w.at}`);
+        /** A chapter's middle on the middle of the screen, where the page reads which chapter is on. */
+        const to = (p, id) => p.evaluate((id) => {
+          const r = document.getElementById(id).getBoundingClientRect();
+          scrollBy(0, r.top + r.height / 2 - innerHeight / 2);
+        }, id);
+        await live.locator('.stage.live').waitFor();
+        assert.ok(await live.evaluate(() => document.documentElement.classList.contains('held')), 'at 1280 by 900 the stage is held');
+        await live.waitForTimeout(400);
+        assert.ok(await live.evaluate(() => /^Make the rehearsal$/.test(document.querySelector('.notch iframe').contentDocument.querySelector('#sheet .hear-t')?.textContent ?? '')),
+          'on the first screen the notch listens, with the first words of the task heard');
+        await to(live, 'ask');
+        await notch.locator('[data-question] .qp').waitFor();
+        assert.equal(await live.locator('.chapters-nav [aria-current]').textContent(), 'Answer');
+        assert.equal(await notch.locator('[data-question] .ans').count(), 2);
+        await to(live, 'result');
+        await notch.locator('.result .qp').waitFor();
+        assert.match(await notch.locator('.result').innerText(), /Keep/);
+        // The keyboard stays with the page: Tab goes through the page and never into the notch, and a digit pressed while
+        // the question shows answers nothing.
+        await to(live, 'ask');
+        await notch.locator('[data-question] .qp').waitFor();
+        for (let i = 0; i < 40; i++) {
+          await live.keyboard.press('Tab');
+          const at = await live.evaluate(() => ({ tag: document.activeElement?.tagName, inner: document.querySelector('.notch iframe').contentDocument.activeElement?.tagName }));
+          assert.ok(at.tag !== 'IFRAME' && at.inner === 'BODY', `${kind}: Tab ${i + 1} stays with the page (${JSON.stringify(at)})`);
+        }
+        // Tab has moved the page to its links, the first screen among them: back at the question once the notch stands
+        // in it again, the keyboard on the page itself.
+        await live.evaluate(() => document.activeElement?.blur());
+        await to(live, 'ask');
+        await live.waitForTimeout(2500);
+        await notch.locator('[data-question] .qp').waitFor();
+        await live.keyboard.press('1');
+        await live.waitForTimeout(600);
+        const answered = await live.evaluate(() => document.querySelector('.notch iframe').contentWindow.__fake.calls.includes('question.answer'));
+        assert.ok((await inside()).asks && !answered, `${kind}: a digit pressed on the page answers nothing in the notch`);
+        await to(live, 'result');
+        await notch.locator('.result .qp').waitFor();
+        // Out of sight it rests: what loops in it (a working ring) stands still.
+        await live.locator('#install').scrollIntoViewIfNeeded();
+        await live.waitForFunction(() => document.querySelector('.notch iframe').contentDocument.documentElement.hasAttribute('data-held'));
+        await to(live, 'work');
+        await live.waitForFunction(() => !document.querySelector('.notch iframe').contentDocument.documentElement.hasAttribute('data-held'));
+        if (shots) await live.screenshot({ path: path.join(shots, `home-live-1280-${kind}.png`) });
+        await moving.close();
+
+        // ---- on a virtual clock: the app's notch folds a question nobody touched after ten seconds; held at the
+        // question's chapter, the page keeps it open for as long as the chapter is read ----
+        const timed = await engine.newContext({ viewport: { width: 1280, height: 900 } });
+        const p = watch(await timed.newPage());
+        await p.clock.install();
+        await p.goto(url);
+        const until = async (want, what) => {
+          for (let t = 0; t < 30000; t += 100) {
+            await p.clock.runFor(100);
+            if (await p.evaluate(want)) return;
+          }
+          assert.fail(`${what} never came`);
+        };
+        await until(() => document.querySelector('.stage.live'), 'the live notch');
+        await to(p, 'ask');
+        await until(() => !!document.querySelector('.notch iframe').contentDocument.querySelector('[data-question] .qp'), 'the question');
+        await p.clock.fastForward(15000);
+        await p.clock.runFor(500);
+        const s = await p.evaluate(() => {
+          const d = document.querySelector('.notch iframe').contentDocument;
+          return { open: d.getElementById('tab').getAttribute('aria-expanded') === 'true', asks: !!d.querySelector('[data-question] .qp') };
+        });
+        assert.ok(s.asks && s.open, `past the notch's own ten seconds, the question is still shown (open ${s.open})`);
+        await timed.close();
       }
-      await context.close();
+    } finally {
+      await other.close();
     }
 
     assert.deepEqual(outside, [], 'nothing outside the site is requested');
     assert.deepEqual(errors, []);
-    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, pictures present and unscaled at 1x and 2x, links and anchors); the words (nothing of 1.2, no 1.2 feed, downloads by fixed names, both systems with the visitor first, each in its order, with Copy and its fallback, the install scripts as published, one key in view, 4.5 : 1); scripts off; Reduce Motion; the live notch (plays, pauses, steps, keeps out of the keyboard, rests out of sight, holds its question open on a virtual clock and is shut only between steps); nothing requested from outside; no browser errors.');
+    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, every picture after a full scroll present and never larger than drawn at 1x and 2x, links and anchors); the words (nothing of 1.2, no 1.2 feed, downloads by fixed names, both systems with the visitor first, each in its order, with Copy and its fallback, the install scripts as published, one key in view, 4.5 : 1); without a graphics card (the stills of the chrome in its place, never larger than drawn, their words as text); scripts off (every chapter with its still); Reduce Motion (nothing held, nothing moving); the live notch held beside the story in Chromium and WebKit (each chapter its state, keeps out of the keyboard under Tab and a digit, rests out of sight, holds its question open on a virtual clock); nothing requested from outside; no browser errors.');
   } finally {
     if (browser) await browser.close();
     server.close();

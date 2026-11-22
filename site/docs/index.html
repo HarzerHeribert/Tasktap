@@ -17,11 +17,13 @@
 <body class="guide-page">
 <a class="skip" href="#main">Skip to content</a>
 <header class="bar">
-  <a class="brand" href="../" aria-label="Tasktap"><span class="mark" aria-hidden="true"><img class="p0" src="../assets/mark-0.png" srcset="../assets/mark-0@2x.png 2x" width="22" height="22" alt=""><img class="p1" src="../assets/mark-1.png" srcset="../assets/mark-1@2x.png 2x" width="22" height="22" alt=""><img class="p2" src="../assets/mark-2.png" srcset="../assets/mark-2@2x.png 2x" width="22" height="22" alt=""><img class="p3" src="../assets/mark-3.png" srcset="../assets/mark-3@2x.png 2x" width="22" height="22" alt=""></span><span class="brand-name">Tasktap</span></a>
-  <nav class="bar-nav" aria-label="Site">
-    <a href="./" aria-current="page">How it works</a>
-    <a href="https://github.com/HarzerHeribert/Tasktap">Source</a>
-  </nav>
+  <div class="bar-in">
+    <a class="brand" href="../" aria-label="Tasktap"><span class="mark" aria-hidden="true"><img src="../assets/mark-0.png" srcset="../assets/mark-0@2x.png 2x" width="22" height="22" alt=""></span><span class="brand-name">Tasktap</span></a>
+    <nav class="bar-nav" aria-label="Site">
+      <a href="../#install">Install</a>
+      <a href="./" aria-current="page">Guide</a>
+    </nav>
+  </div>
 </header>
 
 <main id="main" class="doc wrap">
@@ -117,7 +119,7 @@
         <h2 id="windows-h">On Windows</h2>
         <p>On Windows on x64, Tasktap works as this guide describes, with the differences named in this section. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings › Tasks, at Display that shows Tasktap’s tab, chooses its display, or None turns it off.</p>
         <p>Keys follow one rule: Ctrl stands where the Mac has <kbd>⌘</kbd>, and with a letter Shift is held too, so Ctrl and a letter alone stay the terminal’s. New terminal is Ctrl+Shift+T, and Find Ctrl+Shift+F. The capture key is Alt+Shift+Space, and the keys that answer a question from any program Alt+Shift+J, Y and N, since many keyboards read Ctrl+Alt as AltGr; hold to talk is Ctrl+Space.</p>
-        <p>On Windows, Tasktap starts Claude Code, Codex and any agent you add; the other nine built-in agents run on the Mac only. Speech on Windows goes through a speech service. Tasktap for Windows needs an x64 processor, and the PowerShell line refuses a computer with an ARM64 processor. The Windows installer is not code-signed, so SmartScreen stops a copy downloaded in a browser until you choose More info, then Run anyway; the PowerShell line under <a href="../#get">Get it</a> downloads the installer, checks the installer’s SHA-256 and installs Tasktap for you alone, without that stop.</p>
+        <p>On Windows, Tasktap starts Claude Code, Codex and any agent you add; the other nine built-in agents run on the Mac only. Speech on Windows goes through a speech service. Tasktap for Windows needs an x64 processor, and the PowerShell line refuses a computer with an ARM64 processor. The Windows installer is not code-signed, so SmartScreen stops a copy downloaded in a browser until you choose More info, then Run anyway; the PowerShell line under <a href="../#install">Install</a> downloads the installer, checks the installer’s SHA-256 and installs Tasktap for you alone, without that stop.</p>
       </section>
 
       <section id="settings" aria-labelledby="settings-h">
@@ -144,7 +146,7 @@
         <h2 id="missing-h">Not in this guide</h2>
         <p>This page is not a manual. It leaves out:</p>
         <ul>
-          <li>Installing and updating in depth. The download and the line for a terminal are under <a href="../#get">Get it</a>, and Settings › About updates the app.</li>
+          <li>Installing and updating in depth. The download and the line for a terminal are under <a href="../#install">Install</a>, and Settings › About updates the app.</li>
           <li>Setting up each agent: installing it, signing in, and what Tasktap needs from it.</li>
           <li>Every key and menu command in one table.</li>
           <li>The permissions macOS asks for, and why.</li>

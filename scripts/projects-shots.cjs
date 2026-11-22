@@ -52,7 +52,7 @@ function shots() {
     'first-unreadable': { records: projects('first-searched', { end: { state: 'failed', note: 'Permission denied' } }), act: allow,
       says: ['git could not be read', '~/git: Permission denied.', 'Choose another folder…'], setup: 'git could not be read' },
     'first-too-many': { records: projects('first-searched', { end: { state: 'many' } }), act: allow,
-      says: ['Too many folders in git', 'Over 2,000 folders in ~/git. Choose the folder inside git that holds your projects.', 'Choose another folder…'], setup: 'Too many folders in git' },
+      says: ['Too many folders in git', 'Over 5,000 folders in ~/git. Choose the folder inside git that holds your projects.', 'Choose another folder…'], setup: 'Too many folders in git' },
     'first-gone': { records: projects('first-searched', { end: { state: 'gone' } }), act: allow,
       says: ['git is not there now', 'Nothing is at ~/git now. Tasktap searches git again when git is back.', 'Choose another folder…'], setup: 'git is not there now' },
     'first-none': { records: projects('first-searched', { end: { state: 'ready' } }), act: allow,
@@ -62,8 +62,8 @@ function shots() {
     'first-another': { records: { ...projects('first-searched', { end: { state: 'ready' } }), pick: '/Users/someone/code' },
       act: both(allow, wait(600), (p) => p.click('.found-s .btn'), wait(600)), says: ['Found no projects in code'], unsaid: ['in git'], setup: 'Found no projects in code' },
     // A search that stopped at its budget keeps what it found, and says it stopped.
-    'first-stopped': { records: projects('first-searched', { some: 3, end: { state: 'ready', note: 'Tasktap searched the first 2,000 folders in git and stopped there. Add the folder inside git that holds the rest of your projects.' } }),
-      act: both(allow, wait(800)), says: ['Found 3 projects', 'Tasktap searched the first 2,000 folders in git and stopped there.'] },
+    'first-stopped': { records: projects('first-searched', { some: 3, end: { state: 'ready', note: 'Tasktap searched the first 5,000 folders in git and stopped there. Add the folder inside git that holds the rest of your projects.' } }),
+      act: both(allow, wait(800)), says: ['Found 3 projects', 'Tasktap searched the first 5,000 folders in git and stopped there.'] },
     'settings': { records: projects('settings'), act: settings },
     'settings-narrow': { records: projects('settings'), act: settings, viewport: NARROW },
     'settings-list': { records: projects('settings'), act: both(settings, wait(300), scrollTo('.set-pane .field', 40)) },
@@ -71,7 +71,7 @@ function shots() {
     'settings-open-narrow': { records: projects('settings-open'), viewport: NARROW, act: both(settings, wait(300), (p) => p.click('.line.pj >> text=cuegrid'), wait(200), scrollTo('.line.pj[aria-expanded=true]', 40)) },
     // Settings says what the first run's sheet says of a search that found nothing.
     'settings-gone': { records: projects('settings-gone'), act: settings,
-      says: ['Too many folders in Downloads', 'Over 2,000 folders in ~/Downloads. Choose the folder inside Downloads that holds your projects.',
+      says: ['Too many folders in Downloads', 'Over 5,000 folders in ~/Downloads. Choose the folder inside Downloads that holds your projects.',
         'Found no projects in src', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.',
         'Tasktap may not read code', 'macOS keeps Tasktap out of ~/Documents/code. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search code again.',
         'git could not be read', '/Volumes/nas/git: Input/output error.'] },

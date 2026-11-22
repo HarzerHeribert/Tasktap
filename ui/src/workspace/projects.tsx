@@ -61,7 +61,7 @@ const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each pro
 /** What makes a folder a project, said where a search found none. */
 const COUNTS = 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.';
 /** As many folders as one search in a folder goes through (core/src/map.rs, `ENTRIES`). */
-const BUDGET = 2000;
+const BUDGET = 5000;
 /** A folder as a person names it: the last part of its path. */
 const folderName = (folder: string) => shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder;
 /** A search in a folder that found no project, or could not search it: why, in a title and a line, as the core recorded

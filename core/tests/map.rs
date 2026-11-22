@@ -1552,9 +1552,10 @@ fn a_folder_look_goes_down_through_folders_that_are_no_project_and_never_into_on
         "work/tidepool",
         "oss/rust/kiln",
         "clients/acme/apps/ledger",
-        // The deepest a look goes, and one folder deeper.
+        // However deep: five, six and eight folders down.
         "a/b/c/d/five",
         "a/b/c/d/e/six",
+        "a/b/c/d/e/f/g/eight",
         // Inside a project, hidden, a build's: never looked into.
         "solo/libs/inner",
         ".archive/old",
@@ -1567,6 +1568,8 @@ fn a_folder_look_goes_down_through_folders_that_are_no_project_and_never_into_on
     assert_eq!(
         found,
         [
+            "a/b/c/d/e/f/g/eight",
+            "a/b/c/d/e/six",
             "a/b/c/d/five",
             "clients/acme/apps/ledger",
             "oss/rust/kiln",
@@ -1701,8 +1704,7 @@ fn a_folder_look_says_why_it_could_not_read_and_a_link_loop_ends() {
     let t = Folder::new("unread");
     let (home, data) = home_of(&t);
     // Twelve folders, each with a link back up: followed again and again it
-    // would take more than the budget five folders down. Each folder is
-    // read once.
+    // would end only at the budget. Each folder is read once.
     let looped = home.join("loop");
     for c in 0..12 {
         let at = looped.join(format!("c{c:02}"));
@@ -1736,38 +1738,101 @@ fn a_folder_look_says_why_it_could_not_read_and_a_link_loop_ends() {
 }
 
 #[test]
+fn a_look_goes_as_deep_as_the_folders_go_and_ends() {
+    let t = Folder::new("deeper");
+    let (home, data) = home_of(&t);
+    let top = home.join("tree");
+    // Thirty plain folders deep, a repository at the bottom, and there a
+    // link back to the top: the folder is its own ancestor through it.
+    let parts: Vec<String> = (0..30).map(|d| format!("d{d:02}")).collect();
+    let bottom = top.join(parts.join("/"));
+    init(&bottom.join("repo"));
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&top, bottom.join("up")).unwrap();
+    let repo = format!("{}/repo", parts.join("/"));
+    assert_eq!(
+        found_in(&home, &data, &top),
+        (LookState::Ready, None, vec![repo])
+    );
+}
+
+#[test]
+fn with_the_budget_spent_the_nearest_projects_are_found() {
+    // One branch of more folders than the budget, deeper than any level a
+    // look once stopped at, and projects one and two folders down beside
+    // it: a level at a time, the near ones are found, and the look says it
+    // stopped.
+    let t = Folder::new("starve");
+    let (home, data) = home_of(&t);
+    let top = home.join("code");
+    let (mut level, mut made) = (vec![top.join("archive")], 0);
+    while made <= map::ENTRIES {
+        level = (level.iter())
+            .flat_map(|p| [p.join("a"), p.join("b")])
+            .collect();
+        level.iter().for_each(|p| mkdir(p));
+        made += level.len();
+    }
+    init(&top.join("near"));
+    for g in 0..10 {
+        init(&top.join(format!("g{g}/proj")));
+    }
+    let (state, note, found) = found_in(&home, &data, &top);
+    assert_eq!(state, LookState::Ready);
+    let note = note.unwrap_or_default();
+    assert!(note.contains("stopped there"), "{note}");
+    let mut near: Vec<String> = (0..10).map(|g| format!("g{g}/proj")).collect();
+    near.push("near".into());
+    near.sort();
+    assert_eq!(found, near);
+    // The cheap check watches the nearest folders first, 256 in all: a
+    // repository cloned into a group beside the deep branch is noticed.
+    let stamp = read_stamp(&home, &data, &folder_look(&top));
+    let watched: Vec<&str> = stamp.split('\n').skip(1).collect();
+    let groups: Vec<String> = (0..10).map(|g| format!("g{g}")).collect();
+    assert_eq!(watched[0], "archive");
+    assert_eq!(watched[1..11], groups);
+    assert_eq!(watched.len(), 255, "the folder looked in, and 255 more");
+}
+
+#[test]
 fn a_look_in_a_wide_folder_keeps_to_its_budget_and_stays_fast() {
     let t = Folder::new("wide");
     let (home, data) = home_of(&t);
     let wide = home.join("wide");
     let group = |g: usize| {
         for f in 0..99 {
-            mkdir(&wide.join(format!("g{g:02}/f{f:02}")));
+            mkdir(&wide.join(format!("g{g:03}/f{f:02}")));
         }
     };
-    // 2,000 folders: 20 groups of 99, and a project in the last.
-    (0..20).for_each(group);
-    init(&wide.join("g19/f98"));
+    // As many folders as the budget: groups of 99, a project in the last.
+    let groups = map::ENTRIES / 100;
+    (0..groups).for_each(group);
+    let last = format!("g{:03}/f98", groups - 1);
+    init(&wide.join(&last));
     let started = std::time::Instant::now();
     let said = found_in(&home, &data, &wide);
     let took = started.elapsed();
-    eprintln!("a look in a folder of 2,000 folders took {took:?}");
-    assert_eq!(said, (LookState::Ready, None, vec!["g19/f98".to_owned()]));
+    eprintln!(
+        "a look in a folder of {} folders took {took:?}",
+        map::ENTRIES
+    );
+    assert_eq!(said, (LookState::Ready, None, vec![last.clone()]));
     assert!(took < std::time::Duration::from_secs(5), "{took:?}");
 
-    // More than 2,000: searched as far as that, the nearest first. What was
+    // More: searched as far as the budget, the nearest first. What was
     // found is kept, and the look says it stopped short.
-    group(20);
-    init(&wide.join("g00/f00"));
+    group(groups);
+    init(&wide.join("g000/f00"));
     let (state, note, found) = found_in(&home, &data, &wide);
     assert_eq!(
         (state, found),
-        (LookState::Ready, vec!["g00/f00".to_owned()])
+        (LookState::Ready, vec!["g000/f00".to_owned()])
     );
-    assert!(note.unwrap_or_default().contains("2,000"));
+    assert!(note.unwrap_or_default().contains("stopped there"));
     // With nothing found in them: too many.
-    std::fs::remove_dir_all(wide.join("g00/f00/.git")).unwrap();
-    std::fs::remove_dir_all(wide.join("g19/f98/.git")).unwrap();
+    std::fs::remove_dir_all(wide.join("g000/f00/.git")).unwrap();
+    std::fs::remove_dir_all(wide.join(&last).join(".git")).unwrap();
     assert_eq!(
         found_in(&home, &data, &wide),
         (LookState::Many, None, vec![])
@@ -1990,7 +2055,7 @@ fn a_look_that_stopped_at_its_budget_forgets_nothing_it_did_not_reach() {
     let (home, data) = home_of(&t);
     let wide = home.join("wide");
     init(&wide.join("a0000"));
-    for i in 1..1999 {
+    for i in 1..map::ENTRIES - 1 {
         mkdir(&wide.join(format!("a{i:04}")));
     }
     init(&wide.join("zproj"));
@@ -2005,11 +2070,12 @@ fn a_look_that_stopped_at_its_budget_forgets_nothing_it_did_not_reach() {
     read_into(&mut store, &home, &data, std::slice::from_ref(&look));
     assert!(has(&mut store), "found at first");
     // One folder more: `zproj` is past the budget now.
-    mkdir(&wide.join("a1999"));
+    mkdir(&wide.join(format!("a{:04}", map::ENTRIES - 1)));
     read_into(&mut store, &home, &data, std::slice::from_ref(&look));
     let tx = store.begin().unwrap();
     let read = tx.look(look.id).unwrap().unwrap();
-    assert!(read.note.as_deref().unwrap_or_default().contains("2,000"));
+    let note = read.note.as_deref().unwrap_or_default();
+    assert!(note.contains("stopped there"), "{note}");
     let cards = tx.cards().unwrap();
     assert!(
         cards
@@ -2150,7 +2216,7 @@ fn a_repository_cloned_into_a_folder_of_the_one_named_project_is_noticed() {
 
 #[test]
 fn git_init_in_a_plain_folder_five_down_is_noticed() {
-    // rv12: the last level is judged without being listed, and watched.
+    // rv12: a plain folder the walk goes through is watched, however deep.
     let t = Folder::new("rv-five");
     let (home, data) = home_of(&t);
     let git = home.join("git");

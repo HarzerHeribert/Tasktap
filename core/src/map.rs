@@ -24,8 +24,9 @@
 //!
 //! **A folder the person names to look in** holds their projects, and its
 //! walk decides which they are ([`list`]), whatever is marked at it or
-//! above it. Down [`DEPTH`] folders at most, the nearest first, never into a
-//! repository, hidden folders and builds' left out. A folder with its own
+//! above it. A level at a time, the nearest first, as deep as the folders
+//! go and [`ENTRIES`] folders at most, never into a repository, hidden
+//! folders and builds' left out. A folder with its own
 //! `.git` (no worktree or submodule) is a project at any depth. A folder
 //! without Git marked by a package file or an agent's file is one only
 //! within [`MARKED`] folders of the named one and with no repository below
@@ -94,16 +95,15 @@ pub const HISTORY_TIME: Duration = Duration::from_secs(3);
 /// it was started in is found (the owner's: 99 of 100 within 11 KiB, all
 /// within 80 KiB).
 pub const HISTORY_BYTES: usize = 128 << 10;
-/// Most folders one look in a folder judges, in all: one with more and no
-/// project among them is no folder of projects.
-pub const ENTRIES: usize = 2_000;
-/// How many folders down a look in a folder goes: `git/<group>/<project>`
-/// is 2, ghq's `~/ghq/<host>/<owner>/<project>` 3, Go's
-/// `~/go/src/<host>/<owner>/<project>` 4, and one more for a group of
-/// groups. Measured: a folder is judged in about 40 µs, 2,000 in 0.1 s; at
-/// twelve down a deep folder of plain folders (data, assets) took all
-/// [`ENTRIES`] and was "too many", where five down found none in 3–16 ms.
-pub const DEPTH: usize = 5;
+/// Most folders one look in a folder judges, in all, however deep they
+/// lie: one with more and no project among them is no folder of projects.
+/// The only bound of a walk. Measured on the owner's Mac, a release build,
+/// about 40 µs a folder: 2,000 in 90 ms with the folders' cache cold (a disk
+/// image attached again) and 76 ms warm, 5,000 in 225 and 196 ms, 10,000 in 465 and 405 ms, 20,000 in 950
+/// and 844 ms; the largest that keeps a first search under a quarter of a
+/// second. A walk runs on a thread of its own ([`look`]), so no call and no
+/// task placed waits for it.
+pub const ENTRIES: usize = 5_000;
 /// Most cards kept.
 pub const CARDS: usize = 5_000;
 /// Most bytes of a package file read.
@@ -1280,9 +1280,8 @@ struct Walk {
     /// Whether it stopped at [`ENTRIES`] folders with more to read.
     short: bool,
     /// What its stamp watches: the named folder, and the folders it went
-    /// through (those it judged at its last level too) that are in no
-    /// project found below the named folder, the nearest first, each with
-    /// its modified time before it was listed or judged.
+    /// through that are in no project found below the named folder, the
+    /// nearest first, each with its modified time before it was listed.
     watched: Vec<(PathBuf, u64)>,
 }
 
@@ -1294,9 +1293,10 @@ const WATCHED: usize = 256;
 const MARKED: usize = 2;
 
 /// The projects in a folder the person named (the module's rule): down
-/// through the folders that are no repository, the nearest first, [`DEPTH`]
-/// folders down and [`ENTRIES`] in all, each folder once however many links
-/// lead to it. A repository is a project at any depth. A folder without Git
+/// through the folders that are no repository, the nearest first (a level
+/// at a time, so one deep branch never starves the folders beside it), as
+/// deep as they go and [`ENTRIES`] folders in all, each folder once however
+/// many links lead to it. A repository is a project at any depth. A folder without Git
 /// marked by a package file or an agent's file, within [`MARKED`] of the
 /// named folder, is a project when no repository lies below it, and
 /// everything below it is part of it; with one below, it is a group. The
@@ -1323,10 +1323,8 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
     // it is in, and whether a repository lies below it.
     let mut marked: Vec<(PathBuf, Kind, Option<usize>, bool)> = Vec::new();
     // Each folder listed, with its modified time before it was listed and
-    // the marked folder it is in; and each it judged at its last level and
-    // would have gone through, with its time before it was judged.
+    // the marked folder it is in.
     let mut listed: Vec<(PathBuf, u64, Option<usize>)> = Vec::new();
-    let mut last: Vec<(PathBuf, u64, Option<usize>)> = Vec::new();
     let (mut judged, mut short) = (0, false);
     'walk: while let Some((at, depth, under)) = queue.pop_front() {
         let time = match depth {
@@ -1364,11 +1362,6 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
                 break 'walk;
             }
             judged += 1;
-            let deeper = depth + 1 < DEPTH;
-            let time = match deeper {
-                true => 0,
-                false => std::fs::metadata(&path).map_or(0, |m| modified(&m)),
-            };
             match rule.judge(&path, true) {
                 kind @ Kind::Top { git: true, .. } => {
                     found.push((path, kind));
@@ -1381,14 +1374,9 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
                 }
                 kind @ Kind::Top { .. } if depth < MARKED && !repository => {
                     marked.push((path.clone(), kind, under, false));
-                    if deeper {
-                        queue.push_back((path, depth + 1, Some(marked.len() - 1)));
-                    }
+                    queue.push_back((path, depth + 1, Some(marked.len() - 1)));
                 }
-                Kind::Top { .. } | Kind::Bare if deeper => {
-                    queue.push_back((path, depth + 1, under))
-                }
-                Kind::Top { .. } | Kind::Bare => last.push((path, time, under)),
+                Kind::Top { .. } | Kind::Bare => queue.push_back((path, depth + 1, under)),
                 _ => {}
             }
         }
@@ -1413,7 +1401,7 @@ fn list(rule: &Rule, folder: &Path) -> Result<Walk, (LookState, Option<String>)>
     // The named folder, and what it went through that is in no project
     // found below it (a repository below one named is never gone through).
     let mut watched: Vec<(PathBuf, u64)> = Vec::new();
-    for (at, time, under) in listed.into_iter().chain(last) {
+    for (at, time, under) in listed {
         if watched.is_empty() || !under.is_some_and(|u| whole[u]) {
             watched.push((at, time));
         }
@@ -1840,11 +1828,13 @@ impl Map {
 /// the newest dated folders in it) and of the folders directly in each, so
 /// a session in a folder an agent already had is new. Of a folder to look
 /// in: the modified time of the named folder and of each folder its last
-/// walk went through, or judged at its last level, that is in no project
-/// found below the named folder (its groups, its plain folders; [`WATCHED`]
-/// at most), one `stat` each, which its stamp names: a project cloned into
+/// walk went through that is in no project found below the named folder
+/// (its groups, its plain folders, the nearest first; [`WATCHED`] at most), one `stat` each, which its stamp names: a project cloned into
 /// a group, a new group, a project gone or `git init` in a plain folder is
-/// new; a file in a project found below it is not. Kept with the look
+/// new; a file in a project found below it is not. A walk deeper or wider
+/// than that watches its nearest folders; what changes past them is found
+/// at the next search (one a watched folder's change starts, or one asked
+/// for). Kept with the look
 /// (`Look::stamp`), so a core that starts again knows it too.
 pub fn stamp(rule: &Rule, look: &Look) -> String {
     if let (None, Some(folder)) = (&look.agent, &look.folder) {

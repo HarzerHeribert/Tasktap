@@ -409,8 +409,7 @@ fn every_call_round_trips() {
         resume: true,
         permissions: Some(ReplyVia::Core),
         questions: Some(ReplyVia::Terminal),
-        efforts: false,
-        models: false,
+        passes: None,
     };
     let detect = DetectAgents {
         agents: Some(vec!["codex".into()]),

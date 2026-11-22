@@ -582,10 +582,22 @@ pub struct AgentHealth {
     pub permissions: Option<crate::records::ReplyVia>,
     /// Where the questions it asks the person are answered; none: none are heard.
     pub questions: Option<crate::records::ReplyVia>,
-    /// Tasktap knows how to pass it a model at start: its row in Settings
-    /// has a ladder. Of `efforts` too, an effort.
-    pub models: bool,
-    pub efforts: bool,
+    /// How Tasktap gives it a model at the start of a run: its row in
+    /// Settings has a ladder. None where Tasktap does not know how.
+    pub passes: Option<Passes>,
+}
+
+/// What an agent's ladder can hold, and what the person's own command for
+/// the agent already names, which a ladder never overrides.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Passes {
+    /// Tasktap knows how to pass it an effort too.
+    pub effort: bool,
+    /// The person's own command names a model.
+    pub model_named: bool,
+    /// The person's own command names an effort.
+    pub effort_named: bool,
 }
 
 /// Something an agent does only when the person lets it: a switch in its

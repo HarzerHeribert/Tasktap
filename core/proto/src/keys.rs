@@ -56,6 +56,7 @@ pub const APP_KEYS: &[AppKey] = &[
     app("section-about", "⌘7", "About in Settings", false),
     app("agents", "⌘J", "the list of agents", false),
     app("places", "⌘K", "the list of places", false),
+    app("weights", "⌘L", "the list of weights", false),
     app("undo", "⌘Z", "Undo", false),
     app("copy", "⌘C", "Copy", false),
     app("paste", "⌘V", "Paste", false),

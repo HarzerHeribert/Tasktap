@@ -1270,8 +1270,7 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         resume: true,
         permissions: None,
         questions: None,
-        efforts: false,
-        models: false,
+        passes: None,
     };
     let codex = agents::find("codex").unwrap();
     let usable = |health: Option<AgentHealth>| agents::usable(codex, health.as_ref());

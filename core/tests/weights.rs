@@ -173,6 +173,14 @@ fn the_persons_own_command_that_names_a_model_wins() {
     };
     let high = Some("high".to_owned());
     set("claude", "caffeinate -i claude --model opus");
+    // The row says so, for Settings to say it in the foot.
+    let says = agents::checks::found(agent("claude")).passes;
+    let passes = tasktap_proto::Passes {
+        effort: true,
+        model_named: true,
+        effort_named: false,
+    };
+    assert_eq!(says, Some(passes));
     // The model is theirs; the effort, which they did not name, is the ladder's.
     assert_eq!(
         agents::weighed(agent("claude"), Weight::Heavy, &ladder("claude")),

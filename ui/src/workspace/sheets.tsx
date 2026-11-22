@@ -295,7 +295,7 @@ function Body() {
     case 'capture':
       return (
         <Frame bare title="New task">
-          <Capture asks started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
+          <Capture asks weights started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
         </Frame>
       );
     case 'settings':

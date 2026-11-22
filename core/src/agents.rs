@@ -726,17 +726,22 @@ pub fn weighed(
     let line = ladder
         .iter()
         .find(|l| l.agent == agent.id() && l.weight == weight);
+    let (model, effort) = named(agent);
+    let given =
+        |text: Option<&String>, named: bool| text.filter(|t| !t.is_empty() && !named).cloned();
+    let effort = given(line.map(|l| &l.effort), effort || w.effort.is_empty());
+    (given(line.map(|l| &l.model), model), effort)
+}
+
+/// Whether the person's own command for `agent` names a model, and an effort.
+pub fn named(agent: &dyn Agent) -> (bool, bool) {
+    let Some(w) = agent.weights() else {
+        return (false, false);
+    };
     let words = command(agent);
     let args = theirs(agent.program(), &words);
-    let given = |flags: &[&str], text: Option<&String>| {
-        let named = args.iter().any(|a| rules::at_save(flags, &[], a).is_some());
-        text.filter(|t| !t.is_empty() && !flags.is_empty() && !named)
-            .cloned()
-    };
-    (
-        given(w.model, line.map(|l| &l.model)),
-        given(w.effort, line.map(|l| &l.effort)),
-    )
+    let any = |flags: &[&str]| args.iter().any(|a| rules::at_save(flags, &[], a).is_some());
+    (any(w.model), any(w.effort))
 }
 
 /// Checks the person's ladders as they are put: each line names an agent

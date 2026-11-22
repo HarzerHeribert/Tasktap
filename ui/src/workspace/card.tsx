@@ -8,7 +8,8 @@ import type { Thought } from '../../../core/proto/protocol.ts';
 import type { RefObject } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Diffstat, Glyph, elapsed, when } from '../ui.tsx';
-import { agentName, endedSays, projectName, records, redraw, resultOf, unheard, why } from './model.ts';
+import { middle } from '../way.ts';
+import { agentName, endedSays, projectName, records, redraw, resultOf, title, unheard, why } from './model.ts';
 import { lines, plain } from './markdown.ts';
 
 /** Some words in at most `n` lines: all of them where they fit, else as many whole words as do, then an ellipsis. The
@@ -88,7 +89,14 @@ const hide = () => {
   clearTimeout(peek.timer);
   if (peek.t) ((peek.t = null), redraw());
 };
+/** Whether the row cuts something the peek would show: its title, its answer line or its project name is cut, the task's
+ *  words go on past the title, or the answer has more than the one line the row shows. A row that shows all of it has
+ *  no peek. */
+const cuts = (row: HTMLElement, t: Thought) =>
+  [...row.querySelectorAll<HTMLElement>('.hr-t, .hr-x, .hr-p')].some((e) => e.scrollWidth > e.clientWidth + 1)
+  || t.text.trim() !== title(t) || middle(projectName(t.project_id)) !== projectName(t.project_id) || lines(resultOf(t)?.summary ?? '').length > 1;
 const show = (row: HTMLElement, t: Thought, kind: 'run' | 'res') => {
+  if (!cuts(row, t)) return;
   const room = row.closest('.room')?.getBoundingClientRect(), at = row.getBoundingClientRect();
   if (!room) return;
   Object.assign(peek, { t, kind, left: at.left - room.left, top: at.top - room.top, bottom: at.bottom - room.top, width: at.width, room: room.height });

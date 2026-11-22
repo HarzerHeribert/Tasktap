@@ -187,7 +187,7 @@ async function main() {
     page = await go(r);
     await ready(page);
     await page.mouse.move(2, 2);
-    const sel = `.fold-b .hr.task[data-thought="${ids.rate}"]`;
+    const sel = `.fold-b .hr.task[data-thought="${ids.sync}"]`, shown = `.fold-b .hr.task[data-thought="${ids.rate}"]`;
     await page.locator(sel).scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
     const still = await rects(page);
@@ -198,7 +198,7 @@ async function main() {
     expect(await page.locator('.cd-peek').count() === 0, 'no peek before the pointer has rested 350 ms');
     await page.waitForTimeout(400);
     let p = await peekOf(page);
-    expect(!!p && p.text.includes('Rate-limit the import endpoint') && p.text.includes('60 requests a minute') && p.text.includes('ledger-api') && p.text.includes('3 files'), `the peek shows after the pointer rests: "${(p?.text ?? '').replace(/\n/g, ' ')}"`);
+    expect(!!p && p.text.includes('Add offline sync for drafts') && p.text.includes('Test Witness passes') && p.text.includes(LONG_PROJECT), `the peek shows after the pointer rests: "${(p?.text ?? '').replace(/\n/g, ' ')}"`);
     expect(!!p && apart(p, await rowRect(page, sel)), 'the peek covers no part of its row');
     expect(await rects(page) === still, 'the peek shifts nothing in the page');
     expect(p?.events === 'none' && await page.evaluate(() => !document.querySelector('.cd-peek').contains(document.activeElement) && document.activeElement?.closest('.cd-peek') === null), 'the peek takes no pointer and no keyboard focus');
@@ -210,13 +210,24 @@ async function main() {
     await page.evaluate((s) => document.querySelector(s).focus({ focusVisible: true }), sel);
     await page.waitForTimeout(100);
     p = await peekOf(page);
-    expect(!!p && p.text.includes('Rate-limit'), 'the peek shows at once with the keyboard on the row');
+    expect(!!p && p.text.includes('Add offline sync'), 'the peek shows at once with the keyboard on the row');
     expect(await rects(page) === still, 'and shifts nothing');
     await page.evaluate(() => document.activeElement.blur());
     await page.waitForTimeout(100);
     expect(await page.locator('.cd-peek').count() === 0, 'the peek goes when the focus leaves');
+    // A row that shows all of what its card would has no peek, with the pointer or with the keyboard.
+    await page.locator(shown).scrollIntoViewIfNeeded();
+    const wr = await rowRect(page, shown);
+    await page.mouse.move(wr.x, wr.y);
+    await page.waitForTimeout(700);
+    await page.evaluate((s) => document.querySelector(s).focus({ focusVisible: true }), shown);
+    await page.waitForTimeout(150);
+    expect(await page.locator('.cd-peek').count() === 0, 'a row that cuts nothing has no peek');
+    await page.evaluate(() => document.activeElement.blur());
     // A row under the pointer says that a click opens it.
-    await page.mouse.move(at.x, at.y);
+    await page.locator(sel).scrollIntoViewIfNeeded();
+    const at2 = await rowRect(page, sel);
+    await page.mouse.move(at2.x, at2.y);
     await page.waitForTimeout(150);
     const hov = await page.locator(sel).evaluate((e) => ({ cursor: getComputedStyle(e).cursor, bg: getComputedStyle(e).backgroundColor, title: getComputedStyle(e.querySelector('.hr-t')).color }));
     expect(hov.cursor === 'pointer' && hov.bg !== 'rgba(0, 0, 0, 0)', `a row under the pointer has the hand and a lit ground (${hov.cursor}, ${hov.bg})`);
@@ -224,10 +235,10 @@ async function main() {
     // Find a task.
     await page.evaluate(() => window.__ws.show('earlier'));
     await page.waitForTimeout(400);
-    await page.locator('#find-thought').fill('the');
+    await page.locator('#find-thought').fill('offline');
     await page.waitForTimeout(400);
     await page.evaluate(() => document.querySelector('#find-thought').blur());
-    const first = '.hr.task:not(.card)';
+    const first = `.hr.task[data-thought="${ids.sync}"]`;
     expect(!(await titled(page)).length, 'no row in Find a task has a title');
     const stillFind = await rects(page);
     await page.locator(first).first().scrollIntoViewIfNeeded();

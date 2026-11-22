@@ -77,7 +77,7 @@ function state() {
   // The state each chapter names, as the notch draws it.
   says.step = says.listening && says.heard === 'Make the rehearsal' ? 'rest'
     : says.listening && /on phones$/.test(says.heard) ? 'say'
-    : /Starting in\s*cuegrid/.test(says.way) ? 'place'
+    : /Starting in\s*cuegrid|^cuegrid\s*new run/.test(says.way) ? 'place'
     : says.asks && says.answers === 2 ? 'ask'
     : /Keep/.test(says.result) && /3 files/.test(says.result) && says.settled >= 1 ? 'result'
     : says.working === 3 && !says.result ? 'work'

@@ -70,8 +70,8 @@
   const still = $('.notch-still img'), stillFrom = $('.notch-still source');
   let form = null;
   // From here on this script keeps the stage (the page's own inline script did until now). What the checks read of
-  // it: how many frames of the chrome were drawn.
-  window.__story = { get frames() { return chrome ? chrome.frames : 0; } };
+  // it: how many frames of the chrome were drawn, and what draws them.
+  window.__story = { get frames() { return chrome ? chrome.frames : 0; }, get renderer() { return chrome ? chrome.renderer : ''; } };
   // The page's head says when the stage is held and has set the class already, so the first paint is laid out as it
   // stays.
   const held = matchMedia(root.dataset.held);
@@ -170,6 +170,10 @@
       if (!stage.classList.contains('drawn')) stage.classList.add('drawn');
       mod.lay(seats, P);
       loop();
+      // The frame the scroll comes to rest on is drawn once more, a moment after the last: a browser that shows a
+      // canvas one frame late (its picture of the page then holds the frame before) comes to rest on the right one.
+      clearTimeout(again);
+      again = setTimeout(() => chrome && P && !turning && chrome.draw(P, performance.now() / 1000), 90);
     }
     const gone = b > 0.36;
     topText.style.opacity = (1 - ss(0.06, 0.34, b)).toFixed(3);
@@ -184,7 +188,7 @@
   /** While a ring's agent works, its light runs round it: a frame of the chrome as the display gives frames, at most
    *  60 a second as in the app (ui/src/motion/paced.ts), and none once no ring works, the stage is out of sight or the
    *  tab is hidden. */
-  let lit = 0;
+  let lit = 0, again = 0;
   function loop() {
     if (turning || !P || !P.turning || !seen || document.hidden) return;
     turning = requestAnimationFrame((now) => {

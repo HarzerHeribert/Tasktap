@@ -11,8 +11,10 @@
 //                    its first screen is at most four and a half screens
 //   the chrome       with a graphics card: the mark is drawn by the chrome (its still is never fetched), every chapter
 //                    has a form of its own and so has the way between two, nothing is drawn at rest, a working ring's
-//                    light turns, and scrolled back the first screen is the very picture it was; without one: each
-//                    chapter's still of the chrome stands in its place
+//                    light turns, and scrolled back the first screen is the very picture it was (a renderer on the
+//                    processor is allowed 2 of 255 where the chrome draws; the check prints what draws the chrome, how
+//                    many pixels differ, by how much and where); without one: each chapter's still of the chrome stands
+//                    in its place, and scrolled back the first screen is the picture it was, pixel for pixel
 //   a reader         in the held layout the accessibility tree holds, wherever the page is scrolled: every chapter's
 //                    words in their order, each with what its pictures show; the headline, the install line and
 //                    Copy; never the canvas, the live notch or the seats. The keyboard reaches the first screen's
@@ -36,7 +38,8 @@
 //   phone, Reduce Motion, no sideways scroll, no layout shift, the facts one click past the story, Tasktap's window,
 //   still at rest (Chromium's trace), the words with scripts off: six at most to a chapter, 45 at most in the story
 // usage: node scripts/story-check.cjs [chromium|webkit]   TASKTAP_PAGES=<dir> checks another build;
-//        TASKTAP_SCREENSHOTS=<dir> keeps a picture of the places checked.
+//        TASKTAP_SCREENSHOTS=<dir> keeps a picture of the places checked; TASKTAP_NO_CARD=1 runs Chromium's part on
+//        the chrome without the graphics card, as a server runs it (the stills' path).
 const assert = require('node:assert/strict');
 const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
@@ -276,7 +279,7 @@ function state() {
 
     await part('the chrome', async () => {
       // With a graphics card (a Mac's own; a server has none) the chrome is drawn live; without one, its stills stand.
-      const metal = kind === 'chromium' && process.platform === 'darwin' ? await playwright.chromium.launch({ args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] }) : null;
+      const metal = kind === 'chromium' && process.platform === 'darwin' && !process.env.TASKTAP_NO_CARD ? await playwright.chromium.launch({ args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] }) : null;
       try {
         const page = await (await (metal || browser).newContext({ viewport: { width: 1440, height: 900 } })).newPage();
         page.on('pageerror', (e) => errors.push(e.message));
@@ -300,7 +303,30 @@ function state() {
         } else console.log(`${kind}: this browser reports no layout shift, so the story's shift is not measured here (Chromium's run measures it)`);
         if (metal) assert.ok(drawn, 'with a graphics card the chrome is drawn');
         /** The part of the window the chrome's forms stand in at this size, as it looks now. */
-        const look = async () => (await page.screenshot({ clip: { x: 520, y: 300, width: 900, height: 560 } })).toString('base64');
+        const CLIP = { x: 520, y: 300, width: 900, height: 560 };
+        const look = async () => (await page.screenshot({ clip: CLIP })).toString('base64');
+        /** How two of those pictures differ: how many pixels, by how much at most (of 255, any channel), within which
+         *  box of the window, and how many of them lie where the chrome draws the mark (the mark's place) and outside. */
+        const differs = async (a, z) => page.evaluate(async ([a, z, clip]) => {
+          const load = (s) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i); i.src = 'data:image/png;base64,' + s; });
+          const [ia, iz] = [await load(a), await load(z)], w = ia.width, h = ia.height, k = w / clip.width;
+          const px = (i) => { const g = Object.assign(document.createElement('canvas'), { width: w, height: h }).getContext('2d'); g.drawImage(i, 0, 0); return g.getImageData(0, 0, w, h).data; };
+          const da = px(ia), dz = px(iz), m = document.querySelector('.mark-big').getBoundingClientRect();
+          const out = { pixels: 0, of: w * h, most: 0, mark: 0, elsewhere: 0, box: null };
+          let x0 = w, y0 = h, x1 = -1, y1 = -1;
+          for (let i = 0; i < da.length; i += 4) {
+            const d = Math.max(Math.abs(da[i] - dz[i]), Math.abs(da[i + 1] - dz[i + 1]), Math.abs(da[i + 2] - dz[i + 2]));
+            if (!d) continue;
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), wx = clip.x + x / k, wy = clip.y + y / k;
+            out.pixels++;
+            out.most = Math.max(out.most, d);
+            wx >= m.left - 8 && wx <= m.right + 8 && wy >= m.top - 8 && wy <= m.bottom + 8 ? out.mark++ : out.elsewhere++;
+            (x0 = Math.min(x0, x)), (y0 = Math.min(y0, y)), (x1 = Math.max(x1, x)), (y1 = Math.max(y1, y));
+          }
+          if (out.pixels) out.box = [x0, y0, x1, y1].map((v, i) => Math.round((i % 2 ? clip.y : clip.x) + v / k));
+          return out;
+        }, [a, z, CLIP]);
+        const said = (d) => (d.pixels ? `differs in ${d.pixels} of ${d.of} pixels, by at most ${d.most} of 255, within ${d.box[0]},${d.box[1]} to ${d.box[2]},${d.box[3]} of the window; ${d.mark} of them where the chrome draws the mark, ${d.elsewhere} elsewhere` : 'is the same, pixel for pixel');
         const frames = () => page.evaluate(() => window.__story.frames);
         const rest = (id) => (id ? centre(page, id) : page.evaluate(() => scrollTo(0, 0))).then(() => page.waitForTimeout(900));
         if (drawn) {
@@ -328,20 +354,43 @@ function state() {
           f0 = await frames();
           await page.waitForTimeout(1000);
           assert.ok((await frames()) - f0 >= 20, 'at Work the rings\' light turns');
-          // Scrolled back, everything has played backwards: the first screen is the very picture it was.
+          // Scrolled back, everything has played backwards: the first screen is the picture it was. Pixel for pixel
+          // where a graphics card draws the chrome (here: Chromium started with one, and any browser on a Mac): the
+          // same numbers give the same picture. A renderer on the processor (a server's WebKit draws the chrome that
+          // way, by a name the page cannot tell from a card's) may round a blend's last bits otherwise from one frame
+          // to the next: there the picture may differ by 2 of 255 at most, and only where the chrome draws the mark. A
+          // first screen that really differs (no mark, an earlier form left standing, a still in the chrome's place)
+          // differs by tens of levels over thousands of pixels, and by words elsewhere.
+          const renderer = await page.evaluate(() => window.__story.renderer), exact = !!metal || process.platform === 'darwin';
           await rest();
-          assert.equal(await look(), first, 'scrolled back to the top, the first screen is the picture it was');
+          const back = await differs(first, await look());
+          console.log(`${kind}: the chrome is drawn by “${renderer}”, ${exact ? 'taken for a graphics card' : 'taken for a renderer on the processor'}; scrolled back to the top, the first screen ${said(back)}`);
+          if (back.pixels) {
+            // What would tell an earlier frame left in the picture from a renderer's rounding: one more frame of the
+            // same place, and the picture again.
+            await page.evaluate(() => (scrollBy(0, 1), new Promise((ok) => requestAnimationFrame(() => (scrollBy(0, -1), ok())))));
+            await page.waitForTimeout(700);
+            console.log(`${kind}: after one more frame drawn at the top, the first screen ${said(await differs(first, await look()))}`);
+          }
+          if (exact) assert.equal(back.pixels, 0, `scrolled back to the top, the first screen ${said(back)}`);
+          else assert.ok(back.most <= 2 && !back.elsewhere, `scrolled back to the top, the first screen ${said(back)} (a renderer on the processor may differ by 2 of 255 where the chrome draws, no more)`);
           f0 = await frames();
           await page.waitForTimeout(1200);
           assert.equal(await frames(), f0, 'at rest at the top, no frame of the chrome is drawn');
         } else {
           assert.ok(await page.locator('.mark-big img').evaluate(async (i) => (await i.decode(), i.naturalWidth > 0 && i.clientWidth <= i.naturalWidth)), 'the mark\'s still stands on the first screen, no larger than drawn');
+          await page.waitForTimeout(400);
+          const first = await look();
           for (const step of STEPS) {
             await centre(page, step);
             await page.waitForFunction((step) => { const i = document.querySelector('.form-still'); return i && i.complete && i.naturalWidth > 0 && i.currentSrc.includes(`chrome-${step}`) && +getComputedStyle(i).opacity > 0.99; }, step);
           }
           await rest();
           assert.ok(await page.locator('.form-still').evaluate((i) => +getComputedStyle(i).opacity < 0.01), 'back at the top, the mark alone');
+          // Stills are pictures: scrolled back, the first screen is the picture it was, pixel for pixel.
+          const back = await differs(first, await look());
+          console.log(`${kind}: the chrome's stills stand for it; scrolled back to the top, the first screen ${said(back)}`);
+          assert.equal(back.pixels, 0, `scrolled back to the top, the first screen ${said(back)}`);
         }
       } finally {
         if (metal) await metal.close();

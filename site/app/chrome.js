@@ -241,26 +241,29 @@ export function mount(canvas, lostNow = () => {}) {
   gl.uniform2f(U.u_org, 0, 0);
   gl.enable(gl.SCISSOR_TEST);
   gl.clearColor(0, 0, 0, 0);
-  let dpr = 1, drawn = null, lost = false, said = NaN;
+  let dpr = 1, lost = false, said = NaN;
   canvas.addEventListener('webglcontextlost', () => ((lost = true), lostNow()));
   const api = {
     get lost() { return lost; },
     frames: 0,
+    /** What draws it, as the browser names it (for the checks' reports). */
+    renderer: String((info && gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || 'unnamed'),
     /** The canvas as large as its place, at up to two device pixels a CSS pixel. */
     size(w, h, ratio) {
       dpr = Math.min(2, ratio || 1);
       const W = Math.round(w * dpr), H = Math.round(h * dpr);
-      if (canvas.width !== W || canvas.height !== H) (canvas.width = W), (canvas.height = H), (drawn = null);
+      if (canvas.width !== W || canvas.height !== H) (canvas.width = W), (canvas.height = H);
     },
-    /** One frame of a pose, `at` seconds on a working ring's clock: only the box the forms are in is drawn. */
+    /** One frame of a pose, `at` seconds on a working ring's clock. The whole canvas is cleared, whatever a browser
+     *  left in it from the frames before (some hand back an older frame's buffer), and only the box the forms are in
+     *  is drawn. */
     draw(P, at = 0) {
       if (lost) return;
       const W = canvas.width, H = canvas.height;
       const x0 = Math.max(0, Math.floor(P.box.x0 * dpr) - 2), x1 = Math.min(W, Math.ceil(P.box.x1 * dpr) + 2), y0 = Math.max(0, Math.floor(P.box.y0 * dpr) - 2), y1 = Math.min(H, Math.ceil(P.box.y1 * dpr) + 2);
       gl.viewport(0, 0, W, H);
-      if (drawn) (gl.scissor(drawn[0], H - drawn[3], drawn[2] - drawn[0], drawn[3] - drawn[1]), gl.clear(gl.COLOR_BUFFER_BIT));
-      else (gl.scissor(0, 0, W, H), gl.clear(gl.COLOR_BUFFER_BIT));
-      drawn = [x0, y0, x1, y1];
+      gl.scissor(0, 0, W, H);
+      gl.clear(gl.COLOR_BUFFER_BIT);
       if (x1 <= x0 || y1 <= y0) return;
       gl.scissor(x0, H - y1, x1 - x0, y1 - y0);
       if (P.tau !== said) {

@@ -76,6 +76,7 @@ pub fn question() -> Question {
         state: QuestionState::Answered,
         answer: Some(answer()),
         create: None,
+        answers: None,
     }
 }
 

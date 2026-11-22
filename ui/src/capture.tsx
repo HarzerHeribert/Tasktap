@@ -14,7 +14,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { hit, keyName, spell } from './keys.ts';
-import { type Icon, rows, says, type Why } from './place.ts';
+import { type Icon, routerArgs, rows, says, type Why } from './place.ts';
 import { inFront, talkKey } from './page.ts';
 import { Roll, rollIn, rolls, stopRoll } from './lines.ts';
 import { effectsOf } from './motion/motion.tsx';
@@ -158,12 +158,10 @@ function chipSays(w: ReturnType<typeof where>, route: Route | undefined, back: b
     fresh: unopened(w.to), agent: modelPlaces() ? agentName(first(pref('route_by'), placers())) : undefined, back, key: spell('⌘K'),
   });
 }
-/** What a capture says of its place: the session and the workspace in view for the router (none in the notch, which
- *  sets neither), and whether the chip says Auto there, so a model decides and is told them; a pick's place; or a
- *  note. */
-const named = (w: ReturnType<typeof where>, current = cap.current, view = cap.usual): Partial<CaptureArgs> =>
-  w.by === 'router' ? { current, ...(view ? { view } : {}), ...(w.why === 'model' && (current || view) ? { auto: true } : {}) }
-    : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' };
+/** What a capture says of its place: for the router, the session and the workspace in view and whether the person
+ *  chose Auto there (place.ts `routerArgs`); a pick's place; or a note. */
+const named = (w: ReturnType<typeof where>, current = cap.current, view = cap.usual, chosen = picked() === ''): Partial<CaptureArgs> =>
+  w.by === 'router' ? routerArgs(w.why, current, view, chosen) : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' };
 
 /** The thoughts on their way, newest first: being placed, or placed and held. Undo still takes each back. */
 export const going = () => [...records.thoughts.values()].filter((t) => onWay(t)).sort((a, b) => b.created - a.created);
@@ -239,7 +237,7 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.update', { id, ...placeArgs(w.to) });
     } else {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
-      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual), ...(by ? { agent: by } : {}) });
+      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual, pick === ''), ...(by ? { agent: by } : {}) });
     }
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by } });
     page.error = '';
@@ -468,7 +466,7 @@ export function followSpeech() {
  *  again once per such thought. */
 const lostSeen = new Set<string>();
 function lostModel() {
-  const lost = [...records.thoughts.values()].find((t) => !lostSeen.has(t.id) && t.route?.fallback?.includes('no longer offers the model Tasktap asks for placing'));
+  const lost = [...records.thoughts.values()].find((t) => !lostSeen.has(t.id) && t.route?.lost);
   if (!lost) return;
   lostSeen.add(lost.id);
   void loadTerms();
@@ -597,7 +595,8 @@ function Going({ t, open }: { t: Thought; open: boolean }) {
   const at = step(t), d = decided(t, names), keys = open && at === 'held' ? offers(t, names) : [], rows = keys.length > 1;
   if (keys.length) readyAt(t);
   // Fitted when what the line says changes, as its width does, as its keys' caps come and go (the field gains or
-  // loses the keyboard, or words), and once the fonts are in; on no other render.
+  // loses the keyboard, or words; a sheet over Home dims the window, parts.css `.win.dimmed`), and once the fonts are
+  // in; on no other render.
   const line = useRef<HTMLParagraphElement>(null);
   const says = [at, open, d.name, d.how, waits(t), t.card_id, briefOf(t) ? 1 : 0, !cap.draft, ...keys.map((o) => o.label)].join('\n');
   useLayoutEffect(() => {
@@ -607,8 +606,9 @@ function Going({ t, open }: { t: Thought; open: boolean }) {
     room();
     const sized = new ResizeObserver(room), held = new MutationObserver(room);
     sized.observe(h);
-    const keyed = h.closest('[data-keys]');
+    const keyed = h.closest('[data-keys]'), win = h.closest('.win');
     if (keyed) held.observe(keyed, { attributes: true, attributeFilter: ['data-held'] });
+    if (win) held.observe(win, { attributes: true, attributeFilter: ['class'] });
     void document.fonts?.ready.then(room);
     return () => (sized.disconnect(), held.disconnect());
   }, [says]);

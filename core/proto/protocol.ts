@@ -933,7 +933,13 @@ export type HostNotify = { question: QuestionId | null, thought: ThoughtId | nul
 /**
  * The thought waits no more: what was shown of it is taken back.
  */
-withdrawn?: boolean, };
+withdrawn?: boolean,
+/**
+ * Said once as a host comes (the app started, or the core did), before
+ * each one's own: every thought that waits for the person now. What
+ * was shown of any other is taken back, also from an earlier run.
+ */
+waiting?: Array<ThoughtId>, };
 
 /**
  * Who the core took the connection to be.
@@ -1386,7 +1392,14 @@ notes: Array<string> | null,
  * Of a router's question: the new project a model proposed for the
  * thought, which the question offers first; none for every other.
  */
-create: NewProject | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+create: NewProject | null,
+/**
+ * Of a router's question about a follow-up whose session's agent asks
+ * as it was to start: that question, where it is the agent's own and
+ * takes free words, which the question offers first to answer with the
+ * thought's words (`affirm`); none for every other.
+ */
+answers?: QuestionId, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -1612,7 +1625,12 @@ others: Array<Place>,
  * model's brief and the agent it had; anywhere else, the person's own
  * words and the agent they chose for it.
  */
-decided: Decided | null, };
+decided: Decided | null,
+/**
+ * A tool was found to no longer offer the model asked of it while this
+ * thought was placed: the page asks for the terms again.
+ */
+lost?: boolean, };
 
 /**
  * Rows put whole, and ids of rows that stopped being live.

@@ -620,6 +620,12 @@ pub struct HostNotify {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub withdrawn: bool,
+    /// Said once as a host comes (the app started, or the core did), before
+    /// each one's own: every thought that waits for the person now. What
+    /// was shown of any other is taken back, also from an earlier run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub waiting: Option<Vec<ThoughtId>>,
 }
 
 /// `question.withdraw` and `question.received`: the asker names its question

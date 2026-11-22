@@ -966,6 +966,24 @@ impl<'s> Tx<'s> {
         Ok(self.value(sql, &project)?.unwrap_or(false))
     }
 
+    /// The thoughts that wait for the person's key: placed, with no hold
+    /// running (a model was torn, or Tasktap started again during a hold).
+    pub fn waiting(&self) -> Result<Vec<ThoughtId>> {
+        let clause = "WHERE phase = 'routed' AND data ->> 'hold_until' IS NULL";
+        let waiting: Vec<Thought> = self.all(Table::Thoughts, clause, [])?;
+        Ok(waiting.into_iter().map(|t| t.id).collect())
+    }
+
+    /// Whether anything is in a project but captured thoughts: a session of
+    /// any state, or a thought placed there, running or ended there
+    /// (`effects::unmake`).
+    pub fn used(&self, project: ProjectId) -> Result<bool> {
+        let sql = "SELECT EXISTS (SELECT 1 FROM sessions WHERE project_id = ?1) \
+                   OR EXISTS (SELECT 1 FROM thoughts WHERE project_id = ?1 \
+                   AND phase IN ('routed', 'working', 'done', 'failed'))";
+        Ok(self.value(sql, &project)?.unwrap_or(false))
+    }
+
     /// Whether a session that has not ended, or a running terminal, works
     /// in `folder` or a folder inside it.
     pub fn occupied(&self, folder: &str) -> Result<bool> {

@@ -181,6 +181,7 @@ fn question(thought: Option<ThoughtId>, session: Option<SessionId>) -> Question 
         state: QuestionState::Open,
         answer: None,
         create: None,
+        answers: None,
     }
 }
 

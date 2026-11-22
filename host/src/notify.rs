@@ -15,6 +15,14 @@ static POSTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// nothing. A waiting task's notification is named `thought:<id>`, and taken back when the core says it waits no more
 /// (`withdrawn`); a question's by `settle`.
 pub fn asked(args: &Value) {
+    // Every task that waits for the person now, said as this host came to the core (the app started, or the core
+    // did): a notification of any other task is taken back, one left from an earlier run of the app too.
+    if let Some(waiting) = args["waiting"].as_array() {
+        let waiting: Vec<String> = waiting.iter().filter_map(Value::as_str).map(|t| format!("thought:{t}")).collect();
+        crate::log(json!({"event": "notify", "waiting": waiting}));
+        keep(waiting);
+        return;
+    }
     let id = match (args["question"].as_str(), args["thought"].as_str()) {
         (Some(question), _) => question.to_owned(),
         (None, Some(thought)) => format!("thought:{thought}"),
@@ -68,11 +76,11 @@ pub fn settle(open: &[String]) {
 }
 
 #[cfg(target_os = "macos")]
-use mac::{post, take_back};
+use mac::{keep, post, take_back};
 #[cfg(windows)]
 pub use windows::clicked_balloon;
 #[cfg(windows)]
-use windows::{post, take_back};
+use windows::{keep, post, take_back};
 
 #[cfg(target_os = "macos")]
 mod mac {
@@ -82,8 +90,8 @@ mod mac {
     use objc2::{define_class, msg_send, AllocAnyThread};
     use objc2_foundation::{NSArray, NSBundle, NSError, NSObject, NSString};
     use objc2_user_notifications::{
-        UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest, UNNotificationResponse,
-        UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationRequest,
+        UNNotificationResponse, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
     use std::sync::OnceLock;
 
@@ -165,6 +173,28 @@ mod mac {
             center.removeDeliveredNotificationsWithIdentifiers(&ids);
         }
     }
+
+    /// Takes back every delivered notification of a waiting task (`thought:<id>`) not among `waiting`, those left
+    /// from an earlier run of the app too: the system is asked which it still shows.
+    pub fn keep(waiting: Vec<String>) {
+        let Some(center) = center() else { return };
+        let shown = RcBlock::new(move |delivered: std::ptr::NonNull<NSArray<UNNotification>>| {
+            // SAFETY: the system hands the block an array it keeps alive for the call.
+            let delivered = unsafe { delivered.as_ref() };
+            let gone: Vec<Retained<NSString>> = (delivered.iter())
+                .map(|n| n.request().identifier())
+                .filter(|id| {
+                    let id = id.to_string();
+                    id.starts_with("thought:") && !waiting.contains(&id)
+                })
+                .collect();
+            if !gone.is_empty() {
+                let ids = NSArray::from_retained_slice(&gone);
+                UNUserNotificationCenter::currentNotificationCenter().removeDeliveredNotificationsWithIdentifiers(&ids);
+            }
+        });
+        center.getDeliveredNotificationsWithCompletionHandler(&shown);
+    }
 }
 
 #[cfg(windows)]
@@ -213,6 +243,14 @@ mod windows {
         if let Some(data) = icon() {
             // SAFETY: as above.
             unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) };
+        }
+    }
+
+    /// The icon's notification, where it is of a waiting task (`thought:<id>`) not among `waiting`, is taken back.
+    pub fn keep(waiting: Vec<String>) {
+        let last = LAST.lock().unwrap().clone();
+        if let Some(last) = last.filter(|l| l.starts_with("thought:") && !waiting.contains(l)) {
+            take_back(&last);
         }
     }
 

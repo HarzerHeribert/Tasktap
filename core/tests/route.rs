@@ -1250,6 +1250,22 @@ impl Asking {
     }
 
     /// The clock stands still, so a hold never ends by itself.
+    /// Tasktap stops, and starts again with the same records.
+    fn restart(&mut self) {
+        let retire = tasktap_proto::Retire {
+            when: tasktap_proto::When::Now,
+        };
+        self.core
+            .device()
+            .call::<call::CoreRetire>(&retire)
+            .unwrap()
+            .unwrap();
+        self.core.wait();
+        self.core = Core::with_agents(&self.data.0);
+        self.w = self.core.watch();
+        self.freeze();
+    }
+
     fn freeze(&mut self) {
         let now = time(wall_ms());
         self.w.ok::<call::FixtureClock>(&FixtureClock { now });
@@ -1548,6 +1564,9 @@ fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
         (route.by.as_str(), route.fallback.as_deref()),
         ("local", Some(gone))
     );
+    // The page knows it by its kind, not by these words: it asks for the
+    // terms again.
+    assert!(route.lost);
     assert_eq!(a.asked().unwrap()["thought"], json!(text));
     // The chip's hint says so: the names decide now.
     let hint = Hint {
@@ -1565,7 +1584,9 @@ fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
     let t = a.capture(&text, None);
     let th = a.settled(t);
     assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
-    assert_eq!(th.route.unwrap().fallback.as_deref(), Some(gone));
+    let route = th.route.unwrap();
+    assert_eq!(route.fallback.as_deref(), Some(gone));
+    assert!(route.lost);
     assert_eq!(a.asked(), None);
     // Nor is it offered for consent; the other agents are.
     let terms = a.w.ok::<call::RouteTerms>(&tasktap_proto::Empty {});
@@ -1964,13 +1985,18 @@ fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
     assert_eq!(th.route.as_ref().unwrap().others, [place(a.folio)]);
     assert!(a.w.model.glance().question.is_none());
     a.asked_about(t);
-    // It calls the person as the question did: the host is told it waits.
-    let told = loop {
+    // It calls the person as the question did: the host is told it waits,
+    // after what waited as it came (nothing).
+    let mut next = || loop {
         match host.recv().unwrap() {
             tasktap_proto::Frame::Control(tasktap_proto::Control::Call(r)) => break r,
             _ => continue,
         }
     };
+    let came = next();
+    let came = <call::HostNotify as tasktap_proto::call::Call>::args(came.args).unwrap();
+    assert_eq!(came.waiting, Some(Vec::new()));
+    let told = next();
     assert_eq!(told.name, "host.notify");
     let told = <call::HostNotify as tasktap_proto::call::Call>::args(told.args).unwrap();
     assert_eq!(
@@ -2822,6 +2848,50 @@ fn undo_takes_back_an_empty_folder_made_for_the_task_and_says_why_one_cannot_be_
     );
 }
 
+/// Undo takes back a folder made for a task only while nothing else is
+/// there (the review's third round): another task placed there keeps it,
+/// and once any task has started there it is the person's for good.
+#[test]
+fn undo_leaves_a_made_folder_where_anything_else_is_there() {
+    let mut a = Asking::new("unmake-used");
+    a.consent("fixture");
+    let mut said = answer("new", "", "Start a tide table app.");
+    said["folder"] = "tide-pool".into();
+    a.answers(&said);
+    let t = a.capture("start a new app for tide tables", None);
+    a.settled(t);
+    let q =
+        a.w.model
+            .questions
+            .values()
+            .find(|q| q.thought_id == Some(t));
+    let create = q.unwrap().create.clone().unwrap();
+    let add = AddProject {
+        id: ProjectId::mint(),
+        folder: create.folder.clone(),
+        name: None,
+        create: true,
+    };
+    let project = a.w.ok::<call::ProjectAdd>(&add);
+    a.switch(t, tasktap_proto::Place::Project(project));
+    let folder = std::path::PathBuf::from(&create.folder);
+    // Another task placed there: Undo of the first leaves the folder open.
+    let other = a.capture("add a readme", Some(project));
+    a.w.ok::<call::ThoughtStop>(&tasktap_proto::Ref { id: t });
+    a.w.sync();
+    assert!(folder.is_dir() && a.w.model.projects[&project].open);
+    // That one started there: the folder is the person's; undoing a task
+    // placed there later leaves it too.
+    a.start(other);
+    a.w.until("the readme runs", |m| {
+        m.thoughts[&other].session_id.is_some()
+    });
+    a.switch(t, tasktap_proto::Place::Project(project));
+    a.w.ok::<call::ThoughtStop>(&tasktap_proto::Ref { id: t });
+    a.w.sync();
+    assert!(folder.is_dir() && a.w.model.projects[&project].open);
+}
+
 #[test]
 fn nothing_that_fits_or_nonsense_asks_the_person() {
     let mut a = Asking::new("unfit");
@@ -3072,6 +3142,7 @@ fn a_model_that_cannot_be_reached_leaves_the_question_with_the_place_in_view_fir
 #[test]
 fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
     use tasktap_core::route::redact;
+    let mut wrong = Vec::new();
     // (said, as a model is sent it)
     let out = [
         ("my password is hunter2", "my password is [left out]"),
@@ -3084,21 +3155,61 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
         ),
         ("Passwort ist Sommer2024", "Passwort ist [left out]"),
         ("password=hunter", "[left out]"),
+        // After a password word and a joining word, the sentence's rest,
+        // six words at most; a line or a sentence's end stops it.
         (
-            "the passphrase is correct horse",
-            "the passphrase is [left out] horse",
+            "my password is correct horse battery staple",
+            "my password is [left out] [left out] [left out] [left out]",
+        ),
+        (
+            "the passphrase is one two three four five six seven",
+            "the passphrase is [left out] [left out] [left out] [left out] [left out] [left out] seven",
+        ),
+        (
+            "the password is sunshine. Fix the login",
+            "the password is [left out] Fix the login",
+        ),
+        (
+            "password: hunter2\nfix the login",
+            "password: [left out]\nfix the login",
+        ),
+        // A label is never taken for the value.
+        (
+            "ssh key passphrase: blue-monkey",
+            "ssh key passphrase: [left out]",
         ),
         ("token=abc123", "[left out]"),
+        ("token=abcdef", "[left out]"),
         ("set the secret to xyz789", "set the secret to [left out]"),
         ("the api key Ab1CdEf", "the api key [left out]"),
         ("the token ghx-0a9f", "the token [left out]"),
         ("the DB_PASS is hunter", "the DB_PASS is [left out]"),
         ("export DB_PASS=s3cr3t now", "export [left out] now"),
         ("MYSQL_PWD=foo", "[left out]"),
+        ("PGPASSWORD=hunter2 psql", "[left out] psql"),
+        ("SMTPPASS=hunter", "[left out]"),
         ("API_TOKEN: abc", "API_TOKEN: [left out]"),
+        ("x-api-key: deadbeefcafe", "x-api-key: [left out]"),
+        ("pw: hunter2", "pw: [left out]"),
+        ("user root pass hunter2", "user root pass [left out]"),
+        ("my pin is 4821", "my pin is [left out]"),
+        (
+            "login with admin / hunter2",
+            "login with admin / [left out]",
+        ),
+        // In a web address, a user's password and the query's values go;
+        // where it leads stays.
         (
             "open https://admin:pw123@db.example.com/x",
-            "open [left out]",
+            "open https://[left out]@db.example.com/x",
+        ),
+        (
+            "redis://:hunter2@localhost:6379",
+            "redis://[left out]@localhost:6379",
+        ),
+        (
+            "curl https://api.example.com/v1/items?api_key=abc&page=2#top",
+            "curl https://api.example.com/v1/items?api_key=[left out]&page=[left out]#top",
         ),
         ("use sk-proj-abcdefghijklmnop", "use [left out]"),
         (
@@ -3123,7 +3234,78 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
         ("a1b2c3d4e5f6a7b8c9d0e1f2a3b4", "[left out]"),
     ];
     for (said, sent) in out {
-        assert_eq!(redact(said), sent, "{said}");
+        let got = redact(said);
+        if got != sent {
+            wrong.push(format!("{said:?} -> {got:?}, not {sent:?}"));
+        }
+    }
+    // The review's (2026-11-22): each loses its secret, and keeps no part
+    // of it.
+    let left = [
+        ("set the db password to hunter2", "hunter2"),
+        ("the password is Tr0ub4dor&3", "Tr0ub4dor"),
+        ("Passwort ist geheim123", "geheim123"),
+        ("pw: hunter2", "hunter2"),
+        ("DB_PASS=hunter2", "hunter2"),
+        ("MYSQL_PWD=s3cretpass", "s3cretpass"),
+        (
+            "connect to postgres://admin:Tr0ub4dor@10.0.0.5:5432/app",
+            "Tr0ub4dor",
+        ),
+        (
+            "clone https://oauth2:glpat-abcdefghij1234567890@gitlab.com/x/y.git",
+            "glpat",
+        ),
+        (
+            "curl https://api.example.com/v1/items?api_key=abc123def456",
+            "abc123",
+        ),
+        (
+            "curl https://api.example.com/v1/items?key=abc123def456ghi",
+            "abc123",
+        ),
+        (
+            "curl -H 'Authorization: Bearer abc123def456ghi789'",
+            "abc123",
+        ),
+        ("Authorization: Bearer 7f3a9c2e1b", "7f3a9c2e1b"),
+        (
+            concat!(
+                "post to https://hooks.slack.com/services/T0123ABCD",
+                "/B0123ABCD/abcdefghijklmnopqrstuvwx"
+            ),
+            "T0123ABCD",
+        ),
+        (
+            "AWS_SECRET_ACCESS_KEY=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN",
+            "abcdefghij",
+        ),
+        ("-----BEGIN OPENSSH PRIVATE KEY-----", "BEGIN"),
+        ("my password is correct horse battery staple", "horse"),
+        ("the wifi password is sunshine", "sunshine"),
+        ("das Passwort lautet Sommer2024!", "Sommer2024"),
+        ("login with admin / hunter2", "hunter2"),
+        ("use password hunter2 for staging", "hunter2"),
+        ("user root pass hunter2", "hunter2"),
+        ("set GITHUB_TOKEN to ghp_abc", "ghp_abc"),
+        ("export OPENAI_API_KEY=sk-proj-abc123", "sk-proj"),
+        ("the stripe key is rk_test_51Habc", "rk_test"),
+        ("the api key is 3f9a1c2b4d5e6f70", "3f9a1c2b4d5e6f70"),
+        ("token=abcdef", "abcdef"),
+        ("secret: hunter2", "hunter2"),
+        ("redis://:hunter2@localhost:6379", "hunter2"),
+        ("mongodb+srv://user:pa55@cluster0.mongodb.net", "pa55"),
+        ("PGPASSWORD=hunter2 psql", "hunter2"),
+        ("auth-token: abc123", "abc123"),
+        ("x-api-key: deadbeefcafe", "deadbeefcafe"),
+        ("my pin is 4821", "4821"),
+        ("ssh key passphrase: blue-monkey", "blue-monkey"),
+    ];
+    for (said, secret) in left {
+        let got = redact(said);
+        if got.contains(secret) || !got.contains("[left out]") {
+            wrong.push(format!("{said:?} -> {got:?} keeps {secret:?}"));
+        }
     }
     let kept = [
         "fix the flaky export test",
@@ -3148,10 +3330,58 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
         // A password's field, not a password.
         "make the password field wider",
         "the password reset mail is late",
+        // Pass and pin are verbs too.
+        "make the tests pass to unblock the release",
+        "pin react to the last minor",
+        // The review's (2026-11-22).
+        "the token count is too high",
+        "fix the key handler in the editor",
+        "the secret santa list needs sorting",
+        "add a password field to the signup form",
+        "the password reset email is broken",
+        "password strength meter shows red for hunter2-like words",
+        "rename the auth-token header to x-auth",
+        "the key is to cache the results",
+        "the token is expired after 5 minutes",
+        "the secret is in the sauce",
+        "look at src/components/HeaderNavigation2",
+        "the passwords don't match message is wrong",
+        "show the key: value pairs in a table",
+        "token: rotate it",
+        "secret: santa list",
+        "migrate to python3.12 and node20",
+        "bump react-router-dom to 6.22.3",
+        "the user's key handler",
+        "set the timeout to 30s",
+        "Passwort vergessen link is broken",
+        "credentials are stored in the keychain",
+        "the credentials page is blank",
+        "image sha256:9b2f0c1d3e4a5b6c7d8e9f00112233445566778899aabbccddeeff0011223344",
     ];
     for said in kept {
-        assert_eq!(redact(said), said);
+        let got = redact(said);
+        if got != said {
+            wrong.push(format!("{said:?} -> {got:?}, not kept"));
+        }
     }
+    // What it still leaves out, as agreed: a hash, a UUID, the words after
+    // "password is" or "password:", a very long name.
+    let over = [
+        "revert 3f9a1c2b4d5e6f708192a3b4c5d6e7f8091a2b3c",
+        "uuid 550e8400-e29b-41d4-a716-446655440000 not found",
+        "the password is too short error appears twice",
+        "make the password: field optional",
+        "useInfiniteScrollPagination2Hook breaks",
+        "ENABLE_FEATURE_FLAG_FOR_BETA_USERS_2024=true",
+        "the test test_user_can_reset_password_with_valid_token2 fails",
+    ];
+    for said in over {
+        let got = redact(said);
+        if !got.contains("[left out]") {
+            wrong.push(format!("{said:?} -> {got:?}, kept after all"));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 #[test]
@@ -3259,6 +3489,79 @@ fn a_projects_top_is_its_folders_and_well_known_files_read_in_bounded_time() {
     assert_eq!(top_of(listed.map(|(n, f)| (n.to_owned(), f))), want);
 }
 
+/// The routing lab's top of a corpus project is what the product sends for
+/// that project on the disk (the review's third round): a name without a
+/// dot is a folder, unless it is a well-known file (gradlew, Brewfile,
+/// Procfile, CNAME, Jenkinsfile, Snakefile, Makefile, Dockerfile, LICENSE).
+#[test]
+fn the_labs_top_of_a_corpus_project_is_what_the_product_reads_from_its_disk() {
+    use tasktap_core::route::{folder_named, top_of, tops};
+    let files = [
+        "gradlew",
+        "Brewfile",
+        "Procfile",
+        "CNAME",
+        "Jenkinsfile",
+        "Snakefile",
+        "Makefile",
+        "Dockerfile",
+        "LICENSE",
+        "README",
+        "PROJECT",
+        "artisan",
+        "_redirects",
+    ];
+    for f in files {
+        assert!(!folder_named(f), "{f}");
+    }
+    for f in ["src", "R", "Mods-Profile", "2023", "node_modules"] {
+        assert!(folder_named(f), "{f}");
+    }
+    // Every project of the corpus, laid out on the disk as it is: the files
+    // above files, every other name without a dot a folder.
+    let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/lab/corpus.json");
+    let corpus: Value = serde_json::from_str(&std::fs::read_to_string(corpus).unwrap()).unwrap();
+    fn lists(v: &Value, out: &mut Vec<Vec<String>>) {
+        match v {
+            Value::Object(o) => {
+                if let Some(Value::Array(top)) = o.get("top") {
+                    out.push(
+                        top.iter()
+                            .filter_map(|n| n.as_str().map(String::from))
+                            .collect(),
+                    );
+                }
+                o.values().for_each(|v| lists(v, out));
+            }
+            Value::Array(a) => a.iter().for_each(|v| lists(v, out)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    lists(&corpus, &mut all);
+    assert!(all.len() > 10, "{}", all.len());
+    for (i, top) in all.iter().enumerate() {
+        let d = Folder::new(&format!("lab-top-{i}"));
+        for n in top {
+            let real = !n.contains('.') && !files.contains(&n.as_str());
+            match real {
+                true => std::fs::create_dir_all(d.0.join(n)).unwrap(),
+                false => std::fs::write(d.0.join(n), "").unwrap(),
+            }
+        }
+        let place = Destination::New(ProjectId::mint());
+        let folder = d.0.to_string_lossy().into_owned();
+        let read = tops(vec![(place, folder)], std::time::Duration::from_secs(2));
+        let read = read
+            .into_iter()
+            .next()
+            .map(|(_, names)| names)
+            .unwrap_or_default();
+        let lab = top_of(top.iter().map(|n| (n.clone(), folder_named(n))));
+        assert_eq!(lab, read, "{top:?}");
+    }
+}
+
 /// Said in Tasktap's window, the chip's default stays as released: a
 /// workspace in view is the place, a session in view the follow-up, with
 /// nothing sent and the hold from the capture, as at e1443fd. Auto chosen
@@ -3354,4 +3657,115 @@ fn in_tasktaps_window_the_place_in_view_goes_at_once_and_auto_asks_the_model() {
         (&asked["current"], &asked["view"]),
         (&json!("s1"), &json!("p1"))
     );
+}
+
+/// A folder whose read hangs is not read again while it does (the review's
+/// third round): one reading thread per folder, and the folder is sent
+/// without names until its read returns.
+#[test]
+fn a_folder_whose_read_hangs_is_not_read_again_meanwhile() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tasktap_core::route::tops_by;
+    use tasktap_core::state::Destination;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let (open, gate) = std::sync::mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    let read = {
+        let (reads, gate) = (reads.clone(), gate.clone());
+        move |_: &str| {
+            // The first read hangs until let go; later ones answer at once.
+            if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                let _ = gate.lock().unwrap().recv();
+            }
+            vec!["src".to_owned()]
+        }
+    };
+    let folder = "/hangs/in/the/system/for/this/test".to_owned();
+    let place = Destination::New(ProjectId::mint());
+    let ask = |within| tops_by(vec![(place, folder.clone())], within, read.clone());
+    assert_eq!(ask(Duration::from_millis(50)), []);
+    // Asked again while it hangs: not read again, sent without names.
+    assert_eq!(ask(Duration::from_millis(50)), []);
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    // Its read returned: read again.
+    open.send(()).unwrap();
+    let back = std::time::Instant::now() + Duration::from_secs(5);
+    let mut got = Vec::new();
+    while got.is_empty() && std::time::Instant::now() < back {
+        got = ask(Duration::from_millis(200));
+    }
+    assert_eq!(got, [(place, vec!["src".to_owned()])]);
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+}
+
+/// After a restart, each task that waits for the person has its
+/// notification, and none is left standing for one that no longer waits
+/// (the review's third round): a host that comes is told every thought that
+/// waits now, then each one's.
+#[test]
+fn after_a_restart_every_task_that_waits_is_told_and_no_other() {
+    let mut a = Asking::new("restart-waits");
+    a.consent("fixture");
+    // Torn: it waits for a key.
+    let mut said = answer("ambiguous", "", "Keep the header on one line.");
+    said["candidates"] = json!(["p2", "p1"]);
+    a.answers(&said);
+    let torn = a.capture(SPOKEN, None);
+    a.settled(torn);
+    // A decision held: it will wait for Return once Tasktap starts again.
+    a.answers(&answer("clear", "p1", "Make the header bigger."));
+    let held = a.capture("make the header bigger", None);
+    assert!(a.settled(held).hold_until.is_some());
+    // One that started waits for nothing.
+    let ran = a.capture("fix the footer", Some(a.app));
+    a.start(ran);
+    a.w.until("it runs", |m| m.thoughts[&ran].session_id.is_some());
+    a.restart();
+    assert_eq!(a.w.model.thought(held).hold_until, None);
+    let stream = tasktap_core::client::connect(&a.data.0).unwrap();
+    #[cfg(unix)]
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(20)))
+        .unwrap();
+    let hello = tasktap_proto::Hello {
+        v: tasktap_proto::Versions(tasktap_proto::VERSION, tasktap_proto::VERSION),
+        role: tasktap_proto::Role::Host,
+        client: "test host".into(),
+        auth: None,
+        abilities: vec!["host.notify".into()],
+    };
+    let mut host = tasktap_core::client::Client::hello(stream, hello)
+        .unwrap()
+        .unwrap();
+    let mut told = || loop {
+        match host.recv().unwrap() {
+            tasktap_proto::Frame::Control(tasktap_proto::Control::Call(r))
+                if r.name == "host.notify" =>
+            {
+                break <call::HostNotify as tasktap_proto::call::Call>::args(r.args).unwrap();
+            }
+            _ => continue,
+        }
+    };
+    let all = told();
+    let mut waiting = all.waiting.unwrap();
+    waiting.sort();
+    let mut want = vec![torn, held];
+    want.sort();
+    assert_eq!(waiting, want);
+    let mut each: Vec<_> = (0..2).map(|_| told()).collect();
+    each.sort_by_key(|n| n.thought);
+    assert!(
+        each.iter()
+            .all(|n| n.title == "Which project is this task for?" && !n.withdrawn)
+    );
+    let mut thoughts: Vec<_> = each.iter().filter_map(|n| n.thought).collect();
+    thoughts.sort();
+    assert_eq!(thoughts, want);
+    // Started from the line after the restart, it waits no more.
+    a.start(held);
+    let taken = told();
+    assert_eq!((taken.thought, taken.withdrawn), (Some(held), true));
 }

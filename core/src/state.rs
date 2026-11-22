@@ -574,8 +574,9 @@ struct Subject {
 enum Unfit {
     /// The person is asked again where it goes, told why.
     Ask(String),
-    /// Its session's agent asks a question its words answer.
-    Reply(Box<Question>),
+    /// Its session's agent asks first: nothing is sent, and the person is
+    /// asked, told the agent's question.
+    Asking(String, Box<Question>),
 }
 
 enum Ending {
@@ -665,9 +666,13 @@ impl Machine<'_, '_> {
             (E::Answer { response, by, .. }, _, Some(P::Captured), _, Some(Q::Open)) if router => {
                 self.answer_router(some(thought)?, some(question)?, response, by)
             }
+            // A thought sent back to its question gets the person's words and
+            // agent back where it goes elsewhere (`restore`).
             (E::Pick { to, .. }, _, Some(P::Captured), ..) => {
                 let until = self.until(self.now)?;
-                self.route(some(thought)?, to, None, until, Placed::Picked)
+                let mut t = some(thought)?;
+                let brief = restore(&mut t, Some(to));
+                self.route(t, to, brief, until, Placed::Picked)
             }
             // placed anew while it is held (a key of the decision line, or a
             // place picked): its hold starts again from now. The places the
@@ -691,20 +696,7 @@ impl Machine<'_, '_> {
                         route.others = offered.into_iter().filter(|p| *p != place).collect();
                     }
                 }
-                // Back where a model put it: its brief, and the agent the thought
-                // had. Anywhere else: the person's own words, and the agent they
-                // chose for the task, never a session's or its brief.
-                let decided = t.route.as_ref().and_then(|r| r.decided.clone());
-                if let Some(d) = &decided
-                    && !matches!(to, Destination::Session(_))
-                {
-                    t.agent = d.agent.clone();
-                }
-                let brief = match decided {
-                    Some(d) if d.to == place => d.brief,
-                    Some(_) => Some(t.text.clone()),
-                    None => None,
-                };
+                let brief = restore(&mut t, Some(to));
                 let until = self.until(self.now)?;
                 self.route(t, to, brief, until, Placed::Picked)
             }
@@ -752,7 +744,7 @@ impl Machine<'_, '_> {
                 candidates,
                 brief,
                 how,
-                Some(project),
+                (Some(project), None),
             ),
             // route ambiguous: stays captured, a router question opens, also
             // with no place to offer (the person's own answers remain: a
@@ -772,7 +764,7 @@ impl Machine<'_, '_> {
                 Some(P::Captured),
                 ..,
             ) if routing(&thought) => {
-                self.ask_router(some(thought)?, prompt, candidates, brief, how, None)
+                self.ask_router(some(thought)?, prompt, candidates, brief, how, (None, None))
             }
             // route unknown (a scripted router's): an idea.
             (E::Routed { how, .. }, _, Some(P::Captured), ..) if routing(&thought) => {
@@ -1483,7 +1475,7 @@ impl Machine<'_, '_> {
         candidates: Vec<Candidate>,
         brief: Option<String>,
         how: Routing,
-        create: Option<tasktap_proto::NewProject>,
+        (create, answers): (Option<tasktap_proto::NewProject>, Option<QuestionId>),
     ) -> Result<()> {
         t.route = Some(how);
         t.brief = brief.or(t.brief);
@@ -1509,6 +1501,7 @@ impl Machine<'_, '_> {
             state: Q::Open,
             answer: None,
             create,
+            answers,
         };
         self.tx.insert_question(&q, &key)?;
         self.effects.push(Effect::Notify(id));
@@ -1517,11 +1510,14 @@ impl Machine<'_, '_> {
 
     fn answer_router(
         &mut self,
-        t: Thought,
+        mut t: Thought,
         q: Question,
         response: Response,
         device: Option<DeviceId>,
     ) -> Result<()> {
+        if let (Response::Affirm, Some(asked)) = (&response, q.answers) {
+            return self.reply_with(t, q, asked, device);
+        }
         fits(&q, &response)?;
         let to = match &response {
             Response::Choice { choice } => {
@@ -1536,13 +1532,17 @@ impl Machine<'_, '_> {
             _ => None,
         };
         self.store_answer(q.id, response, device)?;
+        let brief = restore(&mut t, to);
         match to {
             Some(to) => {
                 let now = self.now;
                 let until = self.until(now)?;
-                self.route(t, to, None, until, Placed::Answer)
+                self.route(t, to, brief, until, Placed::Answer)
             }
-            None => self.keep_as_idea(t, None, Placed::KeptAnswer),
+            None => {
+                t.brief = brief.or(t.brief);
+                self.keep_as_idea(t, None, Placed::KeptAnswer)
+            }
         }
     }
 
@@ -1560,8 +1560,8 @@ impl Machine<'_, '_> {
         self.unwait(&t);
         // Checked again as it starts: what was decided may be gone by now.
         match self.unfit(&t)? {
-            Some(Unfit::Ask(why)) => return self.ask_again(t, why),
-            Some(Unfit::Reply(q)) => return self.reply_with(t, *q),
+            Some(Unfit::Ask(why)) => return self.ask_again(t, why, None),
+            Some(Unfit::Asking(why, q)) => return self.ask_again(t, why, Some(*q)),
             None => {}
         }
         let target = match (t.mode, t.session_id) {
@@ -1666,9 +1666,9 @@ impl Machine<'_, '_> {
 
     /// Whether a thought placed and held can still start where it was
     /// placed: the project is open and its folder there, the session there
-    /// and not ended for good, and its agent not asking. An agent's question
-    /// that takes free words the task answers ([`Unfit::Reply`]); one only
-    /// its terminal takes (a numbered menu), never: nothing is typed there.
+    /// and not ended for good, and its agent not asking. Placing never
+    /// answers an agent's question by itself: one asking as the follow-up
+    /// starts gets nothing, and the person is asked ([`Unfit::Asking`]).
     fn unfit(&self, t: &Thought) -> Result<Option<Unfit>> {
         let ask = |why: String| Ok(Some(Unfit::Ask(why)));
         if let (Mode::Nudge, Some(id)) = (t.mode, t.session_id) {
@@ -1686,10 +1686,8 @@ impl Machine<'_, '_> {
             let asks = open
                 .into_iter()
                 .find(|q| q.session_id == Some(id) && q.source != QuestionSource::Router);
-            return Ok(asks.map(|q| match q.reply_via {
-                ReplyVia::Core => Unfit::Reply(Box::new(q)),
-                ReplyVia::Terminal => Unfit::Ask(format!("{name} asks “{}” first", q.prompt)),
-            }));
+            return Ok(asks
+                .map(|q| Unfit::Asking(format!("{name} asks “{}” first", q.prompt), Box::new(q))));
         }
         let gone = |name: &str| format!("The folder of {name} is gone");
         match (t.project_id, t.card_id) {
@@ -1718,17 +1716,28 @@ impl Machine<'_, '_> {
 
     /// A thought that can no longer start where it was placed: it waits on
     /// the router's question, which says why, the other places it was
-    /// offered first.
-    fn ask_again(&mut self, mut t: Thought, why: String) -> Result<()> {
+    /// offered first. Where its session's agent asks (`asking`), a new run
+    /// in that project stands for the session; and where that question is
+    /// the agent's own and takes free words, the question offers first to
+    /// answer it with the thought's words (`Question::answers`), on the
+    /// person's key alone. A permission or a menu its terminal takes is
+    /// never answered from here.
+    fn ask_again(&mut self, mut t: Thought, why: String, asking: Option<Question>) -> Result<()> {
         if t.hold_until.take().is_some() {
             self.effects.push(Effect::Unhold(t.id));
         }
-        let mut candidates = Vec::new();
+        let mut candidates: Vec<Candidate> = Vec::new();
         let was = match (t.session_id, t.project_id, t.card_id) {
+            (Some(s), ..) if asking.is_some() => {
+                (self.tx.session(s)?).map(|s| Destination::New(s.project_id))
+            }
             (Some(s), ..) => Some(Destination::Session(s)),
             (None, Some(p), _) => Some(Destination::New(p)),
             (None, None, c) => c.map(Destination::Card),
         };
+        let answers = asking
+            .filter(|q| q.source == QuestionSource::Agent && q.reply_via == ReplyVia::Core)
+            .map(|q| q.id);
         let others = t
             .route
             .as_ref()
@@ -1741,7 +1750,7 @@ impl Machine<'_, '_> {
         };
         let places = was.into_iter().chain(others.into_iter().map(place));
         for to in places {
-            if self.unfit_at(to)? {
+            if self.unfit_at(to)? || candidates.iter().any(|c| c.to == to) {
                 continue;
             }
             let label = self.label(to)?;
@@ -1756,7 +1765,7 @@ impl Machine<'_, '_> {
         let how = t.route.clone().unwrap_or_else(|| locally(None));
         let brief = t.brief.clone();
         let prompt = format!("{why}. {}", crate::route::WHERE);
-        self.ask_router(t, prompt, candidates, brief, how, None)
+        self.ask_router(t, prompt, candidates, brief, how, (None, answers))
     }
 
     /// Whether a place can no longer take a thought: gone, closed, or a
@@ -1785,27 +1794,31 @@ impl Machine<'_, '_> {
         })
     }
 
-    /// A follow-up to a session whose agent asks a question it takes free
-    /// words for: the task's words are its answer, as "Reply in your own
-    /// words" gives one, and the task is done with that.
-    fn reply_with(&mut self, mut t: Thought, q: Question) -> Result<()> {
-        if t.hold_until.take().is_some() {
-            self.effects.push(Effect::Unhold(t.id));
-        }
+    /// "Answer {agent}'s question with these words", pressed on the question
+    /// a follow-up waits on: its words go to the agent's question as a
+    /// reply in the person's own words, and the task is done with that.
+    fn reply_with(
+        &mut self,
+        mut t: Thought,
+        q: Question,
+        asked: QuestionId,
+        device: Option<DeviceId>,
+    ) -> Result<()> {
+        let Some(a) = self.tx.question(asked)?.filter(|a| a.state == Q::Open) else {
+            return Err(Error::Conflict("its agent no longer asks that question"));
+        };
+        self.store_answer(q.id, Response::Affirm, device)?;
         let text = t.text.clone();
-        self.answer(q, Response::Text { text }, None)?;
+        self.answer(a, Response::Text { text }, device)?;
         t.phase = P::Done;
         self.save(t)
     }
 
-    /// A thought that waited for the person's key (a model was torn) waits
-    /// no more: what they were told of it is taken back.
+    /// A thought that waited for the person's key (a model was torn, or
+    /// Tasktap started again during its hold) waits no more: what they were
+    /// told of it is taken back.
     fn unwait(&mut self, t: &Thought) {
-        let torn = t
-            .route
-            .as_ref()
-            .is_some_and(|r| r.decided.is_some() && !r.others.is_empty());
-        if t.phase == P::Routed && t.hold_until.is_none() && torn {
+        if t.phase == P::Routed && t.hold_until.is_none() {
             self.effects.push(Effect::Unwaits(t.id));
         }
     }
@@ -2077,6 +2090,7 @@ impl Machine<'_, '_> {
             state: Q::Open,
             answer: None,
             create: None,
+            answers: None,
         };
         Ok((question, key))
     }
@@ -2781,6 +2795,24 @@ fn fits(q: &Question, response: &Response) -> Result<()> {
             Ok(())
         }
         _ => Err(Error::Invalid("the answer does not fit the question")),
+    }
+}
+
+/// A thought a model decided, placed now by the person: by a key of the
+/// decision line, or from its question once it could not start where it
+/// was decided (an answer, the Scratchpad, another project, keep for
+/// later). Back where the model put it: its brief, and the agent the
+/// thought had. Anywhere else: the person's own words, and the agent they
+/// chose for the task, never a session's or the model's brief. Nothing for
+/// a thought no model decided.
+fn restore(t: &mut Thought, to: Option<Destination>) -> Option<String> {
+    let d = t.route.as_ref().and_then(|r| r.decided.clone())?;
+    if !matches!(to, Some(Destination::Session(_))) {
+        t.agent = d.agent.clone();
+    }
+    match to.is_some_and(|to| d.to == to.into()) {
+        true => d.brief,
+        false => Some(t.text.clone()),
     }
 }
 

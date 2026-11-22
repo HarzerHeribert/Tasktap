@@ -396,6 +396,32 @@ async function main(out, dist) {
       for (const e of page.errors) failures.push(`page: ${e}`);
       await page.context().close();
     }
+    // Behind a sheet Home's key caps go (parts.css `.win.dimmed`), the Composer keeping the keyboard: a word that went
+    // for its cap comes back, so no control on the line is left with neither its word nor its key.
+    {
+      const r = structuredClone(cases[1][1]);
+      r.projects.find((p) => p.id === r.ids.projects.cuegrid).name = 'customer-portal-frontend-legacy-migration';
+      page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1, viewport: { width: 560, height: 800 } });
+      await page.waitForSelector('.home .way');
+      await page.focus('#capture-input');
+      await page.waitForTimeout(300);
+      await page.evaluate(() => document.fonts.ready);
+      const before = await look();
+      // The window dims alone, the keyboard staying in Home's Composer, as for a sheet that came by itself.
+      await page.evaluate(() => document.querySelector('.win').classList.add('dimmed'));
+      await page.waitForTimeout(300);
+      const behind = await page.evaluate(() => {
+        const seen = (x) => !!x && x.getBoundingClientRect().width > 0 && getComputedStyle(x).visibility !== 'hidden' && getComputedStyle(x).display !== 'none';
+        const controls = [...document.querySelectorAll('.home .way-h > .way-more, .home .way-h > .act')];
+        return { dimmed: !!document.querySelector('.win.dimmed'), caps: controls.some((b) => seen(b.querySelector(':scope > kbd.keycap'))),
+          blind: controls.filter((b) => !seen(b.querySelector(':scope > span')) && !seen(b.querySelector(':scope > kbd.keycap, :scope > .i'))).map((b) => b.getAttribute('aria-label')) };
+      });
+      expect(before.bare.every(Boolean), `at 560 px, the words on Home's line went for their chevron and caps ${JSON.stringify(before.bare)}`);
+      expect(behind.dimmed && !behind.caps && !behind.blind.length, `behind a sheet, Home's caps gone, every control on the line keeps its word or its key ${JSON.stringify(behind)}`);
+      whole('behind a sheet', await look());
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
 
     // The decision's keys count 600 ms after it came and after the last key before it, as the question's: a new thought
     // begun with "2" just as the decision comes is the field's.

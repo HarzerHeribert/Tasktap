@@ -343,6 +343,11 @@ fn frames(core: &RefCell<Core>, link: &Rc<Link>, decoder: &mut Decoder) -> bool 
                     Ok((peer, welcome)) => {
                         link.peer.set(Some(peer));
                         link.send(&Control::Welcome(welcome));
+                        // A host that shows notifications: what waits for the
+                        // person now, after a start of either too.
+                        if peer.notifies {
+                            crate::effects::waiting(&mut core, link);
+                        }
                         // A client now: the core looks at its lifetime again.
                         core.events.notify_one();
                     }

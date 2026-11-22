@@ -1760,6 +1760,57 @@ const KNOWN_FILES: &[&str] = &[
     "gemini.md",
 ];
 
+/// Files known by a name with no dot in it: what the routing lab's corpus
+/// lists at a project's top without saying it is a file ([`folder_named`]).
+const DOTLESS: &[&str] = &[
+    "gradlew",
+    "mvnw",
+    "makefile",
+    "gnumakefile",
+    "dockerfile",
+    "containerfile",
+    "vagrantfile",
+    "brewfile",
+    "procfile",
+    "jenkinsfile",
+    "snakefile",
+    "gemfile",
+    "rakefile",
+    "podfile",
+    "cartfile",
+    "pipfile",
+    "justfile",
+    "guardfile",
+    "capfile",
+    "berksfile",
+    "dangerfile",
+    "fastfile",
+    "appfile",
+    "cname",
+    "license",
+    "licence",
+    "copying",
+    "notice",
+    "authors",
+    "contributors",
+    "changelog",
+    "readme",
+    "version",
+    "codeowners",
+    "artisan",
+    "project",
+    "_redirects",
+    "_headers",
+];
+
+/// Whether a name the routing lab's corpus lists at a project's top, which
+/// does not say what each is, stands for a folder: one without a dot that
+/// is no well-known file (`gradlew`, `Brewfile`, `LICENSE`), so the lab's
+/// top is the one [`tops`] reads from the disk.
+pub fn folder_named(name: &str) -> bool {
+    !name.contains('.') && !DOTLESS.contains(&name.to_lowercase().as_str())
+}
+
 /// The names at a project's top a model is told of, from its entries
 /// (`name`, whether a folder): its folders and the well-known project
 /// files ([`KNOWN_FILES`]), none hidden, in order, at most [`TOP`]. No
@@ -1783,10 +1834,37 @@ pub fn tops(
     folders: Vec<(Destination, String)>,
     within: std::time::Duration,
 ) -> Vec<(Destination, Vec<String>)> {
+    tops_by(folders, within, heads)
+}
+
+/// The folders whose read has not returned yet ([`tops_by`]).
+static READING: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// [`tops`], each folder read by `read`. A folder whose read has not
+/// returned yet, as one that hangs inside the system, is never read again
+/// meanwhile: one reading thread per folder at most, and the folder is sent
+/// without names until its read returns.
+pub fn tops_by<R>(
+    folders: Vec<(Destination, String)>,
+    within: std::time::Duration,
+    read: R,
+) -> Vec<(Destination, Vec<String>)>
+where
+    R: Fn(&str) -> Vec<String> + Clone + Send + 'static,
+{
+    let reading = || READING.lock().unwrap_or_else(|e| e.into_inner());
     let (tell, told) = std::sync::mpsc::channel();
     for (to, folder) in folders {
-        let tell = tell.clone();
-        std::thread::spawn(move || drop(tell.send((to, heads(&folder)))));
+        if !reading().insert(folder.clone()) {
+            continue;
+        }
+        let (tell, read) = (tell.clone(), read.clone());
+        std::thread::spawn(move || {
+            let names = read(&folder);
+            reading().remove(&folder);
+            drop(tell.send((to, names)));
+        });
     }
     drop(tell);
     let until = std::time::Instant::now() + within;
@@ -1927,31 +2005,39 @@ pub const LEFT_OUT: &str = "[left out]";
 /// A text as a model is sent it: each word that looks like a secret (a
 /// key, a token, a password) replaced by [`LEFT_OUT`], the rest as it is,
 /// so a task or a session keeps the words that place it. A wrong match
-/// costs one word, so it leans towards leaving out, but never an everyday
-/// word of a coding task ("the key handler", "the token count"):
+/// costs a few words, so it leans towards leaving out, but never an
+/// everyday word of a coding task ("the key handler", "the token count",
+/// "the password field"):
 ///
-/// - after password, Passwort, passphrase and the like, joined by "is",
-///   "to", "ist", "lautet", ":" or "=", the next word; right after it, a
-///   next word with a digit or a sign in it ("password hunter2", never
-///   "the password field");
-/// - after key, token or secret, only a next word that looks like a secret
-///   by itself; after Bearer, also a long one;
-/// - a value given to a name that says so (`DB_PASS=…`, `API_TOKEN: …`);
-/// - a web address with a password in it (`https://me:pw@host`), and a
-///   webhook's address;
+/// - after a password word (password, Passwort, passphrase; pass, pw and
+///   pin too) joined by "is", "to", "ist", "lautet", ":" or "=", every word
+///   to the end of the sentence or the line, six at most; right after one,
+///   a word with a digit or a sign in it ("password hunter2");
+/// - after key, token or secret, only a word that looks like a secret by
+///   itself; after Bearer, also a long one; after a "/" standing alone
+///   ("admin / hunter2"), one with a digit or a sign;
+/// - a value given to a name of a secret, written in capitals or of parts
+///   (`PGPASSWORD=…`, `DB_PASS=…`, `x-api-key: …`, `token=…`, `pw: …`);
+///   a word that names a secret itself is never taken for the value
+///   ("ssh key passphrase: …");
+/// - in a web address, the values of its query and a user's password;
+///   a webhook's address whole;
 /// - a word with a known key's beginning (`sk-`, `ghp_`, `xoxb-`, `AKIA`,
 ///   `eyJ`, …), also inside it;
 /// - a long run of letters and digits, or of letters in mixed case.
 pub fn redact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    // A word just said a secret follows: how surely, and whether a
-    // connecting word ("is", "to", ":") came after it.
-    let mut after: Option<(Says, bool)> = None;
+    // What the words before said follows.
+    let mut after: Option<Want> = None;
     let mut rest = text;
     while !rest.is_empty() {
         let space = rest
             .find(|c: char| !c.is_whitespace())
             .unwrap_or(rest.len());
+        // A line ends what a password word said, once it took a word.
+        if rest[..space].contains('\n') && matches!(after, Some(Want::Rest(n)) if n < REST) {
+            after = None;
+        }
         out.push_str(&rest[..space]);
         rest = &rest[space..];
         let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
@@ -1960,98 +2046,215 @@ pub fn redact(text: &str) -> String {
         }
         let word = &rest[..end];
         rest = &rest[end..];
-        let bare = word.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c));
-        let lower = bare.to_lowercase();
-        let (name, value, joined) = match lower.split_once(['=', ':']) {
-            Some((n, v)) if !v.starts_with("//") => (n.to_owned(), v.to_owned(), true),
-            _ => (lower.clone(), String::new(), false),
-        };
-        let connects = CONNECT.contains(&lower.as_str());
-        let secret = match after {
-            _ if shaped(bare) => true,
-            // "password is …", "Passwort: …": the value, whatever it is.
-            Some((Says::Surely, true)) => !connects,
-            // Right after it, or after "key is": only what looks like one;
-            // after "Bearer", anything long too.
-            Some((Says::Bearer, _)) => !connects && (looks(bare) || bare.chars().count() >= 16),
-            Some((Says::Surely | Says::Maybe, _)) => !connects && looks(bare),
-            None => {
-                !value.is_empty()
-                    && tells(&name, true).is_some_and(|s| s == Says::Surely || looks(&value))
-            }
-        };
-        if secret {
-            out.push_str(LEFT_OUT);
+        let edge = |c: char| "\"'`()[]{}<>,;.!?".contains(c);
+        let bare = word.trim_matches(edge);
+        // A web address: its query's values and a user's password go, the
+        // rest stays to place the task; a webhook's goes whole.
+        if bare.contains("://") && !shaped(bare) {
+            let start = word.len() - word.trim_start_matches(edge).len();
+            out.push_str(&word[..start]);
+            out.push_str(&address(bare));
+            out.push_str(&word[start + bare.len()..]);
             after = None;
             continue;
         }
-        out.push_str(word);
-        after = match (after, connects) {
-            (Some((how, _)), true) => Some((how, true)),
-            _ if value.is_empty() => tells(&name, joined).map(|how| (how, joined)),
+        let lower = bare.to_lowercase();
+        let (name, value, joined) = match bare.split_once(['=', ':']) {
+            Some((n, v)) => (n, v, true),
+            None => (bare, "", false),
+        };
+        // What the word says of the next. A label ("passphrase:", "key")
+        // is never taken for the value: it says the next word is.
+        let own = (value.is_empty()).then(|| wants(name, joined)).flatten();
+        let plain = [PASSWORD, PASS, MAYBE, &["bearer", "/"]]
+            .iter()
+            .any(|l| l.contains(&lower.as_str()));
+        let label = own.is_some() && (joined || plain);
+        let connects = CONNECT.contains(&lower.as_str());
+        // "pass to", "pin to": verbs too, so joined by the other words only.
+        let joins = |of: Of| connects && !(of == Of::Pass && lower == "to");
+        let secret = shaped(bare)
+            || (!value.is_empty() && holds(name))
+            || match after {
+                _ if label => false,
+                Some(Want::Rest(_)) => true,
+                Some(Want::Next) => !connects,
+                Some(Want::Long) => !connects && (looks(bare) || bare.chars().count() >= 16),
+                Some(Want::Looks(of)) => !joins(of) && looks(bare),
+                None => false,
+            };
+        out.push_str(if secret { LEFT_OUT } else { word });
+        let ends = word
+            .trim_end_matches(['"', '\'', '`', ')', ']'])
+            .ends_with(['.', '!', '?']);
+        after = match after {
+            _ if label || (own.is_some() && !secret) => own,
+            // "password is", "Passwort lautet": the rest of the sentence.
+            Some(Want::Looks(of @ (Of::Password | Of::Pass))) if joins(of) => {
+                Some(Want::Rest(REST))
+            }
+            Some(Want::Rest(n)) if secret && n > 1 && !ends => Some(Want::Rest(n - 1)),
+            Some(w @ (Want::Looks(Of::Key) | Want::Next | Want::Long)) if connects => Some(w),
             _ => None,
         };
     }
     out
 }
 
-/// How surely a word says a secret follows it ([`redact`]).
+/// What the words before a word said of it ([`redact`]).
 #[derive(Clone, Copy, PartialEq)]
-enum Says {
-    /// A password: after "is", "to", ":" or "=", the next word is one.
-    Surely,
-    /// A key, a token, a secret: words of every task, so only a next word
-    /// that looks like one by itself is.
-    Maybe,
-    /// "Bearer": a long next word too.
-    Bearer,
+enum Want {
+    /// A word that looks like a secret by itself (a digit or a sign in
+    /// it), after the word [`Of`] says; after a password word a joining
+    /// word turns it into [`Want::Rest`].
+    Looks(Of),
+    /// After Bearer: also a long one.
+    Long,
+    /// After a name of a secret given its value (`API_TOKEN: …`): the next
+    /// word, whatever it is.
+    Next,
+    /// After a password word and a joining word: every word to the end of
+    /// the sentence or the line, this many at most.
+    Rest(u8),
 }
 
+/// The word a [`Want::Looks`] came after.
+#[derive(Clone, Copy, PartialEq)]
+enum Of {
+    /// password, Passwort, passphrase, a password's name (`DB_PASS`).
+    Password,
+    /// pass, pw, pin, credentials: a password's words, and verbs or nouns
+    /// of every task too ("pass to", "pin to"), so "to" does not join them.
+    Pass,
+    /// key, token, secret, a "/" alone: words of every task.
+    Key,
+}
+
+/// How many words a password word and a joining word leave out at most.
+const REST: u8 = 6;
+
 /// Words that say a password follows them, and those that may say a key
-/// or a token does; the parts of a name given a value that say so
-/// (`DB_PASS`, `api-token`).
-const SURELY: &[&str] = &[
+/// or a token does.
+const PASSWORD: &[&str] = &[
     "password",
     "passwords",
     "passwort",
     "passphrase",
     "passwd",
     "kennwort",
-    "credentials",
 ];
+const PASS: &[&str] = &["pass", "pw", "pin", "credentials"];
 const MAYBE: &[&str] = &[
     "secret", "secrets", "token", "tokens", "key", "keys", "apikey",
 ];
-const PARTS: &[&str] = &["pass", "passwd", "password", "pwd"];
-const PARTS_MAYBE: &[&str] = &["secret", "token", "key", "apikey", "auth"];
 /// Words between the one that says a secret follows and the secret.
 const CONNECT: &[&str] = &["is", "to", "ist", "lautet", "=", ":"];
 
-/// How surely a word, or a name given a value, says a secret follows. A
-/// name of parts says as its parts do (`DB_PASS` as a password, `auth-token`
-/// as a token), and as surely as a password where it is given a value
-/// (`joined`: `API_TOKEN=`, `api_token:`).
-fn tells(name: &str, joined: bool) -> Option<Says> {
-    let name = name.trim_end_matches([':', '=']);
-    let parts: Vec<&str> = (name.split(['_', '-', '.']))
+/// What a word says of the word after it, `joined` where it ends in ":" or
+/// "=" ("Passwort:", `API_TOKEN=`): a password word, a key's word, Bearer,
+/// a "/" alone, or a name of a secret ([`named`]).
+fn wants(name: &str, joined: bool) -> Option<Want> {
+    let lower = name.to_lowercase();
+    let password = PASSWORD.contains(&lower.as_str());
+    let pass = PASS.contains(&lower.as_str());
+    match named(name) {
+        _ if (password || pass) && joined => Some(Want::Rest(REST)),
+        _ if password => Some(Want::Looks(Of::Password)),
+        _ if pass => Some(Want::Looks(Of::Pass)),
+        _ if MAYBE.contains(&lower.as_str()) || name == "/" => Some(Want::Looks(Of::Key)),
+        _ if lower == "bearer" => Some(Want::Long),
+        Some(true) if joined => Some(Want::Rest(REST)),
+        Some(true) => Some(Want::Looks(Of::Password)),
+        Some(false) if joined => Some(Want::Next),
+        Some(false) => Some(Want::Looks(Of::Key)),
+        None => None,
+    }
+}
+
+/// Whether a name given a value right after it (`token=…`, `PGPASSWORD=…`)
+/// is one of a secret.
+fn holds(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    [PASSWORD, PASS, MAYBE]
+        .iter()
+        .any(|l| l.contains(&lower.as_str()))
+        || named(name).is_some()
+}
+
+/// Whether a name is one of a secret, written as a name is: in capitals
+/// with pass, pwd, secret, token or key anywhere in it (`PGPASSWORD`,
+/// `SMTPPASS`), or of parts one of which is one (`db_pass`, `x-api-key`,
+/// never `blue-monkey`); `true` where it is a password's (pass, pwd, pw,
+/// pin).
+fn named(name: &str) -> Option<bool> {
+    let lower = name.to_lowercase();
+    let parts: Vec<&str> = (lower.split(['_', '-', '.']))
         .filter(|p| !p.is_empty())
         .collect();
-    let of = |list: &[&str]| parts.len() > 1 && parts.iter().any(|p| list.contains(p));
-    if SURELY.contains(&name) || of(PARTS) || (joined && of(PARTS_MAYBE)) {
-        Some(Says::Surely)
-    } else if MAYBE.contains(&name) || of(PARTS_MAYBE) {
-        Some(Says::Maybe)
-    } else if name == "bearer" {
-        Some(Says::Bearer)
+    let caps =
+        name.chars().any(|c| c.is_ascii_uppercase()) && !name.chars().any(char::is_lowercase);
+    if parts.len() < 2 && !caps {
+        return None;
+    }
+    let has = |stems: &[&str]| {
+        (parts.iter()).any(|p| {
+            (stems.iter()).any(|s| match caps {
+                true => p.contains(s),
+                false => p.starts_with(s) || (*s == "key" && p.ends_with("apikey")),
+            })
+        })
+    };
+    if has(&["pass", "pwd"]) || parts.iter().any(|p| matches!(*p, "pw" | "pin")) {
+        Some(true)
+    } else if has(&["secret", "token", "key"]) || parts.contains(&"auth") {
+        Some(false)
     } else {
         None
     }
 }
 
+/// A web address as a model is sent it: a user's password and the values
+/// of its query left out, the rest as it is.
+fn address(word: &str) -> String {
+    let Some(at) = word.find("://") else {
+        return word.to_owned();
+    };
+    let (scheme, rest) = word.split_at(at + 3);
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (host, tail) = rest.split_at(end);
+    let mut out = scheme.to_owned();
+    match host.rfind('@') {
+        Some(i) if host[..i].contains(':') => {
+            out.push_str(LEFT_OUT);
+            out.push_str(&host[i..]);
+        }
+        _ => out.push_str(host),
+    }
+    let (path, query) = match tail.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (tail, None),
+    };
+    out.push_str(path);
+    if let Some(query) = query {
+        let (query, fragment) = query.split_at(query.find('#').unwrap_or(query.len()));
+        let values: Vec<String> = (query.split('&'))
+            .map(|pair| match pair.split_once('=') {
+                Some((name, value)) if !value.is_empty() => format!("{name}={LEFT_OUT}"),
+                _ => pair.to_owned(),
+            })
+            .collect();
+        out.push('?');
+        out.push_str(&values.join("&"));
+        out.push_str(fragment);
+    }
+    out
+}
+
 /// Whether a word looks like a secret by itself, beside a word that says
 /// one may follow: a digit or a sign in it (an apostrophe is none:
-/// "handler's"), or the shape of one.
+/// "handler's", nor a label's ":"), or the shape of one.
 fn looks(word: &str) -> bool {
+    let word = word.trim_end_matches([':', '=']);
     word.chars()
         .any(|c| !c.is_alphabetic() && !matches!(c, '\'' | '\u{2019}'))
         || shaped(word)
@@ -2091,13 +2294,6 @@ fn shaped(word: &str) -> bool {
     ];
     let lower = word.to_lowercase();
     if HOOKS.iter().any(|h| lower.contains(h)) || lower.contains("-----begin") {
-        return true;
-    }
-    // A web address with a user's password: scheme://user:password@host.
-    if let Some((_, after)) = lower.split_once("://")
-        && let Some((user, _)) = after.split_once('@')
-        && user.contains(':')
-    {
         return true;
     }
     let long = |from: usize| word.len() - from >= 8;

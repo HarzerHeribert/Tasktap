@@ -135,6 +135,11 @@ pub struct Routing {
     /// words and the agent they chose for it.
     #[serde(default)]
     pub decided: Option<Decided>,
+    /// A tool was found to no longer offer the model asked of it while this
+    /// thought was placed: the page asks for the terms again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub lost: bool,
 }
 
 /// Where a model put a thought, the brief it wrote for that place, and the
@@ -518,6 +523,13 @@ pub struct Question {
     /// thought, which the question offers first; none for every other.
     #[serde(default)]
     pub create: Option<NewProject>,
+    /// Of a router's question about a follow-up whose session's agent asks
+    /// as it was to start: that question, where it is the agent's own and
+    /// takes free words, which the question offers first to answer with the
+    /// thought's words (`affirm`); none for every other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub answers: Option<QuestionId>,
     pub prompt: String,
     pub detail: Option<String>,
     pub reply_via: ReplyVia,

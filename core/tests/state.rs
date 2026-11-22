@@ -119,6 +119,7 @@ fn question(s: &Session, via: ReplyVia) -> Question {
         state: QuestionState::Open,
         answer: None,
         create: None,
+        answers: None,
     }
 }
 
@@ -1667,7 +1668,8 @@ fn row_retry_routes_a_failed_thought_again() {
         attempt,
     });
     assert!(
-        matches!(&effects[..], [Effect::Launch(l)] if l.session != s && l.resume.is_none()),
+        // It waited for the person: what they were told of it is taken back.
+        matches!(&effects[..], [Effect::Unwaits(_), Effect::Launch(l)] if l.session != s && l.resume.is_none()),
         "{effects:?}"
     );
     assert_eq!(w.session(s).state, SessionState::Idle);
@@ -2455,7 +2457,10 @@ fn reopening_mid_turn_closes_everything_and_starts_nothing() {
         thought: t,
         attempt: AttemptId::mint(),
     });
-    assert!(matches!(&effects[..], [Effect::Launch(_)]));
+    assert!(matches!(
+        &effects[..],
+        [Effect::Unwaits(_), Effect::Launch(_)]
+    ));
     assert_eq!(
         w.launcher.launched.len(),
         1,
@@ -2480,12 +2485,16 @@ fn reopening_while_held_restores_no_timer() {
         attempt: AttemptId::mint(),
     };
     assert_eq!(w.ignored(fired), Ignored::State);
-    // It waits for the person to press Start: no timer to cancel.
+    // It waits for the person to press Start: no timer to cancel, and what
+    // they were told of it is taken back.
     let effects = w.ok(Event::Start {
         thought: t,
         attempt: AttemptId::mint(),
     });
-    assert!(matches!(&effects[..], [Effect::Launch(_)]), "{effects:?}");
+    assert!(
+        matches!(&effects[..], [Effect::Unwaits(_), Effect::Launch(_)]),
+        "{effects:?}"
+    );
 }
 
 #[test]
@@ -4347,7 +4356,7 @@ fn a_restart_between_the_routers_answer_and_the_launch_runs_nothing_again() {
     };
     let effects = w.ok(start.clone());
     assert!(
-        matches!(effects.as_slice(), [Effect::Launch(_)]),
+        matches!(effects.as_slice(), [Effect::Unwaits(_), Effect::Launch(_)]),
         "{effects:?}"
     );
     let again = w.ok(start);
@@ -4964,9 +4973,11 @@ mod dictations {
 }
 
 /// A held task is checked again as it starts (the review of smart placing,
-/// 2026-11-22): a project closed meanwhile, or a session whose agent asks in
-/// its terminal, starts nothing and the person is asked, told why; a
-/// question its agent takes free words for is answered with the task's.
+/// 2026-11-22): a project closed meanwhile, or a session whose agent asks,
+/// starts nothing and the person is asked, told why. Placing never answers
+/// an agent's question by itself (the third round): nothing is typed or
+/// sent, also where the agent's question takes free words; there the
+/// question offers to answer it with the task's words, on the person's key.
 #[test]
 fn a_held_task_is_checked_again_as_it_starts() {
     let mut w = World::new("recheck");
@@ -4978,9 +4989,12 @@ fn a_held_task_is_checked_again_as_it_starts() {
         })
     };
     let launched = |effects: &[Effect]| {
-        effects
-            .iter()
-            .any(|e| matches!(e, Effect::Launch(_) | Effect::Deliver(_)))
+        effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::Launch(_) | Effect::Deliver(_) | Effect::Answer(_)
+            )
+        })
     };
     // The project was closed during the hold.
     let t = w.routed("fix the build");
@@ -5006,41 +5020,137 @@ fn a_held_task_is_checked_again_as_it_starts() {
         p.open = true;
         tx.update_project(&p).unwrap();
     });
-    // A follow-up to a session whose agent asks in its terminal: nothing is
-    // typed there; the person is asked, the agent's question named.
+    // A follow-up to a session whose agent asks, in its terminal, through
+    // the core, or for a permission: nothing is typed, sent or denied; the
+    // person is asked, the agent's question named, a new run in that
+    // project standing for the session. Only the agent's own question that
+    // takes free words is offered an answer in the task's words.
+    for (via, source, offered) in [
+        (ReplyVia::Terminal, QuestionSource::Agent, false),
+        (ReplyVia::Core, QuestionSource::Permission, false),
+        (ReplyVia::Core, QuestionSource::Agent, true),
+    ] {
+        let (_, s) = w.turn();
+        let q = Question {
+            source,
+            ..question(&w.session(s), via)
+        };
+        let asked = q.id;
+        w.ok(ask(q));
+        let f = w.capture("yes, and the docs too");
+        w.ok(Event::Pick {
+            thought: f,
+            to: Destination::Session(s),
+        });
+        let effects = w.ok(Event::Start {
+            thought: f,
+            attempt: AttemptId::mint(),
+        });
+        assert!(!launched(&effects), "{via:?} {source:?}: {effects:?}");
+        let agents = w.read(|tx| tx.question(asked).unwrap().unwrap());
+        assert_eq!(agents.state, QuestionState::Open, "{via:?} {source:?}");
+        let q = question_of(&mut w, f);
+        assert!(q.prompt.contains("asks “Deploy?” first"), "{}", q.prompt);
+        let places = q.places.clone().unwrap_or_default();
+        assert_eq!(
+            places.first(),
+            Some(&tasktap_proto::Place::Project(project))
+        );
+        assert!(!places.contains(&tasktap_proto::Place::Session(s)));
+        assert_eq!(q.answers, offered.then_some(asked), "{via:?} {source:?}");
+        if !offered {
+            // Nothing answers it from the task's question.
+            let refused = w.answer(q.id, Response::Affirm);
+            assert!(refused.is_err(), "{refused:?}");
+            continue;
+        }
+        // Its key: the task's words go to the agent's question as a reply in
+        // the person's own words, and the task is done with that.
+        let effects = w.answer(q.id, Response::Affirm).unwrap();
+        assert!(effects.contains(&Effect::Answer(asked)), "{effects:?}");
+        let answered = w.read(|tx| tx.question(asked).unwrap().unwrap());
+        assert_eq!(answered.state, QuestionState::Answered);
+        assert_eq!(
+            answered.answer.map(|a| a.response),
+            Some(Response::Text {
+                text: "yes, and the docs too".into()
+            })
+        );
+        assert_eq!(w.thought(f).phase, Phase::Done);
+    }
+}
+
+/// A task a model placed and that could not start there goes back to its
+/// question with the person's own words and the agent they chose, as the
+/// decision line's other key gives them (the review's third round): for an
+/// answer there, the Scratchpad and another project alike.
+#[test]
+fn sent_back_to_its_question_a_task_gets_the_persons_words_and_agent_back() {
+    let mut w = World::new("sent-back");
+    let here = w.project;
     let (_, s) = w.turn();
-    w.ask(s, ReplyVia::Terminal);
-    let f = w.capture("and the docs");
-    w.ok(Event::Pick {
-        thought: f,
-        to: Destination::Session(s),
+    w.consents();
+    // The session's agent is not the one the person chose for the task.
+    w.write(|tx| {
+        let mut x = tx.session(s).unwrap().unwrap();
+        x.agent = "codex".into();
+        tx.update_session(&x).unwrap();
     });
-    let effects = w.ok(Event::Start {
-        thought: f,
-        attempt: AttemptId::mint(),
-    });
-    assert!(!launched(&effects), "{effects:?}");
-    let q = question_of(&mut w, f);
-    assert!(q.prompt.contains("asks “Deploy?” first"), "{}", q.prompt);
-    let places = q.places.unwrap_or_default();
-    assert_eq!(places.first(), Some(&tasktap_proto::Place::Session(s)));
-    // One that takes free words: the task's words are its answer.
-    let (_, s) = w.turn();
-    let asked = w.ask(s, ReplyVia::Core);
-    let f = w.capture("yes, and the docs too");
-    w.ok(Event::Pick {
-        thought: f,
-        to: Destination::Session(s),
-    });
-    let effects = w.ok(Event::Start {
-        thought: f,
-        attempt: AttemptId::mint(),
-    });
-    assert!(
-        !launched(&effects) && effects.contains(&Effect::Answer(asked)),
-        "{effects:?}"
-    );
-    let answered = w.read(|tx| tx.question(asked).unwrap().unwrap());
-    assert_eq!(answered.state, QuestionState::Answered);
-    assert_eq!(w.thought(f).phase, Phase::Done);
+    let pad = Project {
+        kind: ProjectKind::Scratch,
+        ..project("/scratch")
+    };
+    let scratch = pad.id;
+    w.write(|tx| tx.insert_project(&pad).unwrap());
+    // An answer on the question (its first place, a new run where the
+    // session was), or a place picked there: the Scratchpad, another project.
+    let ways = [
+        ("an answer", None),
+        ("the Scratchpad", Some(scratch)),
+        ("another project", Some(here)),
+    ];
+    for (how, picked) in ways {
+        let t = w.asked("and the docs");
+        let to = Destination::Session(s);
+        let route = Route::Clear {
+            said: None,
+            to,
+            brief: BRIEF.into(),
+        };
+        w.answers(t, route).unwrap();
+        assert_eq!(w.thought(t).agent.as_deref(), Some("codex"));
+        // Its agent asks as it starts: back to the question.
+        let asked = question(&w.session(s), ReplyVia::Terminal);
+        w.ok(ask(asked));
+        let effects = w.ok(Event::Start {
+            thought: t,
+            attempt: AttemptId::mint(),
+        });
+        assert!(!effects.iter().any(|e| matches!(e, Effect::Deliver(_))));
+        let q = w.read(|tx| {
+            let open = tx.open_questions().unwrap();
+            open.into_iter().find(|q| q.thought_id == Some(t)).unwrap()
+        });
+        match picked {
+            None => drop(w.answer(q.id, Response::Choice { choice: 0 }).unwrap()),
+            Some(p) => drop(w.ok(Event::Pick {
+                thought: t,
+                to: Destination::New(p),
+            })),
+        }
+        let th = w.thought(t);
+        assert_eq!(th.phase, Phase::Routed, "{how}");
+        assert_eq!(
+            (th.agent.as_deref(), th.brief.as_deref()),
+            (Some(AGENT), Some("and the docs")),
+            "{how}"
+        );
+        // The agent's question is the session's own to answer.
+        w.write(|tx| {
+            for q in tx.open_questions().unwrap() {
+                tx.set_question_state(q.id, QuestionState::Withdrawn)
+                    .unwrap();
+            }
+        });
+    }
 }

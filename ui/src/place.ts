@@ -70,22 +70,37 @@ export function rows(o: { found: { id: string; name: string; why: string; fresh:
 /** A task's words where a name or a tooltip carries them: the first 300 characters, then an ellipsis. */
 export const short = (text: string) => ([...text].length <= 300 ? text : `${[...text].slice(0, 300).join('')}…`);
 
+/** What a capture the router places says of where it was said (capture.tsx `named`): the session and the workspace in
+ *  view in Tasktap's window (none in the notch or at Home), and `auto` where the person chose Auto there, so a model
+ *  decides, told them. The chip's own Auto (nothing else said a place) leaves it to the core as released at e1443fd:
+ *  the names where they are sure, also before the hint has come (a session in view, the Scratchpad's workspace), else
+ *  a model, told the view. */
+export const routerArgs = (why: Why, current: string | null | undefined, view: string | undefined, chosen: boolean) =>
+  ({ current, ...(view ? { view } : {}), ...(chosen && why === 'model' && (current || view) ? { auto: true } : {}) });
+
 /** A row of the question Tasktap asks when Auto cannot place a task: `at` is a place's index among the question's own
  *  (`places`, `notes`), which answering with it chooses; the person's own answers have none. `dim`: why it is
  *  offered, in the dim tone after its name (nothing for a name the task says); `title`: what sending it there does. */
-export type Asked = { does: 'create' | 'place' | 'session' | 'folder' | 'scratch' | 'other' | 'later'; name: string; mark: Icon; dim: string; title?: string; at?: number };
-/** The question's rows, each on its number from 1 (NOTES §13). A new project a model proposed (`create`) leads, with
- *  its place in the dim tone: "New project tide-notes", or the folder by its name where that is there already. With
+export type Asked = { does: 'reply' | 'create' | 'place' | 'session' | 'folder' | 'scratch' | 'other' | 'later'; name: string; mark: Icon; dim: string; title?: string; at?: number };
+/** The question's rows, each on its number from 1 (NOTES §13). A follow-up whose session's agent asks its own question
+ *  as it starts leads with an answer to it in the task's words, where that question takes free words (`reply`, the
+ *  agent's name; core state.rs `ask_again`): nothing is ever typed there but on this key. A new project a model
+ *  proposed (`create`) leads, with its place in the dim tone: "New project tide-notes", or the folder by its name
+ *  where that is there already. With
  *  places its words name or clearly describe (the core's, three at most): those, then Another project…, the
  *  Scratchpad and Keep for later. With none: Open or create a folder… first, then the Scratchpad, Another project…
  *  where Tasktap knows any project (`known`), and Keep for later. Whether a project is open in Tasktap is no reason to
  *  choose it: only its tooltip says that sending opens it. */
-export function asked(o: { places: { name: string; why: string; fresh: boolean; session: boolean }[]; known: boolean; create?: { name: string; place: string; exists: boolean } | null }): Asked[] {
+export function asked(o: { places: { name: string; why: string; fresh: boolean; session: boolean }[]; known: boolean; create?: { name: string; place: string; exists: boolean } | null; reply?: string | null }): Asked[] {
   const other: Asked = { does: 'other', name: 'Another project…', mark: 'search', dim: '' };
   const own: Asked[] = [{ does: 'scratch', name: SCRATCHPAD, mark: 'pad', dim: '' }, { does: 'later', name: 'Keep for later', mark: 'later', dim: '' }];
   const c = o.create;
-  const lead: Asked[] = c ? [{ does: 'create', name: c.exists ? c.name : `New project ${c.name}`, mark: c.exists ? 'folder' : 'plus', dim: `in ${c.place}`,
-    title: c.exists ? `Sending the task opens the folder ${c.name} in ${c.place}.` : `Sending the task makes the folder ${c.name} in ${c.place} and starts the task there.` }] : [];
+  const lead: Asked[] = [
+    ...(o.reply ? [{ does: 'reply' as const, name: `Answer ${o.reply}'s question with these words`, mark: 'term' as const, dim: '',
+      title: `The task's words go to ${o.reply} as your answer to its question.` }] : []),
+    ...(c ? [{ does: 'create' as const, name: c.exists ? c.name : `New project ${c.name}`, mark: (c.exists ? 'folder' : 'plus') as Icon, dim: `in ${c.place}`,
+      title: c.exists ? `Sending the task opens the folder ${c.name} in ${c.place}.` : `Sending the task makes the folder ${c.name} in ${c.place} and starts the task there.` }] : []),
+  ];
   if (!o.places.length) return [...lead, { does: 'folder', name: 'Open or create a folder…', mark: 'plus', dim: '' }, own[0]!, ...(o.known ? [other] : []), own[1]!];
   const places = o.places.map((p, at): Asked => ({ does: p.session ? 'session' : 'place', name: p.name, mark: p.session ? 'term' : 'folder', dim: p.why, at,
     ...(p.fresh ? { title: `Sending the task opens ${p.name}.` } : {}) }));

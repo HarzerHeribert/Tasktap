@@ -1552,7 +1552,17 @@ fn offering(s: &Scene, role: Role, abilities: &[&str]) -> Client {
         auth: None,
         abilities: abilities.iter().map(|a| a.to_string()).collect(),
     };
-    Client::hello(stream, hello).unwrap().unwrap()
+    let mut c = Client::hello(stream, hello).unwrap().unwrap();
+    // A host that shows notifications is told first what waits for the
+    // person as it comes: nothing here.
+    if role == Role::Host && abilities.contains(&"host.notify") {
+        let Frame::Control(Control::Call(request)) = c.recv().unwrap() else {
+            panic!("expected host.notify");
+        };
+        let came = call::HostNotify::args(request.args).unwrap();
+        assert_eq!(came.waiting, Some(Vec::new()));
+    }
+    c
 }
 
 /// The calls the core made on `c` before it answers a call of its own.

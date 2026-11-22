@@ -12,7 +12,8 @@
 //! earlier tasks of its own), cut as the product cuts a task's title
 //! (`route::cut`); the names at its top go through the product's own
 //! filter and order (`route::top_of`), a name with no dot taken for a
-//! folder, as the corpus does not say; a session's first and last request
+//! folder unless it is a well-known file (`route::folder_named`: gradlew,
+//! Brewfile, LICENSE), as the corpus does not say; a session's first and last request
 //! are the one the corpus gives it.
 
 use serde::Deserialize;
@@ -116,7 +117,7 @@ fn request(person: &Person, text: &str, state: Option<&State>) -> Request {
         .collect();
     let top = (person.projects.iter().zip(&ids))
         .map(|(p, id)| {
-            let entries = p.top.iter().map(|n| (n.clone(), !n.contains('.')));
+            let entries = p.top.iter().map(|n| (n.clone(), route::folder_named(n)));
             (to(id), route::top_of(entries))
         })
         .collect();

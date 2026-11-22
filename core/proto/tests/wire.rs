@@ -644,6 +644,7 @@ fn every_call_round_trips() {
             body: "Go on?".into(),
             session,
             withdrawn: false,
+            waiting: None,
         };
         round_trip::<call::HostNotify>(notify, (), seen);
     }
@@ -655,6 +656,7 @@ fn every_call_round_trips() {
         body: "make the header bigger".into(),
         session: None,
         withdrawn: false,
+        waiting: None,
     };
     round_trip::<call::HostNotify>(waits.clone(), (), seen);
     // And taken back once it waits no more.
@@ -1385,6 +1387,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         ms: Some(2300),
         others: Vec::new(),
         decided: None,
+        lost: false,
     };
     let routed = Thought {
         route: Some(route),

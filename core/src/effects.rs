@@ -352,7 +352,12 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 cancel(core, thought);
                 None
             }
-            Effect::Launch(launch) => self::launch(core, launch),
+            Effect::Launch(launch) => {
+                // A task started in a folder made for one: that folder is the
+                // person's from now on, never taken back by an Undo.
+                core.seams.made.retain(|p| *p != launch.project);
+                self::launch(core, launch)
+            }
             Effect::Deliver(deliver) => self::deliver(core, deliver),
             Effect::Kill {
                 terminal: Some(terminal),
@@ -491,10 +496,11 @@ fn route(
     let tools = by.map(|by| agreed(&by, chatgpt.as_deref()));
     // No model can be asked (none agreed to, or each one's tool no longer
     // offers its model): the match on names, as before there were any.
+    let lost = matches!(&tools, Some(Ok(tools)) if tools.iter().all(|t| core.seams.gone(t.id())));
     let why = match &tools {
         None => Some(None),
         Some(Err(why)) => Some(Some(why.clone())),
-        Some(Ok(tools)) if tools.iter().all(|t| core.seams.gone(t.id())) => Some(Some(
+        Some(Ok(tools)) if lost => Some(Some(
             tools
                 .iter()
                 .map(|t| crate::route::gone(t.name()))
@@ -505,7 +511,11 @@ fn route(
     };
     if let Some(why) = why {
         let local = by_names(core, &asked);
-        return routed(core, id, local, state::locally(why), current);
+        let how = Routing {
+            lost,
+            ..state::locally(why)
+        };
+        return routed(core, id, local, how, current);
     }
     let Some(Ok(tools)) = tools else { return };
     // A model is there: from here on no rule of words starts a thought the
@@ -555,6 +565,7 @@ fn route(
         began: Instant::now(),
         why: Vec::new(),
         tried: false,
+        lost: false,
     };
     // The tops of the projects' folders, off the core's thread and in a
     // bounded time; then the chain.
@@ -609,6 +620,8 @@ struct Chain {
     why: Vec<String>,
     /// A tool was run.
     tried: bool,
+    /// A tool was found to no longer offer its model ([`Routing::lost`]).
+    lost: bool,
 }
 
 /// The least time worth asking an agent in: less than it usually takes to
@@ -644,7 +657,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                 let rests = health.and_then(|h| h.limited).filter(|&until| until > now);
                 match agents::usable(agent, health) {
                     _ if core.seams.gone(name) => {
-                        chain.alive -= 1;
+                        (chain.alive, chain.lost) = (chain.alive - 1, true);
                         crate::route::gone(agent.name())
                     }
                     _ if rests.is_some() => format!("{name}: its usage limit is reached for now"),
@@ -664,6 +677,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         let why = (!chain.why.is_empty()).then(|| chain.why.join("; "));
         let how = Routing {
             ms: chain.tried.then_some(ms),
+            lost: chain.lost,
             ..state::locally(why)
         };
         // Every tool lost its model for good: no placing model is there, and
@@ -762,13 +776,14 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                     model: Some(asker.model().into()),
                     ms,
                     others: others.into_iter().map(Into::into).collect(),
+                    lost: chain.lost,
                     ..found
                 };
                 return routed(core, id, route, how, chain.current);
             }
             (Err(Failed::Gone), &Asker::Agent(agent, _)) => {
                 core.seams.gone.push(agent.id());
-                chain.alive -= 1;
+                (chain.alive, chain.lost) = (chain.alive - 1, true);
                 crate::route::gone(agent.name())
             }
             (Err(Failed::Limit(back, words)), &Asker::Agent(agent, _)) => {
@@ -1335,8 +1350,12 @@ fn unmake(core: &mut Core, project: ProjectId) {
     let Some(at) = core.seams.made.iter().position(|p| *p == project) else {
         return;
     };
-    let found = read(core, |tx| tx.project(project));
-    let Ok(Some(mut p)) = found else { return };
+    // Only while nothing else is there: no other task placed, running or
+    // ended there, no session in it, and the folder still empty.
+    let found = read(core, |tx| Ok((tx.project(project)?, tx.used(project)?)));
+    let Ok((Some(mut p), false)) = found else {
+        return;
+    };
     if std::fs::remove_dir(&p.folder).is_err() {
         return;
     }
@@ -1381,12 +1400,9 @@ fn notify(core: &mut Core, told: Told) {
         Told::Question(question) => words(core, question),
         Told::Waits(thought) => waits(core, thought),
         Told::Waited(thought) => Some(tasktap_proto::HostNotify {
-            question: None,
             thought: Some(thought),
-            title: String::new(),
-            body: String::new(),
-            session: None,
             withdrawn: true,
+            ..unsaid()
         }),
     };
     let Some(args) = args else {
@@ -1436,7 +1452,7 @@ fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNot
         title,
         body,
         session: q.session_id,
-        withdrawn: false,
+        ..unsaid()
     })
 }
 
@@ -1449,9 +1465,41 @@ fn waits(core: &mut Core, thought: ThoughtId) -> Option<tasktap_proto::HostNotif
         thought: Some(thought),
         title: crate::route::WHERE.into(),
         body: cut(&t.text),
+        ..unsaid()
+    })
+}
+
+/// A `host.notify` that says nothing yet.
+fn unsaid() -> tasktap_proto::HostNotify {
+    tasktap_proto::HostNotify {
+        question: None,
+        thought: None,
+        title: String::new(),
+        body: String::new(),
         session: None,
         withdrawn: false,
-    })
+        waiting: None,
+    }
+}
+
+/// A host that shows notifications came (the app started, or this core
+/// did): it is told every thought that waits for the person now, so it
+/// takes back what it shows of any other, then each one's notification, as
+/// a question that is open has its own (`host.notify`).
+pub(crate) fn waiting(core: &mut Core, link: &crate::conn::Link) {
+    let Ok(waiting) = read(core, |tx| tx.waiting()) else {
+        return;
+    };
+    let all = tasktap_proto::HostNotify {
+        waiting: Some(waiting.clone()),
+        ..unsaid()
+    };
+    drop(link.call::<call::HostNotify>(&all));
+    for thought in waiting {
+        if let Some(args) = waits(core, thought) {
+            drop(link.call::<call::HostNotify>(&args));
+        }
+    }
 }
 
 /// Whitespace collapsed, cut to at most 140 characters at a word boundary,

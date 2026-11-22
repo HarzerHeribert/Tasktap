@@ -10,6 +10,7 @@ export const MAX_STREAMS = 64;
 export const MAX_TERMINAL_CLIENTS = 8;
 export const MAX_TERMINAL_SIZE = 1000;
 export const READ_HOLD = 2;
+export const DECIDED_HOLD = 3;
 // Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's
 // text, a question's detail, a text answer. MAX_LINE: a question's prompt and its choices, a
 // router's brief, a session's error, a project's name, color, folder and aliases, a device's
@@ -47,7 +48,12 @@ export type AddLook = { id: LookId, folder?: string | null, agent?: string | nul
  * `project.add`. The reply is the id of the project that holds the folder,
  * which is an older one when the folder was already added.
  */
-export type AddProject = { id: ProjectId, folder: string, name?: string | null, };
+export type AddProject = { id: ProjectId, folder: string, name?: string | null,
+/**
+ * Make the folder first, inside a folder that is there: a new project
+ * a model proposed and the person said yes to.
+ */
+create?: boolean, };
 
 /**
  * `session.adopt`: an agent a person started by hand in a Tasktap shell
@@ -244,17 +250,28 @@ source?: QuestionSource | null, } & ({ "kind": "confirm" } | { "kind": "choice",
  * by its own key, the only name it holds while it waits. The key reaches
  * only its own session's questions.
  */
-export type AskKey = { request: string, };
+export type AskKey = { request: string,
+/**
+ * `question.received` only: the answer came, but could not be given
+ * to the agent (its form takes nothing of that kind), so nothing was.
+ */
+undelivered?: boolean, };
 
 /**
- * `thought.update`: assigns a note to a project.
+ * `thought.update`: sends a thought to a project, or on to a session: a
+ * note, a thought a router asks about, or one placed and still held,
+ * which is placed anew.
  */
 export type Assign = { id: ThoughtId,
 /**
  * A workspace; or, in its place, `card_id`: a project Tasktap knows
  * that is not open, which opens when the thought starts there.
  */
-project_id?: ProjectId, card_id?: CardId, };
+project_id?: ProjectId, card_id?: CardId,
+/**
+ * Or a session that can take a follow-up: the thought continues it.
+ */
+session_id?: SessionId, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -311,7 +328,20 @@ model?: string | null,
  * sends the thought on to unless its text names another project. Not
  * a pick: unlike `session_id`, the router still decides (design §8).
  */
-current?: SessionId | null, };
+current?: SessionId | null,
+/**
+ * The workspace in view when the thought was said in Tasktap's window
+ * (the one its capture sheet was opened in). There, with `current`, the
+ * names decide where they are sure, as before a model decided every
+ * task (the chip says the session or the project); a model decides
+ * where the chip says Auto, and is told the view. Not a pick either.
+ */
+view?: ProjectId | null,
+/**
+ * The chip says Auto in Tasktap's window (chosen, or nothing else
+ * says a place): a model decides, also where the names are sure.
+ */
+auto?: boolean, };
 
 /**
  * What Tasktap knows of one folder that is, or holds a copy of, a
@@ -515,6 +545,12 @@ terminals: number, };
  * Grants `n` more bytes on stream `s`.
  */
 export type Credit = { s: StreamId, n: number, };
+
+/**
+ * Where a model put a thought, the brief it wrote for that place, and the
+ * agent the person chose for the thought (none: the usual one).
+ */
+export type Decided = { to: Place, brief: string | null, agent: string | null, };
 
 /**
  * `delete`: removes plain data, a preview, and a terminal that is not
@@ -726,7 +762,11 @@ held: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId>,
 /**
  * The questions the host would have been told about.
  */
-notified: Array<QuestionId>, };
+notified: Array<QuestionId>,
+/**
+ * The thoughts it would have been told wait for the person's key.
+ */
+waited: Array<ThoughtId>, };
 
 /**
  * `fixture.records`: writes rows only the state machine writes otherwise, so
@@ -861,7 +901,11 @@ export type Hint = { text: string,
 /**
  * As `thought.capture`'s `current`.
  */
-current?: SessionId | null, };
+current?: SessionId | null,
+/**
+ * As `thought.capture`'s `view`: said in Tasktap's window.
+ */
+view?: ProjectId | null, };
 
 /**
  * `history`: finished thoughts older than `before`, newest first; with
@@ -884,12 +928,23 @@ export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>
 after?: string, };
 
 /**
- * A question opened. `title` and `body` are the words a system
- * notification says; `session` is the session whose terminal shows the
- * question (a click brings the window there), none for the router's
- * question, which Home shows.
+ * A question opened, or (`thought` in its place) a thought a model was
+ * torn about waits for the person's key. `title` and `body` are the
+ * words a system notification says; `session` is the session whose
+ * terminal shows the question (a click brings the window there), none for
+ * the router's question and a waiting thought, which Home shows.
  */
-export type HostNotify = { question: QuestionId, title: string, body: string, session: SessionId | null, };
+export type HostNotify = { question: QuestionId | null, thought: ThoughtId | null, title: string, body: string, session: SessionId | null,
+/**
+ * The thought waits no more: what was shown of it is taken back.
+ */
+withdrawn?: boolean,
+/**
+ * Said once as a host comes (the app started, or the core did), before
+ * each one's own: every thought that waits for the person now. What
+ * was shown of any other is taken back, also from an earlier run.
+ */
+waiting?: Array<ThoughtId>, };
 
 /**
  * Who the core took the connection to be.
@@ -1041,6 +1096,14 @@ export type MotionAmbient = "off" | "still" | "breathing";
 export type MotionPalette = "chrome" | "chromatic" | "warm" | "cool" | "custom";
 
 export type MotionStyle = "slats" | "glyphs" | "resonator";
+
+/**
+ * A new project a model proposed: a folder `name` in `place`, the folder
+ * where most of the person's projects are, as the person writes it (`~`
+ * for their home); `folder`, the whole path. Where that folder is there
+ * already (`exists`), it is offered as the folder it is.
+ */
+export type NewProject = { name: string, place: string, folder: string, exists: boolean, };
 
 /**
  * The editable fields of a note; a missing one is left as it is.
@@ -1329,7 +1392,19 @@ places: Array<Place> | null,
  * few words ("named in it", "invoices, export"), or empty. None for
  * every other question, and in a row older than the field.
  */
-notes: Array<string> | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+notes: Array<string> | null,
+/**
+ * Of a router's question: the new project a model proposed for the
+ * thought, which the question offers first; none for every other.
+ */
+create: NewProject | null,
+/**
+ * Of a router's question about a follow-up whose session's agent asks
+ * as it was to start: that question, where it is the agent's own and
+ * takes free words, which the question offers first to answer with the
+ * thought's words (`affirm`); none for every other.
+ */
+answers?: QuestionId, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -1487,6 +1562,10 @@ instructions: string,
  */
 sends: Array<string>,
 /**
+ * How much of each text is sent, in one sentence.
+ */
+cuts: string,
+/**
  * The version of these terms, which an agreement names: one to an
  * older version covers nothing.
  */
@@ -1538,7 +1617,25 @@ lead: string | null,
 /**
  * Milliseconds the answer took.
  */
-ms: number | null, };
+ms: number | null,
+/**
+ * The other places a model was torn between, after the one the
+ * thought went to, the likelier first: the decision line offers each
+ * on a key of its own (design §8, "The decision").
+ */
+others: Array<Place>,
+/**
+ * What a model decided, kept while the person may place the thought
+ * anew on the decision line: back where the model put it, it has the
+ * model's brief and the agent it had; anywhere else, the person's own
+ * words and the agent they chose for it.
+ */
+decided: Decided | null,
+/**
+ * A tool was found to no longer offer the model asked of it while this
+ * thought was placed: the page asks for the terms again.
+ */
+lost?: boolean, };
 
 /**
  * Rows put whole, and ids of rows that stopped being live.

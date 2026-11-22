@@ -12,7 +12,8 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer, FIRST } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { atComposer, cap, followSpeech, invite, toAsk, typedPast } from '../capture.tsx';
+import { atComposer, cap, followSpeech, going, invite, toAsk, typedPast } from '../capture.tsx';
+import { waits } from '../way.ts';
 import { live, talk } from '../speech/record.ts';
 import { effectsOf, lookOf, power } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -83,8 +84,9 @@ const host = {
   },
 };
 
-/** Questions that were open at the last change: a new one opens the notch by itself. */
-const known = new Set<string>();
+/** Questions that were open at the last change: a new one opens the notch by itself. So does a task that newly waits
+ *  for the person's key (a model was torn, way.ts `waits`): it calls the person as a question does. */
+const known = new Set<string>(), waiting = new Set<string>();
 records.onchange = () => {
   followSpeech();
   const open = openQuestions();
@@ -94,6 +96,17 @@ records.onchange = () => {
   const fresh = open.some((q) => !known.has(q.id) && !(ui.mode !== 'closed' && ui.view === 'home' && (toAsk(q) || typedPast(q))));
   known.clear();
   for (const q of open) known.add(q.id);
+  const now = going().filter((t) => waits(t)).map((t) => t.id), called = now.some((id) => !waiting.has(id));
+  waiting.clear();
+  for (const id of now) waiting.add(id);
+  // Where nothing else is open in the notch: on its capture line, whose decision line takes Return and the keys.
+  if (called && !fresh && asksHere('notch') && ui.mode === 'closed') {
+    ui.capturing = true;
+    reveal('pinned', 'home', '#capture-input');
+    ui.auto = true;
+    ui.touched = false;
+    untouched();
+  }
   // A notch the last question opened by itself is still its own to fold: a new question that
   // arrives while that fold is pending keeps it open. Only where the notch is where Tasktap is (presence.rs): with
   // Tasktap's window in front the window shows the question, in full screen a notification does (rules 1 and 6).

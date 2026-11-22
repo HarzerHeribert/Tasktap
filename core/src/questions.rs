@@ -137,6 +137,8 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         reply_via: ReplyVia::Core,
         state: Q::Open,
         answer: None,
+        create: None,
+        answers: None,
     };
     match effects::run(core, Event::Ask { question, key }) {
         Ok(_) | Err(Refusal::State(state::Error::Ignored(Ignored::Repeat))) => {}
@@ -194,8 +196,17 @@ pub fn withdraw(cx: &mut Cx, args: AskKey) -> Result<(), Error> {
 }
 
 /// `question.received`: the asker has the answer; the receipt says when.
+/// One it could not give its agent (`undelivered`) leaves a task whose words
+/// were that answer not done (`Event::Undelivered`).
 pub fn received(cx: &mut Cx, args: AskKey) -> Result<(), Error> {
     let q = own(cx, &args)?;
+    if args.undelivered && q.state == Q::Answered {
+        let event = Event::Undelivered { question: q.id };
+        match effects::call(cx.core, "question.received", event) {
+            Err(e) if e.code != Code::Gone => return Err(e),
+            _ => {}
+        }
+    }
     match (q.state, q.answer) {
         (Q::Answered, Some(answer)) if answer.delivered.is_some() => Ok(()),
         (Q::Answered, _) => {

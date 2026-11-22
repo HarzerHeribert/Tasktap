@@ -327,8 +327,10 @@ fn deliver(c: &mut Client, request: &str, text: Option<&str>) -> Result<(), Fail
     }
     // The answer is out: a receipt that does not come back changes nothing for the agent.
     let _bound = Bound::new(0);
+    // Nothing printed: the agent's form takes nothing of the answer's kind.
     let key = AskKey {
         request: request.into(),
+        undelivered: text.is_none(),
     };
     if let Ok(Err(e)) = c.call::<call::QuestionReceived>(&key) {
         let _ = writeln!(

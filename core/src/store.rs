@@ -789,6 +789,38 @@ impl<'s> Tx<'s> {
         self.all(Table::Thoughts, clause, [key(&session)?])
     }
 
+    /// A session's thoughts, the first first: the task it began with, and
+    /// its latest turn last.
+    pub fn turns(&self, session: SessionId) -> Result<Vec<Thought>> {
+        self.all(
+            Table::Thoughts,
+            "WHERE session_id = ?1 ORDER BY id",
+            [key(&session)?],
+        )
+    }
+
+    /// The thoughts that ran somewhere, or are held to, the newest first, at
+    /// most `limit`: where each task went in the end, after a switch, an
+    /// Undo or an answer, which is what a project's earlier tasks are
+    /// (design §8, "What a model is shown").
+    pub fn ran(&self, limit: usize) -> Result<Vec<Thought>> {
+        let clause = "WHERE phase IN ('routed', 'working', 'done', 'failed') \
+                      ORDER BY id DESC LIMIT ?1";
+        self.all(Table::Thoughts, clause, [limit as i64])
+    }
+
+    /// The summary of a thought's latest result, when it has one.
+    pub fn summary(&self, thought: ThoughtId) -> Result<Option<String>> {
+        let mut latest = self.db.prepare_cached(
+            "SELECT data ->> 'summary' FROM results WHERE thought_id = ?1 ORDER BY id DESC LIMIT 1",
+        )?;
+        match latest.query_row([key(&thought)?], |r| r.get(0)) {
+            Ok(summary) => Ok(summary),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// The live thoughts that went to a session and are working or ended,
     /// the last written first, each with the summary of its latest result:
     /// the recent exchanges a router is given (design §8).
@@ -856,6 +888,13 @@ impl<'s> Tx<'s> {
     /// The key a question was asked under, which only the core reads.
     pub fn request_key(&self, question: QuestionId) -> Result<Option<String>> {
         self.value("SELECT request_key FROM questions WHERE id = ?1", &question)
+    }
+
+    /// The router's question that offered to answer `question`, an agent's,
+    /// with its thought's words (`Question::answers`).
+    pub fn answering(&self, question: QuestionId) -> Result<Option<Question>> {
+        let id = key(&question)?;
+        self.one(Table::Questions, "WHERE q.data ->> 'answers' = ?1", [id])
     }
 
     /// Every open question, oldest first.
@@ -931,6 +970,24 @@ impl<'s> Tx<'s> {
     /// discarded.
     pub fn busy(&self, project: ProjectId) -> Result<bool> {
         let sql = "SELECT EXISTS (SELECT 1 FROM sessions                        WHERE project_id = ?1 AND state IN ('starting', 'working'))                    OR EXISTS (SELECT 1 FROM thoughts                        WHERE project_id = ?1 AND data ->> '$.workdir.changes' = 'pending')";
+        Ok(self.value(sql, &project)?.unwrap_or(false))
+    }
+
+    /// The thoughts that wait for the person's key: placed, with no hold
+    /// running (a model was torn, or Tasktap started again during a hold).
+    pub fn waiting(&self) -> Result<Vec<ThoughtId>> {
+        let clause = "WHERE phase = 'routed' AND data ->> 'hold_until' IS NULL";
+        let waiting: Vec<Thought> = self.all(Table::Thoughts, clause, [])?;
+        Ok(waiting.into_iter().map(|t| t.id).collect())
+    }
+
+    /// Whether anything is in a project but captured thoughts: a session of
+    /// any state, or a thought placed there, running or ended there
+    /// (`effects::unmake`).
+    pub fn used(&self, project: ProjectId) -> Result<bool> {
+        let sql = "SELECT EXISTS (SELECT 1 FROM sessions WHERE project_id = ?1) \
+                   OR EXISTS (SELECT 1 FROM thoughts WHERE project_id = ?1 \
+                   AND phase IN ('routed', 'working', 'done', 'failed'))";
         Ok(self.value(sql, &project)?.unwrap_or(false))
     }
 

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project } from '../../core/proto/protocol.ts';
 import { Records } from './client.ts';
-import { asked, rows, says, short, type Why } from './place.ts';
+import { asked, routerArgs, rows, says, short, type Why } from './place.ts';
 
 const K = { key: '⌘K' };
 const AUTO = 'Auto: Tasktap sends the task to the project the task names, and asks you when the task names none. Click (or ⌘K) to choose the place yourself.';
@@ -20,7 +20,7 @@ test('Auto with nothing known yet is one word under the arrow, and its tooltip s
   assert.equal(says('words', { place: '', is: 'folder', ...K }).title, AUTO);
   // An agent may choose: the tooltip names the agent that reads the task.
   assert.equal(says('model', { place: '', is: 'folder', agent: 'Claude Code', ...K }).title,
-    'Auto: Tasktap sends the task to the project the task names. When the task names none, Claude Code reads the task and chooses the project. Click (or ⌘K) to choose the place yourself.');
+    'Auto: Claude Code reads the task and chooses its project, and whether an agent at work there continues. Click (or ⌘K) to choose the place yourself.');
   // Off the Mac the key is spelled as that system's keyboard has it.
   assert.ok(says('ask', { place: '', is: 'folder', key: 'Ctrl+K' }).title.includes('Click (or Ctrl+K) to choose'));
 });
@@ -121,6 +121,35 @@ test('with nothing its words name or describe, the question leads with a folder 
   assert.deepEqual(ask([], false), ['folder / Open or create a folder… /  / ', 'scratch / Scratchpad /  / ', 'later / Keep for later /  / ']);
   for (const r of [...asked({ places: [], known: true }), ...asked({ places: [{ name: 'kiln', why: 'matches “static”', fresh: true, session: false }], known: true })])
     assert.ok(![r.name, r.dim, r.title ?? ''].some((x) => x.includes('·') || x.includes('not open yet')), r.name);
+});
+
+test('a new project a model proposed leads the question with its place, and a folder there already by its name', () => {
+  const create = (exists: boolean) => asked({ places: [], known: true, create: { name: 'tide-notes', place: '~/projects', exists } }).map((r) => [r.does, r.name, r.dim, r.title ?? ''].join(' / '));
+  assert.deepEqual(create(false).slice(0, 2), ['create / New project tide-notes / in ~/projects / Sending the task makes the folder tide-notes in ~/projects and starts the task there.', 'folder / Open or create a folder… /  / ']);
+  assert.deepEqual(create(true)[0], 'create / tide-notes / in ~/projects / Sending the task opens the folder tide-notes in ~/projects.');
+  // Still nine rows at most, each on its number.
+  const earshot = { name: 'earshot', why: '', fresh: false, session: false };
+  assert.equal(asked({ places: Array(9).fill(earshot), known: true, create: { name: 'x', place: '~', exists: false } }).length, 9);
+});
+
+test('in Tasktap\'s window a model decides over the place in view only where the person chose Auto', () => {
+  // Auto chosen in a session's view: the model decides, told the session and the workspace.
+  assert.deepEqual(routerArgs('model', 's1', 'p1', true), { current: 's1', view: 'p1', auto: true });
+  // The chip's own Auto, also before the hint has come (the Scratchpad's workspace, a session in view): the core's
+  // names decide where they are sure, as at e1443fd.
+  assert.deepEqual(routerArgs('model', 's1', 'p1', false), { current: 's1', view: 'p1' });
+  assert.deepEqual(routerArgs('follows', 's1', 'p1', false), { current: 's1', view: 'p1' });
+  // The notch and Home say neither: nothing to choose over.
+  assert.deepEqual(routerArgs('model', null, undefined, true), { current: null });
+});
+
+test('a follow-up whose agent asks first is offered an answer in its words only where that question takes them', () => {
+  const rows = (reply: string | null) => asked({ places: [{ name: 'cuegrid', why: '', fresh: false, session: false }], known: true, reply }).map((r) => [r.does, r.name, r.title ?? ''].join(' / '));
+  assert.deepEqual(rows('Claude Code').slice(0, 2), ['reply / Answer Claude Code\'s question with these words / The task\'s words go to Claude Code as your answer to its question.', 'place / cuegrid / ']);
+  // A permission, or a menu only its terminal takes: no such row, the places first.
+  assert.deepEqual(rows(null)[0], 'place / cuegrid / ');
+  const earshot = { name: 'earshot', why: '', fresh: false, session: false };
+  assert.equal(asked({ places: Array(9).fill(earshot), known: true, reply: 'Codex' }).length, 9);
 });
 
 test('a task\'s words in a name or a tooltip are cut after 300 characters, never inside a character', () => {

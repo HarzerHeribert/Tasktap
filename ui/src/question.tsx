@@ -37,13 +37,19 @@ export function routerRows(q: Question): (Asked & { label: string; act: () => vo
   });
   const thought = q.thought_id ?? '';
   const send = (project: string | undefined) => void (project && call('thought.update', { id: thought, project_id: project }).catch(fail));
+  // A follow-up whose session's agent asks first: its own question, while it still asks, answered in the task's words
+  // on this key alone (core state.rs `reply_with`).
+  const asking = q.answers ? records.questions.get(q.answers) : undefined;
+  const by = asking?.state === 'open' && asking.session_id ? records.sessions.get(asking.session_id)?.agent : undefined;
   const act = (r: Asked) =>
-    r.does === 'place' || r.does === 'session' ? () => void choose(q, r.at!)
+    r.does === 'reply' ? () => void reply(q, { kind: 'affirm' })
+      : r.does === 'place' || r.does === 'session' ? () => void choose(q, r.at!)
       : r.does === 'other' ? () => ((other.thought = thought), redraw())
         : r.does === 'scratch' ? () => send([...records.projects.values()].find((p) => p.kind === 'scratch')?.id)
           : r.does === 'folder' ? () => void openFolder(thought)
-            : () => void reply(q, { kind: 'deny' });
-  return asked({ places, known: knowsAny() }).map((r) => ({ ...r, label: r.name, act: act(r) }));
+            : r.does === 'create' ? () => void create(q)
+              : () => void reply(q, { kind: 'deny' });
+  return asked({ places, known: knowsAny(), create: q.create, reply: by ? agentName(by) : null }).map((r) => ({ ...r, label: r.name, act: act(r) }));
 }
 
 /** Tasktap knows a project a task could go to: a folder open, or one it found and has not opened. */
@@ -71,6 +77,21 @@ async function openFolder(thought: string) {
     const chosen = await call('host.pick', { folder: true, ...(at ? { at } : {}) });
     const added = chosen ? await call('project.add', { id: uuid7(), folder: chosen }) : undefined;
     if (added) await call('thought.update', { id: thought, project_id: added });
+  } catch (e) {
+    fail(e);
+  } finally {
+    picking = false;
+  }
+}
+
+/** A new project a model proposed, its row's one key: the folder is made (or, there already, taken as it is), opens
+ *  as a workspace as "Open or create a folder…" opens one, and the task goes there. Once at a time, as that row. */
+async function create(q: Question) {
+  if (picking || !q.create || !q.thought_id) return;
+  picking = true;
+  try {
+    const added = await call('project.add', { id: uuid7(), folder: q.create.folder, ...(q.create.exists ? {} : { create: true }) });
+    await call('thought.update', { id: q.thought_id, project_id: added });
   } catch (e) {
     fail(e);
   } finally {

@@ -304,10 +304,10 @@ async function main() {
       await page.context().close();
 
       // Placing by a model agreed to: Auto, and its tooltip says who reads the task.
-      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 3 }, rev: 2 }] }, url: server.url, dpr: 1 });
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 4 }, rev: 2 }] }, url: server.url, dpr: 1 });
       // (Who reads the task is known once the core has said which agents are signed in.)
-      const model = await until(() => tip(page), (v) => /When the task names none, .+ reads the task and chooses the project\./.test(v));
-      expect(/When the task names none, .+ reads the task and chooses the project\./.test(model), `Home, placing by a model agreed to: the chip's tooltip says "${model}", not who reads the task`);
+      const model = await until(() => tip(page), (v) => /^Auto: .+ reads the task and chooses its project/.test(v));
+      expect(/^Auto: .+ reads the task and chooses its project/.test(model), `Home, placing by a model agreed to: the chip's tooltip says "${model}", not who reads the task`);
       await says(page, 'Auto', 'Home, placing by a model agreed to');
       await page.focus(FIELD);
       await typed(page, 'fix the export in ledger-api');
@@ -776,16 +776,16 @@ async function main() {
       expect((await choice(page)) === 1, `the notch: 2 at its capture line's question answered ${JSON.stringify(await answered(page))}, not its second place`);
       await page.context().close();
 
-      // R12: a thought placed, under the Composer: one line, where it starts, who placed it, Undo; the brief and the
-      // person's words behind one disclosure, closed.
+      // R12: a thought placed, under the Composer: one line, its decision (the project and how the task goes there),
+      // Undo; who placed it, the brief and the person's words behind one disclosure, closed.
       page = await open(browser, { label: 'workspace', records: flow(scene('normal'), 'held'), url: server.url, dpr: 1 });
       await page.waitForTimeout(300);
       const under = () => page.evaluate(() => {
         const w = document.querySelector('.home .ways');
         return { line: w?.querySelector('.way-h')?.innerText.replace(/\s+/g, ' ').trim(), more: [...(w?.querySelectorAll('.way-b, .way-w, .way-n') ?? [])].filter((x) => x.offsetParent).length, open: w?.querySelector('.way-more')?.getAttribute('aria-expanded') };
       });
-      let u = await until(under, (x) => /^Starting in cuegrid\s*·?\s*placed by Claude Code\b.*Undo$/.test(x.line ?? ''));
-      expect(/^Starting in cuegrid\s*·?\s*placed by Claude Code\b.*Undo$/.test(u.line ?? '') && u.more === 0 && u.open === 'false', `a thought placed: under the Composer "${u.line}", ${u.more} more lines shown, its disclosure ${u.open}`);
+      let u = await until(under, (x) => /^cuegrid new run\b.*Undo$/.test(x.line ?? ''));
+      expect(/^cuegrid new run\b.*Undo$/.test(u.line ?? '') && !u.line.includes('·') && u.more === 0 && u.open === 'false', `a thought placed: under the Composer "${u.line}", ${u.more} more lines shown, its disclosure ${u.open}`);
       await tap(page, '.home .way-more', 'a thought placed: its disclosure');
       await page.waitForTimeout(150);
       u = await under();
@@ -941,9 +941,9 @@ async function main() {
         page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
         await whenThere(page, '.home .setup [data-step=placing]', 'Setup\'s placing step under older terms');
         // (The terms the core holds now come with its first words; the step says so once they are there.)
-        await until(() => page.evaluate(() => document.querySelector('.setup [data-step=placing]')?.textContent ?? ''), (t) => /The terms changed/.test(t));
+        await until(() => page.evaluate(() => document.querySelector('.setup [data-step=placing]')?.textContent ?? ''), (t) => /Placing now sends more/.test(t));
         const step = await page.evaluate(() => { const s = document.querySelector('.setup [data-step=placing]'); return s ? `${s.hasAttribute('data-done')} ${s.textContent}` : ''; });
-        expect(/^false .*The terms changed\. Agree again to keep it on\./.test(step), `an agreement to older terms: Setup's placing step says "${step}", not that the terms changed, undone`);
+        expect(/^false .*Placing now sends more\. Agree again to keep placing on\./.test(step), `an agreement to older terms: Setup's placing step says "${step}", not that placing now sends more, undone`);
         expect(!(await page.evaluate(() => /the agreement/.test(document.querySelector('.home').innerText))), 'an agreement to older terms: a thought on Home carries the sentence about it');
         await page.context().close();
       }
@@ -1301,7 +1301,7 @@ async function main() {
       if (wk) await wk.close();
 
       // ——— The review's third pass: what was found put away by typing, the held-back sentence for every sheet, a sheet
-      // that leaves the keyboard in the Composer not modal, "you chose it", Setup only its header under a step's sheet ———
+      // that leaves the keyboard in the Composer not modal, the answered decision's line, Setup only its header under a step's sheet ———
       const firstUp = (records = projects('first-agents')) => open(browser, { label: 'workspace', records, url: server.url, dpr: 1 });
       const sheetSays = (page) => page.evaluate(() => document.querySelector('.sheet #sheet-title')?.textContent ?? '');
       const toFound = async (page) => {
@@ -1388,14 +1388,14 @@ async function main() {
       expect(twice === 1 && !(await page.evaluate(() => !!document.querySelector('.home .setup-b'))), `the first start: "Find your projects" is shown ${twice} times, Setup ${(await page.evaluate(() => !!document.querySelector('.home .setup-b'))) ? 'open under the sheet' : 'folded'}`);
       await page.context().close();
 
-      // An answered thought on its way says who chose: "you chose it".
+      // An answered thought on its way says its decision, with no dot: who chose is behind its disclosure.
       page = await asking();
       await sendIt(page);
       await arrived(page);
       await page.keyboard.press('1');
       await page.waitForTimeout(600);
       const chose = await page.evaluate(() => document.querySelector('.home .way-h')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
-      expect(/you chose it/.test(chose) && !/your answer/.test(chose), `an answered thought on its way says "${chose}", not "· you chose it"`);
+      expect(/^cuegrid new run\b/.test(chose) && !/[·,]/.test(chose), `an answered thought on its way says "${chose}", not "cuegrid new run" with no dot or comma`);
       await page.context().close();
 
       // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.

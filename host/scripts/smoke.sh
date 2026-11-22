@@ -478,7 +478,7 @@ until_has notch "text .way" 5 "project" && pass "with one folder open, the chip 
 ask notch "text .way" | grep -q "Undo" && [ "$(js notch "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.cap-row .key'))")" = "Start false" ] \
   && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 500)(document.querySelector('.way-hold')))")" = true ] \
   && pass "while it is held it offers Undo, the Composer's key says that Return starts it, and its hold is a line that runs out by the clock" || fail "the thought on its way offers Undo" "$(ask notch "text .way")"
-ask notch "click .way .act" >/dev/null
+ask notch "click .way .act:not([data-offer])" >/dev/null
 until_has notch "eval document.querySelector('#capture-input').value" 3 "Undo me" \
   && pass "Undo stops the thought before it starts and returns its text to the field" || fail "Undo"
 # Retyped and saved for later this time: the undone thought leaves no stale copy, and one saved for later can be dropped.
@@ -1200,12 +1200,12 @@ key="$(route_key project)"
 js workspace "([...document.querySelectorAll('.cap-ask .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5 "true" && line="$(ask workspace "text .home .way-h")" \
   && js workspace "(document.querySelector('.home .way-more').click(), 1)" >/dev/null \
-  && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "Starting in" && echo "$line" | grep -q "you chose it" \
+  && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "project new run" && ! echo "$line" | grep -q "[·,]" \
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Brief by Fixture agent · fixture-small" && ! echo "$going" | grep -q "Placed by" \
   && [ "$(js workspace "(b => b ? b.textContent + ' ' + b.disabled : 'no key')(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
-  && pass "answered, it is on its way to that folder in one line, where it starts, that the person answered, and Undo; behind its disclosure the brief in full, the person's own words, who wrote the brief and not that anything placed it; the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
+  && pass "answered, it is on its way to that folder in one line, the folder and how it goes there, and Undo; behind its disclosure the brief in full, the person's own words, who wrote the brief and not that anything placed it; the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
 shot held-brief workspace
-ask workspace "click .home .way .act" >/dev/null
+ask workspace "click .home .way .act:not([data-offer])" >/dev/null
 until_has workspace "eval $field.value + ' ' + [...__ws.records.thoughts.values()].find(t => t.text.startsWith('so the header thing'))?.phase" 3 "so the header thing, I think it should stay on one line captured" \
   && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" \
   && pass "Undo during the hold stops it before anything starts and returns its words to the field" || fail "Undo during the hold"
@@ -1222,19 +1222,22 @@ until_has notch "eval String(!!document.querySelector('#sheet .way-more') && !/P
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "Shorter footer" && echo "$going" | grep -q "okay the footer, it is way too tall" \
   && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 1000)(document.querySelector('.way-hold')))")" = true ] \
   && pass "placed by the model, it shows where it goes in one line for the length of its hold, which is a line that runs out; behind its disclosure what the work is called and the brief" || fail "the placed thought in the notch" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
-until_has workspace "text .home .way" 3 "Starting in project" && pass "Home shows the same thought on its way, whoever captured it" || fail "Home shows a thought the notch captured"
+until_has workspace "text .home .way" 3 "project " && pass "Home shows the same thought on its way, whoever captured it" || fail "Home shows a thought the notch captured"
 shot held-brief-notch
-ask notch "click #sheet .way .act" >/dev/null
+ask notch "click #sheet .way .act:not([data-offer])" >/dev/null
 until_has notch "eval document.querySelector('#capture-input').value" 3 "okay the footer" && clear_field notch \
   && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the placed thought is taken back"
 send "key notch Escape"
-# The model fails: the thought is placed by name, and the row says so with the core's reason as it is.
+# The model fails: nothing places the thought by name while a model is there; the person is asked where it goes, the
+# folder its words name first. Answered, it is taken back.
 says "print:error:the model is overloaded"
 home_says "the footer in project is still too tall for my taste, I said it before and I say it again, please make it a good deal shorter than it is now, about half, and leave everything else on the page exactly as it is"
-until_has workspace "text .home .way" 10 "named in it" && ask workspace "click .home .way-more" >/dev/null && until_has workspace "text .home .way" 3 "Placed by name." && ask workspace "text .home .way" | grep -q "the model is overloaded" \
-  && pass "when the model could not be used the thought is placed by name, and says so with the reason as the core gave it" || fail "the fallback note" "$(ask workspace "text .home .way" | tr '\n' '|' | cut -c1-240)"
-ask workspace "click .home .way .act" >/dev/null
-until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought placed by name is taken back"
+until_has workspace "eval String(!!document.querySelector('.cap-ask .ans'))" 10 "true" \
+  && [ "$(js workspace "(document.querySelector('.cap-ask .ans span')?.textContent)")" = "project" ] \
+  && pass "when the model could not be used nothing is placed by name: the person is asked, the folder the task names first" || fail "the question after the model failed" "$(ask workspace "text .home .cap-ask" | tr '\n' '|' | cut -c1-240)"
+js workspace "(document.querySelector('.cap-ask .ans').click(), 1)" >/dev/null
+until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5 "true" && ask workspace "click .home .way .act:not([data-offer])" >/dev/null
+until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought asked about is taken back"
 # Settings says what is on, and turns it off.
 js workspace "(__ws.command('settings'), 1)" >/dev/null
 # (A moment for the sheet to listen: behind a locked screen the page is hidden, and a hidden page takes its time.)
@@ -1307,7 +1310,7 @@ heard="$(tail -1 "$tmp/speech.log")"
 echo "$heard" | python3 -c 'import sys; p, rate, ch, bits, s, peak, hz = sys.stdin.read().split(); sys.exit(0 if (p, rate, ch, bits) == ("/v1/audio/transcriptions", "16000", "1", "16") and 1.0 < float(s) < 6 and int(peak) > 3000 and 200 < float(hz) < 240 else 1)' \
   && pass "the service was sent what the page recorded: 16 kHz, one channel, 16 bits, as long as it was held, with the tone in it ($heard)" || fail "the recording as the service got it" "$heard"
 shot spoken-thought workspace
-ask workspace "click .home .way .act" >/dev/null
+ask workspace "click .home .way .act:not([data-offer])" >/dev/null
 until_has workspace "eval $field.value" 3 "Make the header stay on one line in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the spoken thought is taken back"
 # E while a new thought records ends it as its words: they are in the field to be edited, and nothing is captured.
 js workspace "($field.focus(), 1)" >/dev/null

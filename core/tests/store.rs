@@ -180,6 +180,8 @@ fn question(thought: Option<ThoughtId>, session: Option<SessionId>) -> Question 
         reply_via: ReplyVia::Terminal,
         state: QuestionState::Open,
         answer: None,
+        create: None,
+        answers: None,
     }
 }
 
@@ -1625,7 +1627,7 @@ fn a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges() {
     let tx = store.begin().unwrap();
     let all = request(&tx, text, Some(sessions[5].id)).unwrap();
     assert!(all.projects.len() >= 10 && all.sessions.len() == 12);
-    let r = narrow(&tx, all).unwrap();
+    let r = narrow(&tx, all, Time::new(2_000_000_000_000).unwrap()).unwrap();
     assert_eq!(
         (r.projects.len(), r.sessions.len(), r.recent.len()),
         (8, 8, 3)
@@ -1663,13 +1665,31 @@ fn a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges() {
     assert_eq!(sent["projects"].as_array().unwrap().len(), 8);
     assert_eq!(
         sent["projects"][0],
-        json!({ "id": "p1", "name": "project7", "aliases": [], "about": "" })
+        json!({ "id": "p1", "name": "project7", "aliases": [], "about": "", "earlier": [],
+                "top": [] })
     );
+    // A session with its first and last request, its state, how long ago its
+    // last turn began and what its agent last answered.
+    let first = &sent["sessions"][0];
+    let fields = [
+        "id", "name", "first", "task", "project", "agent", "state", "summary",
+    ];
+    let got: Vec<_> = fields.iter().map(|f| first[f].clone()).collect();
     assert_eq!(
-        sent["sessions"][0],
-        json!({ "id": "s1", "name": "session3", "task": "request 3", "project": "p2",
-                "agent": "claude", "state": "idle" })
+        got,
+        [
+            json!("s1"),
+            json!("session3"),
+            json!("request 3"),
+            json!("request 3"),
+            json!("p2"),
+            json!("claude"),
+            json!("finished"),
+            json!("result 3")
+        ]
     );
+    // Its last turn began at 1 ms, the clock now at 2,000,000,000,000 ms.
+    assert_eq!(first["ago"], json!("23148 days"), "{first}");
     assert_eq!(
         (&sent["current"], &sent["picked"]),
         (&json!("s2"), &json!(null))

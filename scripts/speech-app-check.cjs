@@ -61,7 +61,7 @@ function page(app) {
   /** Takes the thought that was just spoken back, so the Composer is free for the next. */
   const undo = async () => {
     const had = (await spoken()).length;
-    app.send('click workspace .home .way .act');
+    app.send('click workspace .home .way .act:not([data-offer])');
     for (const end = Date.now() + 4000; Date.now() < end && (await spoken()).length >= had; await sleep(100));
     await type('');
     await sleep(300);

@@ -124,6 +124,32 @@ pub struct Routing {
     pub lead: Option<String>,
     /// Milliseconds the answer took.
     pub ms: Option<u32>,
+    /// The other places a model was torn between, after the one the
+    /// thought went to, the likelier first: the decision line offers each
+    /// on a key of its own (design §8, "The decision").
+    #[serde(default)]
+    pub others: Vec<crate::args::Place>,
+    /// What a model decided, kept while the person may place the thought
+    /// anew on the decision line: back where the model put it, it has the
+    /// model's brief and the agent it had; anywhere else, the person's own
+    /// words and the agent they chose for it.
+    #[serde(default)]
+    pub decided: Option<Decided>,
+    /// A tool was found to no longer offer the model asked of it while this
+    /// thought was placed: the page asks for the terms again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub lost: bool,
+}
+
+/// Where a model put a thought, the brief it wrote for that place, and the
+/// agent the person chose for the thought (none: the usual one).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Decided {
+    pub to: crate::args::Place,
+    pub brief: Option<String>,
+    pub agent: Option<String>,
 }
 
 words! {
@@ -493,6 +519,17 @@ pub struct Question {
     /// every other question, and in a row older than the field.
     #[serde(default)]
     pub notes: Option<Vec<String>>,
+    /// Of a router's question: the new project a model proposed for the
+    /// thought, which the question offers first; none for every other.
+    #[serde(default)]
+    pub create: Option<NewProject>,
+    /// Of a router's question about a follow-up whose session's agent asks
+    /// as it was to start: that question, where it is the agent's own and
+    /// takes free words, which the question offers first to answer with the
+    /// thought's words (`affirm`); none for every other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub answers: Option<QuestionId>,
     pub prompt: String,
     pub detail: Option<String>,
     pub reply_via: ReplyVia,
@@ -502,6 +539,19 @@ pub struct Question {
 
 words! {
     pub enum QuestionSource { Agent, Permission, Router }
+}
+
+/// A new project a model proposed: a folder `name` in `place`, the folder
+/// where most of the person's projects are, as the person writes it (`~`
+/// for their home); `folder`, the whole path. Where that folder is there
+/// already (`exists`), it is offered as the folder it is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct NewProject {
+    pub name: String,
+    pub place: String,
+    pub folder: String,
+    pub exists: bool,
 }
 
 /// The kind of a question, with the choices only a `choice` question has.
@@ -1162,6 +1212,11 @@ pub const DEFAULT_HOLD: u32 = 5;
 /// a hold ends no earlier than this after either arrived, or than the hold
 /// itself after it where the person set a shorter one.
 pub const READ_HOLD: u32 = 2;
+
+/// Seconds a model's sure decision is held from the moment it is there, at
+/// most (a shorter `hold` preference holds it as long as that): Return
+/// starts it at once, a key places it anew (design §8, "Smart placing").
+pub const DECIDED_HOLD: u32 = 3;
 
 impl PrefKey {
     /// The value of a preference while none is stored: deleting it restores this.

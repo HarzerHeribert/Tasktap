@@ -89,6 +89,8 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         agent: None,
         model: None,
         current: None,
+        view: None,
+        auto: false,
     }
 }
 
@@ -116,6 +118,8 @@ fn question(s: &Session, via: ReplyVia) -> Question {
         reply_via: via,
         state: QuestionState::Open,
         answer: None,
+        create: None,
+        answers: None,
     }
 }
 
@@ -313,6 +317,8 @@ impl World {
             [Effect::Route {
                 thought: id,
                 current: None,
+                view: None,
+                auto: false,
                 by: None,
                 picked: None,
             }]
@@ -431,6 +437,8 @@ fn row_capture_makes_a_captured_thought_and_asks_the_router() {
         [Effect::Route {
             thought: id,
             current: None,
+            view: None,
+            auto: false,
             by: None,
             picked: None,
         }]
@@ -960,7 +968,13 @@ fn a_thought_one_project_clearly_led_to_says_why_and_is_held_to_undo() {
 fn row_stop_before_launch_is_undo() {
     let mut w = World::new("undo");
     let t = w.routed("fix the build");
-    assert_eq!(w.ok(Event::Stop { thought: t }), [Effect::Unhold(t)]);
+    // A place the person picked may be a folder made for it: the effect
+    // takes an empty one back (effects.rs `unmake`).
+    let project = w.thought(t).project_id.unwrap();
+    assert_eq!(
+        w.ok(Event::Stop { thought: t }),
+        [Effect::Unhold(t), Effect::Unmake(project)]
+    );
     let th = w.thought(t);
     assert_eq!(
         (shape(&th), th.hold_until),
@@ -1654,7 +1668,8 @@ fn row_retry_routes_a_failed_thought_again() {
         attempt,
     });
     assert!(
-        matches!(&effects[..], [Effect::Launch(l)] if l.session != s && l.resume.is_none()),
+        // It waited for the person: what they were told of it is taken back.
+        matches!(&effects[..], [Effect::Unwaits(_), Effect::Launch(l)] if l.session != s && l.resume.is_none()),
         "{effects:?}"
     );
     assert_eq!(w.session(s).state, SessionState::Idle);
@@ -2442,7 +2457,10 @@ fn reopening_mid_turn_closes_everything_and_starts_nothing() {
         thought: t,
         attempt: AttemptId::mint(),
     });
-    assert!(matches!(&effects[..], [Effect::Launch(_)]));
+    assert!(matches!(
+        &effects[..],
+        [Effect::Unwaits(_), Effect::Launch(_)]
+    ));
     assert_eq!(
         w.launcher.launched.len(),
         1,
@@ -2467,12 +2485,16 @@ fn reopening_while_held_restores_no_timer() {
         attempt: AttemptId::mint(),
     };
     assert_eq!(w.ignored(fired), Ignored::State);
-    // It waits for the person to press Start: no timer to cancel.
+    // It waits for the person to press Start: no timer to cancel, and what
+    // they were told of it is taken back.
     let effects = w.ok(Event::Start {
         thought: t,
         attempt: AttemptId::mint(),
     });
-    assert!(matches!(&effects[..], [Effect::Launch(_)]), "{effects:?}");
+    assert!(
+        matches!(&effects[..], [Effect::Unwaits(_), Effect::Launch(_)]),
+        "{effects:?}"
+    );
 }
 
 #[test]
@@ -3610,6 +3632,8 @@ fn row_capture_asks_a_model_only_with_the_persons_consent() {
         [Effect::Route {
             thought: id,
             current: None,
+            view: None,
+            auto: false,
             by: Some(consent()),
             picked: None,
         }]
@@ -3632,14 +3656,14 @@ fn row_capture_asks_a_model_only_with_the_persons_consent() {
 }
 
 #[test]
-fn row_route_clear_holds_from_the_capture_and_records_how_it_was_routed() {
+fn row_route_clear_holds_from_the_decision_and_records_how_it_was_routed() {
     let mut w = World::new("since");
     w.consents();
     let id = w.asked(SPOKEN);
-    let captured_at = w.now;
-    // The model took 3 s of the 5 the hold lasts: 2 s are left.
+    // The model took 3 s: its decision is held for 3 s from its answer, the
+    // moment it is shown (`DECIDED_HOLD`), however long the person's hold.
     w.tick(3000);
-    let until = time(captured_at + 5000);
+    let until = time(w.now + 3000);
     let route = w.clear(BRIEF);
     assert_eq!(
         w.answers(id, route.clone()).unwrap(),
@@ -3650,18 +3674,30 @@ fn row_route_clear_holds_from_the_capture_and_records_how_it_was_routed() {
         (t.phase, t.brief.as_deref(), t.hold_until),
         (Phase::Routed, Some(BRIEF), Some(until))
     );
-    assert_eq!(t.route, Some(by_model()));
+    // What the model decided is kept, to go back to on the decision line.
+    let how = t.route.unwrap();
+    let decided = how.decided.clone().unwrap();
+    assert_eq!(
+        (decided.brief.as_deref(), decided.agent),
+        (Some(BRIEF), t.agent)
+    );
+    assert_eq!(
+        Routing {
+            decided: None,
+            ..how
+        },
+        by_model()
+    );
     // An answer nobody waits for changes nothing.
     assert!(matches!(
         w.answers(id, route.clone()),
         Err(Error::Ignored(Ignored::State))
     ));
-    // One that left less of the hold than it takes to read the route, or
-    // took longer than the hold: the hold ends 2 s after it arrived.
+    // However long the model took, the decided hold is there after it answered.
     for took in [3001, 4000, 7000] {
         let late = w.asked(SPOKEN);
         w.tick(took);
-        let until = time(w.now + 1000 * u64::from(READ_HOLD));
+        let until = time(w.now + 3000);
         assert_eq!(
             w.answers(late, route.clone()).unwrap(),
             [Effect::Hold {
@@ -3722,11 +3758,11 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
         attempt: AttemptId::mint(),
     };
     assert_eq!(w.ignored(ended), Ignored::State);
-    // Before the time to read is over the hold has not ended.
+    // Before the hold from the answer is over it has not ended.
     let id = w.asked(SPOKEN);
     w.tick(9000);
     w.answers(id, route).unwrap();
-    w.tick(1999);
+    w.tick(2999);
     let early = Event::HoldEnded {
         thought: id,
         attempt: AttemptId::mint(),
@@ -4061,6 +4097,8 @@ fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in()
             Effect::Route {
                 thought: id,
                 current: None,
+                view: None,
+                auto: false,
                 by: Some(consent()),
                 picked: Some(to),
             },
@@ -4318,7 +4356,7 @@ fn a_restart_between_the_routers_answer_and_the_launch_runs_nothing_again() {
     };
     let effects = w.ok(start.clone());
     assert!(
-        matches!(effects.as_slice(), [Effect::Launch(_)]),
+        matches!(effects.as_slice(), [Effect::Unwaits(_), Effect::Launch(_)]),
         "{effects:?}"
     );
     let again = w.ok(start);
@@ -4370,6 +4408,8 @@ mod dictations {
             agent: None,
             model: None,
             current: None,
+            view: None,
+            auto: false,
         }))
     }
 
@@ -4929,5 +4969,229 @@ mod dictations {
                 assert_eq!(all[..2], before[..2], "{what}");
             }
         }
+    }
+}
+
+/// A held task is checked again as it starts (the review of smart placing,
+/// 2026-11-22): a project closed meanwhile, or a session whose agent asks,
+/// starts nothing and the person is asked, told why. Placing never answers
+/// an agent's question by itself (the third round): nothing is typed or
+/// sent, also where the agent's question takes free words; there the
+/// question offers to answer it with the task's words, on the person's key.
+#[test]
+fn a_held_task_is_checked_again_as_it_starts() {
+    let mut w = World::new("recheck");
+    let project = w.project;
+    let question_of = |w: &mut World, t: ThoughtId| {
+        w.read(|tx| {
+            let open = tx.open_questions().unwrap();
+            open.into_iter().find(|q| q.thought_id == Some(t)).unwrap()
+        })
+    };
+    let launched = |effects: &[Effect]| {
+        effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::Launch(_) | Effect::Deliver(_) | Effect::Answer(_)
+            )
+        })
+    };
+    // The project was closed during the hold.
+    let t = w.routed("fix the build");
+    let name = w.read(|tx| tx.project(project).unwrap().unwrap().name);
+    w.write(|tx| {
+        let mut p = tx.project(project).unwrap().unwrap();
+        p.open = false;
+        tx.update_project(&p).unwrap();
+    });
+    let effects = w.ok(Event::Start {
+        thought: t,
+        attempt: AttemptId::mint(),
+    });
+    assert!(!launched(&effects), "{effects:?}");
+    assert_eq!(w.thought(t).status, Status::NeedsYou);
+    let q = question_of(&mut w, t);
+    assert_eq!(
+        q.prompt,
+        format!("{name} was closed. Which project is this task for?")
+    );
+    w.write(|tx| {
+        let mut p = tx.project(project).unwrap().unwrap();
+        p.open = true;
+        tx.update_project(&p).unwrap();
+    });
+    // A follow-up to a session whose agent asks, in its terminal, through
+    // the core, or for a permission: nothing is typed, sent or denied; the
+    // person is asked, the agent's question named, a new run in that
+    // project standing for the session. Only the agent's own question that
+    // takes free words is offered an answer in the task's words.
+    // (how it is answered, who asks, of what kind, whether the words may
+    // answer it): a yes or no, as OpenCode's yes-or-no form, takes no words.
+    let yes_or_no = QuestionKind::Confirm;
+    for (via, source, kind, offered) in [
+        (
+            ReplyVia::Terminal,
+            QuestionSource::Agent,
+            QuestionKind::Text,
+            false,
+        ),
+        (
+            ReplyVia::Core,
+            QuestionSource::Permission,
+            yes_or_no.clone(),
+            false,
+        ),
+        (ReplyVia::Core, QuestionSource::Agent, yes_or_no, false),
+        (
+            ReplyVia::Core,
+            QuestionSource::Agent,
+            QuestionKind::Text,
+            true,
+        ),
+    ] {
+        let (_, s) = w.turn();
+        let q = Question {
+            source,
+            kind,
+            ..question(&w.session(s), via)
+        };
+        let asked = q.id;
+        w.ok(ask(q));
+        let f = w.capture("yes, and the docs too");
+        w.ok(Event::Pick {
+            thought: f,
+            to: Destination::Session(s),
+        });
+        let effects = w.ok(Event::Start {
+            thought: f,
+            attempt: AttemptId::mint(),
+        });
+        assert!(!launched(&effects), "{via:?} {source:?}: {effects:?}");
+        let agents = w.read(|tx| tx.question(asked).unwrap().unwrap());
+        assert_eq!(agents.state, QuestionState::Open, "{via:?} {source:?}");
+        let q = question_of(&mut w, f);
+        assert!(q.prompt.contains("asks “Deploy?” first"), "{}", q.prompt);
+        let places = q.places.clone().unwrap_or_default();
+        assert_eq!(
+            places.first(),
+            Some(&tasktap_proto::Place::Project(project))
+        );
+        assert!(!places.contains(&tasktap_proto::Place::Session(s)));
+        assert_eq!(q.answers, offered.then_some(asked), "{via:?} {source:?}");
+        if !offered {
+            // Nothing answers it from the task's question.
+            let refused = w.answer(q.id, Response::Affirm);
+            assert!(refused.is_err(), "{refused:?}");
+            continue;
+        }
+        // Its key: the task's words go to the agent's question as a reply in
+        // the person's own words, and the task is done with that.
+        let effects = w.answer(q.id, Response::Affirm).unwrap();
+        assert!(effects.contains(&Effect::Answer(asked)), "{effects:?}");
+        let answered = w.read(|tx| tx.question(asked).unwrap().unwrap());
+        assert_eq!(answered.state, QuestionState::Answered);
+        assert_eq!(
+            answered.answer.map(|a| a.response),
+            Some(Response::Text {
+                text: "yes, and the docs too".into()
+            })
+        );
+        assert_eq!(w.thought(f).phase, Phase::Done);
+        // Where the agent could not take them after all, the task is not
+        // done: it is asked about again, told so, the session's project
+        // offered for a new run, and no answer in its words again.
+        w.tick(1000);
+        w.ok(Event::Undelivered { question: asked });
+        let th = w.thought(f);
+        assert_eq!((th.phase, th.status), (Phase::Captured, Status::NeedsYou));
+        let q = question_of(&mut w, f);
+        let name = tasktap_core::agents::find(&w.session(s).agent)
+            .unwrap()
+            .name();
+        assert_eq!(
+            q.prompt,
+            format!("{name} could not take these words. Which project is this task for?")
+        );
+        assert_eq!(q.answers, None);
+        let places = q.places.unwrap_or_default();
+        assert_eq!(
+            places.first(),
+            Some(&tasktap_proto::Place::Project(project))
+        );
+    }
+}
+
+/// A task a model placed and that could not start there goes back to its
+/// question with the person's own words and the agent they chose, as the
+/// decision line's other key gives them (the review's third round): for an
+/// answer there, the Scratchpad and another project alike.
+#[test]
+fn sent_back_to_its_question_a_task_gets_the_persons_words_and_agent_back() {
+    let mut w = World::new("sent-back");
+    let here = w.project;
+    let (_, s) = w.turn();
+    w.consents();
+    // The session's agent is not the one the person chose for the task.
+    w.write(|tx| {
+        let mut x = tx.session(s).unwrap().unwrap();
+        x.agent = "codex".into();
+        tx.update_session(&x).unwrap();
+    });
+    let pad = Project {
+        kind: ProjectKind::Scratch,
+        ..project("/scratch")
+    };
+    let scratch = pad.id;
+    w.write(|tx| tx.insert_project(&pad).unwrap());
+    // An answer on the question (its first place, a new run where the
+    // session was), or a place picked there: the Scratchpad, another project.
+    let ways = [
+        ("an answer", None),
+        ("the Scratchpad", Some(scratch)),
+        ("another project", Some(here)),
+    ];
+    for (how, picked) in ways {
+        let t = w.asked("and the docs");
+        let to = Destination::Session(s);
+        let route = Route::Clear {
+            said: None,
+            to,
+            brief: BRIEF.into(),
+        };
+        w.answers(t, route).unwrap();
+        assert_eq!(w.thought(t).agent.as_deref(), Some("codex"));
+        // Its agent asks as it starts: back to the question.
+        let asked = question(&w.session(s), ReplyVia::Terminal);
+        w.ok(ask(asked));
+        let effects = w.ok(Event::Start {
+            thought: t,
+            attempt: AttemptId::mint(),
+        });
+        assert!(!effects.iter().any(|e| matches!(e, Effect::Deliver(_))));
+        let q = w.read(|tx| {
+            let open = tx.open_questions().unwrap();
+            open.into_iter().find(|q| q.thought_id == Some(t)).unwrap()
+        });
+        match picked {
+            None => drop(w.answer(q.id, Response::Choice { choice: 0 }).unwrap()),
+            Some(p) => drop(w.ok(Event::Pick {
+                thought: t,
+                to: Destination::New(p),
+            })),
+        }
+        let th = w.thought(t);
+        assert_eq!(th.phase, Phase::Routed, "{how}");
+        assert_eq!(
+            (th.agent.as_deref(), th.brief.as_deref()),
+            (Some(AGENT), Some("and the docs")),
+            "{how}"
+        );
+        // The agent's question is the session's own to answer.
+        w.write(|tx| {
+            for q in tx.open_questions().unwrap() {
+                tx.set_question_state(q.id, QuestionState::Withdrawn)
+                    .unwrap();
+            }
+        });
     }
 }

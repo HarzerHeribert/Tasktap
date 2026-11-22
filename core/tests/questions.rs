@@ -171,6 +171,7 @@ fn undo_cancels_the_hold_and_start_launches_at_once_and_only_once() {
         card_id: None,
         id: t,
         project_id: Some(s.project),
+        session_id: None,
     };
     s.w.ok::<call::ThoughtUpdate>(&pick);
     let th = s.w.model.thought(t);
@@ -247,6 +248,7 @@ fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
         id: ProjectId::mint(),
         folder: folder.to_str().unwrap().into(),
         name: None,
+        create: false,
     };
     let route = clear(w.ok::<call::ProjectAdd>(&add));
     w.ok::<call::FixtureScript>(&tasktap_proto::FixtureScript {
@@ -367,6 +369,7 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
         card_id: None,
         id: idea,
         project_id: Some(s.project),
+        session_id: None,
     };
     s.w.ok::<call::ThoughtUpdate>(&pick);
     let th = s.w.model.thought(idea);
@@ -418,12 +421,14 @@ fn a_capture_repeats_by_id_and_calls_that_do_not_fit_are_refused() {
         card_id: None,
         id,
         project_id: Some(s.project),
+        session_id: None,
     };
     assert_eq!(code(s.w.call::<call::ThoughtUpdate>(&pick)), Code::Conflict);
     let nowhere = Assign {
         card_id: None,
         id: idea,
         project_id: Some(ProjectId::mint()),
+        session_id: None,
     };
     assert_eq!(code(s.w.call::<call::ThoughtUpdate>(&nowhere)), Code::Gone);
 }
@@ -667,6 +672,7 @@ fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
         id: ProjectId::mint(),
         folder: folder.to_str().unwrap().into(),
         name: None,
+        create: false,
     };
     let project = w.ok::<call::ProjectAdd>(&add);
 
@@ -1474,6 +1480,7 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
         id,
         folder: folder.to_str().unwrap().into(),
         name: name.map(Into::into),
+        create: false,
     };
     assert_eq!(w.ok::<call::ProjectAdd>(&add(id, &folder, None)), id);
     let p = w.model.projects[&id].clone();
@@ -1545,7 +1552,17 @@ fn offering(s: &Scene, role: Role, abilities: &[&str]) -> Client {
         auth: None,
         abilities: abilities.iter().map(|a| a.to_string()).collect(),
     };
-    Client::hello(stream, hello).unwrap().unwrap()
+    let mut c = Client::hello(stream, hello).unwrap().unwrap();
+    // A host that shows notifications is told first what waits for the
+    // person as it comes: nothing here.
+    if role == Role::Host && abilities.contains(&"host.notify") {
+        let Frame::Control(Control::Call(request)) = c.recv().unwrap() else {
+            panic!("expected host.notify");
+        };
+        let came = call::HostNotify::args(request.args).unwrap();
+        assert_eq!(came.waiting, Some(Vec::new()));
+    }
+    c
 }
 
 /// The calls the core made on `c` before it answers a call of its own.
@@ -1582,7 +1599,7 @@ fn a_host_that_offered_it_is_told_when_a_question_opens() {
     let told = call::HostNotify::args(request.args).unwrap();
     assert_eq!(
         (told.question, told.title.as_str(), told.body.as_str()),
-        (q, "Claude Code asks", "Deploy to staging?")
+        (Some(q), "Claude Code asks", "Deploy to staging?")
     );
     assert_eq!(told.session, Some(session));
     // The host answers late or never; neither matters.
@@ -1621,7 +1638,7 @@ fn the_routers_question_tells_the_host_where_it_should_go() {
         panic!("expected host.notify");
     };
     let told = call::HostNotify::args(request.args).unwrap();
-    assert_eq!(told.question, q);
+    assert_eq!((told.question, told.thought), (Some(q), None));
     assert_eq!(told.title, "Which project?");
     assert_eq!(told.body, s.w.model.thought(t).text);
     assert_eq!(told.session, None);

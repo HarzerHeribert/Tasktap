@@ -209,6 +209,8 @@ fn every_call_round_trips() {
         agent: None,
         model: Some("sonnet".into()),
         current: Some(id(4)),
+        view: None,
+        auto: false,
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -216,6 +218,7 @@ fn every_call_round_trips() {
             id: id(1),
             project_id: Some(id(2)),
             card_id: None,
+            session_id: None,
         },
         (),
         seen,
@@ -300,6 +303,7 @@ fn every_call_round_trips() {
     round_trip::<call::QuestionWithdraw>(
         AskKey {
             request: "r".into(),
+            undelivered: false,
         },
         (),
         seen,
@@ -307,6 +311,7 @@ fn every_call_round_trips() {
     round_trip::<call::QuestionReceived>(
         AskKey {
             request: "r".into(),
+            undelivered: false,
         },
         (),
         seen,
@@ -360,6 +365,7 @@ fn every_call_round_trips() {
     let hint = Hint {
         text: "fix the header in folio".into(),
         current: Some(id(3)),
+        view: None,
     };
     let route = Route::Clear {
         to: Place::Project(id(2)),
@@ -370,6 +376,7 @@ fn every_call_round_trips() {
     let terms = RouteTerms {
         instructions: "You are the router of Tasktap.".into(),
         sends: vec!["the task, as you said or typed it".into()],
+        cuts: "How much of each text is sent at most: a name 100 characters.".into(),
         terms: 3,
         tools: vec![PlaceTool {
             agent: "claude".into(),
@@ -456,6 +463,7 @@ fn every_call_round_trips() {
         id: id(2),
         folder: "/Users/someone/tasktap".into(),
         name: None,
+        create: false,
     };
     round_trip::<call::ProjectAdd>(add, id(2), seen);
     round_trip::<call::ProjectScan>(Empty {}, (), seen);
@@ -557,6 +565,8 @@ fn every_call_round_trips() {
         agent: None,
         model: None,
         current: None,
+        view: None,
+        auto: false,
     };
     for (target, stream) in [
         (
@@ -630,13 +640,33 @@ fn every_call_round_trips() {
     }
     for session in [Some(SessionId::mint()), None] {
         let notify = HostNotify {
-            question: QuestionId::mint(),
+            question: Some(QuestionId::mint()),
+            thought: None,
             title: "Fixture agent asks".into(),
             body: "Go on?".into(),
             session,
+            withdrawn: false,
+            waiting: None,
         };
         round_trip::<call::HostNotify>(notify, (), seen);
     }
+    // A thought that waits for the person's key, in place of a question.
+    let waits = HostNotify {
+        question: None,
+        thought: Some(ThoughtId::mint()),
+        title: "Which project is this task for?".into(),
+        body: "make the header bigger".into(),
+        session: None,
+        withdrawn: false,
+        waiting: None,
+    };
+    round_trip::<call::HostNotify>(waits.clone(), (), seen);
+    // And taken back once it waits no more.
+    let waited = HostNotify {
+        withdrawn: true,
+        ..waits
+    };
+    round_trip::<call::HostNotify>(waited, (), seen);
     let fixture = FixtureStream {
         credit: 7,
         send: Offset::new(1 << 40).unwrap(),
@@ -1357,6 +1387,9 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         title: Some("Login redirect".into()),
         lead: None,
         ms: Some(2300),
+        others: Vec::new(),
+        decided: None,
+        lost: false,
     };
     let routed = Thought {
         route: Some(route),
@@ -1367,7 +1400,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         wire["route"],
         json!({"by": "claude", "model": "haiku", "pending": false, "fallback": null,
                "quote": "that thing from before", "title": "Login redirect", "lead": null,
-               "ms": 2300})
+               "ms": 2300, "others": [], "decided": null})
     );
     // A route stored before a model gave titles reads with none.
     let mut untitled = wire["route"].clone();

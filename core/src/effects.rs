@@ -24,9 +24,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    AttemptId, CallId, Change, Offset, Outcome, PrefKey, PrefValue, QuestionId, RouteBy, Routing,
-    Secret, SessionEvent, SessionId, Settle, TerminalId, TerminalState, Thought, ThoughtId, Time,
-    Workdir,
+    AttemptId, CallId, Change, Offset, Outcome, PrefKey, PrefValue, ProjectId, QuestionId, RouteBy,
+    Routing, Secret, SessionEvent, SessionId, Settle, TerminalId, TerminalState, Thought,
+    ThoughtId, Time, Workdir,
 };
 use tokio::task::AbortHandle;
 
@@ -137,6 +137,9 @@ pub struct Seams {
     /// The agents whose tool said it no longer offers the model it is
     /// asked for: none is asked again while this core runs.
     gone: Vec<&'static str>,
+    /// The projects whose folder `project.add` made for a task, while this
+    /// core runs: Undo of that task takes an empty one back.
+    pub made: Vec<ProjectId>,
 }
 
 struct Timer {
@@ -154,6 +157,7 @@ struct Fixture {
     /// Runs start for real, and new captures name this agent.
     agent: Option<String>,
     notified: Vec<QuestionId>,
+    waited: Vec<ThoughtId>,
 }
 
 impl Seams {
@@ -201,8 +205,8 @@ impl Seams {
         crate::route::Local.route(request)
     }
 
-    /// Whether the router's answer settles where the thought goes: the
-    /// names it says decide, or the fixture router answered.
+    /// Whether the names a thought says decide where it goes, in Tasktap's
+    /// window ([`crate::route::sure`]), or the fixture router answered.
     fn sure(&self, request: &crate::route::Request) -> bool {
         #[cfg(feature = "fixtures")]
         if self.fixture.is_some() {
@@ -328,10 +332,12 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
             Effect::Route {
                 thought,
                 current,
+                view,
+                auto,
                 by,
                 picked,
             } => {
-                route(core, thought, current, by, picked);
+                route(core, thought, (current, view, auto), by, picked);
                 None
             }
             Effect::Unroute(thought) => {
@@ -346,7 +352,12 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 cancel(core, thought);
                 None
             }
-            Effect::Launch(launch) => self::launch(core, launch),
+            Effect::Launch(launch) => {
+                // A task started in a folder made for one: that folder is the
+                // person's from now on, never taken back by an Undo.
+                core.seams.made.retain(|p| *p != launch.project);
+                self::launch(core, launch)
+            }
             Effect::Deliver(deliver) => self::deliver(core, deliver),
             Effect::Kill {
                 terminal: Some(terminal),
@@ -375,7 +386,19 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 None
             }
             Effect::Notify(question) => {
-                notify(core, question);
+                notify(core, Told::Question(question));
+                None
+            }
+            Effect::Waits(thought) => {
+                notify(core, Told::Waits(thought));
+                None
+            }
+            Effect::Unwaits(thought) => {
+                notify(core, Told::Waited(thought));
+                None
+            }
+            Effect::Unmake(project) => {
+                unmake(core, project);
                 None
             }
             Effect::Answer(question) => {
@@ -416,24 +439,29 @@ pub(crate) fn stop(why: impl std::fmt::Display) -> ! {
     std::process::exit(1)
 }
 
-/// Asks the router about a thought (design §8). The match on names
-/// answers at once, and what it finds it places: a project or session the
-/// thought names, the session it was made in, or a question when it names
-/// several. With the person's agreement `by`, the models behind their
-/// agents are asked, off the core's thread and one after another in their
-/// order ([`ask_next`]), to place a thought the match finds nothing for:
-/// the first answer `route::accept` allows is used, and when there is
-/// none, the match's is, with why. With `picked` (by the person, or by the
-/// match for a thought too long to go as it is) only the brief is open,
-/// and the fallback is the person's own words.
+/// Asks the router about a thought (design §8). Without a model the person
+/// agreed to, the match on names answers at once, and what it finds it
+/// places: a project or session the thought names, the session it was
+/// made in, or a question when it names several. With one (`by`), a model
+/// decides every thought the person did not place themselves: the models
+/// behind their agents and ChatGPT are asked, off the core's thread and
+/// one after another in their order ([`ask_next`]); the first answer
+/// `route::accept` allows is used, and when there is none, or a model sees
+/// nothing fit, the person is asked ([`crate::route::unsure`]), never
+/// placed by the words alone. A tool that no longer offers its model is
+/// none: when every one is gone, the match on names places, as with no
+/// model. With `picked` (by the person, or the Scratchpad said as a place)
+/// only the brief is open: a model is sent the task and that place, and
+/// the fallback is the person's own words. `view`: the workspace in view,
+/// which a model is told of.
 fn route(
     core: &mut Core,
     id: ThoughtId,
-    current: Option<SessionId>,
+    (current, view, auto): (Option<SessionId>, Option<ProjectId>, bool),
     by: Option<RouteBy>,
     picked: Option<Destination>,
 ) {
-    use crate::route::{agreed, askable, narrow, request, short};
+    use crate::route::{agreed, askable, home, narrow, on_pad, only, request, short, unsure};
     let found = read(core, |tx| {
         let thought = tx.thought(id)?;
         let asked = (thought.map(|t| request(tx, &t.text, current))).transpose()?;
@@ -442,74 +470,158 @@ fn route(
     let Ok(Some((mut asked, chatgpt))) = found else {
         return;
     };
-    asked.picked = picked;
-    let local = match picked {
-        Some(to) => Route::Clear {
-            to,
-            brief: asked.text.clone(),
-            said: None,
-        },
-        None => core.seams.route(&asked),
-    };
-    // Sure: the names the thought says decide (or, scripted, the fixture
-    // router did). A question the match would ask by the lines about the
-    // projects is no reason not to ask a model the person agreed to.
+    (asked.picked, asked.view) = (picked, view);
+    // Said in Tasktap's window (a session or a workspace in view) where the
+    // chip says the place the names say: the session in view, the project
+    // the words name. They decide, as before a model decided every task;
+    // the chip says Auto where they are not sure, or the person chose it.
+    let window = (current.is_some() || view.is_some()) && !auto;
+    // The Scratchpad said as a place is the person's own place, as a pick
+    // is: no model is shown it. Picked, a model writes only the brief of a
+    // thought too long to go as it is.
     let sure = match picked {
         Some(_) => short(&asked.text),
-        None => !matches!(local, Route::Unknown) && core.seams.sure(&asked),
+        None if window => {
+            let local = core.seams.route(&asked);
+            !matches!(local, Route::Unknown) && core.seams.sure(&asked)
+        }
+        None => on_pad(&asked),
     };
     // With no project known, a model is shown nothing to choose from (no
     // project, and so no session): whatever it answers, the person is asked
     // where the agent should work. None is asked then, ChatGPT included.
     let nothing = picked.is_none() && asked.projects.is_empty();
     // An agreement with every agent switched off is none, and says nothing.
-    let tools = match by.filter(|by| !sure && !nothing && by.agents.iter().any(|p| p.on)) {
-        Some(by) => {
-            (agreed(&by, chatgpt.as_deref())).and_then(|tools| askable(&asked.text).map(|()| tools))
-        }
-        None => return routed(core, id, local, state::locally(None), current),
+    let by = by.filter(|by| !sure && !nothing && by.agents.iter().any(|p| p.on));
+    let tools = by.map(|by| agreed(&by, chatgpt.as_deref()));
+    // No model can be asked (none agreed to, or each one's tool no longer
+    // offers its model): the match on names, as before there were any.
+    let lost = matches!(&tools, Some(Ok(tools)) if tools.iter().all(|t| core.seams.gone(t.id())));
+    let why = match &tools {
+        None => Some(None),
+        Some(Err(why)) => Some(Some(why.clone())),
+        Some(Ok(tools)) if lost => Some(Some(
+            tools
+                .iter()
+                .map(|t| crate::route::gone(t.name()))
+                .collect::<Vec<_>>()
+                .join("; "),
+        )),
+        Some(Ok(_)) => None,
     };
-    // What the person is asked when a model cannot tell: the question the
-    // match on names asks over every project, never its lead.
-    let unsure = crate::route::unsure(&asked);
-    let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
-    let (tools, asked) = match (tools, narrowed) {
-        (Ok(tools), Ok(asked)) => (tools, asked),
-        (Err(why), _) | (_, Err(why)) => {
-            return routed(core, id, local, state::locally(Some(why)), current);
+    if let Some(why) = why {
+        let local = by_names(core, &asked);
+        let how = Routing {
+            lost,
+            ..state::locally(why)
+        };
+        return routed(core, id, local, how, current);
+    }
+    let Some(Ok(tools)) = tools else { return };
+    // A model is there: from here on no rule of words starts a thought the
+    // person did not place. What a failure leaves is the question, or the
+    // person's own pick.
+    let otherwise = match picked {
+        Some(_) => by_names(core, &asked),
+        None => unsure(&asked),
+    };
+    if let Err(why) = askable(&asked.text) {
+        return routed(core, id, otherwise, state::locally(Some(why)), current);
+    }
+    // A thought the person placed: the model is sent the task and that
+    // place, nothing more (as the placing sheet says).
+    let home = home(&asked);
+    let asked = match picked {
+        Some(to) => only(asked, to),
+        None => {
+            let now = core.seams.now();
+            match read(core, |tx| narrow(tx, asked, now)) {
+                Ok(asked) => asked,
+                Err(e) => {
+                    return routed(
+                        core,
+                        id,
+                        otherwise,
+                        state::locally(Some(e.message)),
+                        current,
+                    );
+                }
+            }
         }
     };
-    let chain = Chain {
+    let folders: Vec<_> = (asked.projects.iter())
+        .filter(|_| picked.is_none())
+        .map(|p| (p.to, p.folder.clone()))
+        .collect();
+    let mut chain = Chain {
         id,
         current,
         asked,
-        local,
-        unsure,
+        otherwise,
+        home,
+        alive: tools.len(),
+        picked: picked.is_some(),
         left: tools.into(),
         began: Instant::now(),
         why: Vec::new(),
         tried: false,
+        lost: false,
     };
-    ask_next(core, chain);
+    // The tops of the projects' folders, off the core's thread and in a
+    // bounded time; then the chain.
+    crate::calls::aside(
+        core,
+        move || crate::route::tops(folders, TOPS_WITHIN),
+        move |core, tops| {
+            chain.asked.top = tops.unwrap_or_default();
+            ask_next(core, chain);
+        },
+    );
+}
+
+/// How long the tops of the projects' folders are waited for: a folder
+/// that has not answered by then is sent without its names.
+const TOPS_WITHIN: Duration = Duration::from_millis(400);
+
+/// Where the match on names sends a thought, or the person's pick: what
+/// places it when no model does.
+fn by_names(core: &mut Core, r: &crate::route::Request) -> Route {
+    match r.picked {
+        Some(to) => Route::Clear {
+            to,
+            brief: r.text.clone(),
+            said: None,
+        },
+        None => core.seams.route(r),
+    }
 }
 
 /// The agents asked about one thought, one after another (design §8): what
-/// they are asked, what the match on names found, who is left to ask, and
-/// why each one so far gave nothing the core took.
+/// they are asked, what the thought gets when none answers, who is left to
+/// ask, and why each one so far gave nothing the core took.
 struct Chain {
     id: ThoughtId,
     current: Option<SessionId>,
     asked: crate::route::Request,
-    local: Route,
-    /// The question the person is asked when a model answers that it cannot
-    /// tell ([`crate::route::unsure`]): nothing starts then.
-    unsure: Route,
+    /// What the thought gets when no model answers, or one sees nothing
+    /// fit: the question the names ask ([`crate::route::unsure`]), or the
+    /// place the person picked. Nothing starts by a model's silence.
+    otherwise: Route,
+    /// Where a new project a model proposes goes ([`crate::route::home`]).
+    home: Option<std::path::PathBuf>,
+    /// How many of the agreed tools still offer their model: none left, no
+    /// placing model is there, and the match on names places.
+    alive: usize,
+    /// The person placed the thought: only its brief is asked.
+    picked: bool,
     /// The next first.
     left: std::collections::VecDeque<crate::route::Asker>,
     began: Instant,
     why: Vec<String>,
     /// A tool was run.
     tried: bool,
+    /// A tool was found to no longer offer its model ([`Routing::lost`]).
+    lost: bool,
 }
 
 /// The least time worth asking an agent in: less than it usually takes to
@@ -544,7 +656,10 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
                 let health = core.detected(name);
                 let rests = health.and_then(|h| h.limited).filter(|&until| until > now);
                 match agents::usable(agent, health) {
-                    _ if core.seams.gone(name) => crate::route::gone(agent.name()),
+                    _ if core.seams.gone(name) => {
+                        (chain.alive, chain.lost) = (chain.alive - 1, true);
+                        crate::route::gone(agent.name())
+                    }
                     _ if rests.is_some() => format!("{name}: its usage limit is reached for now"),
                     Err(why) => format!("{name}: {why}"),
                     Ok(()) if left < usual => format!("{name}: no time was left to ask it"),
@@ -562,9 +677,23 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         let why = (!chain.why.is_empty()).then(|| chain.why.join("; "));
         let how = Routing {
             ms: chain.tried.then_some(ms),
+            lost: chain.lost,
             ..state::locally(why)
         };
-        return routed(core, chain.id, chain.local, how, chain.current);
+        // Every tool lost its model for good: no placing model is there, and
+        // the match on names places this thought as it will every later one.
+        if chain.alive == 0 && !chain.picked {
+            let found = read(core, |tx| {
+                let thought = tx.thought(chain.id)?;
+                (thought.map(|t| crate::route::request(tx, &t.text, chain.current))).transpose()
+            });
+            if let Ok(Some(mut r)) = found {
+                r.view = chain.asked.view;
+                let local = by_names(core, &r);
+                return routed(core, chain.id, local, how, chain.current);
+            }
+        }
+        return routed(core, chain.id, chain.otherwise, how, chain.current);
     };
     let folder = core.terminals.data().join("route");
     let (hear, heard) = mpsc::channel();
@@ -616,23 +745,45 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         let name = asker.id();
         let why = match (accepted, &asker) {
             (Ok((route, found)), _) => {
-                // A model that cannot tell leaves the question to the person,
-                // with what the match on names offers: nothing starts, and
-                // nothing is kept unasked.
+                // A model that sees nothing fit leaves the question to the
+                // person, with what the match on names offers: nothing
+                // starts, and nothing is kept unasked. A new project it
+                // proposes is asked about too, first among those.
                 let route = match route {
-                    Route::Unknown => chain.unsure.clone(),
+                    Route::Unknown => chain.otherwise.clone(),
+                    route @ Route::Create { .. } => {
+                        let known = |folder: &std::path::Path| {
+                            let folder = folder.to_string_lossy();
+                            let known = |tx: &crate::store::Tx| {
+                                let card =
+                                    tx.cards()?.iter().any(|c| c.folder == folder && !c.hidden);
+                                Ok(card || tx.project_by_folder(&folder)?.is_some())
+                            };
+                            read(core, known).unwrap_or(false)
+                        };
+                        crate::route::create(route, chain.home.as_deref(), &chain.otherwise, known)
+                    }
                     route => route,
+                };
+                // The other vehicle beside the one it chose, on a key of the
+                // decision line: a new run for a follow-up, and back.
+                let others = match (&route, chain.asked.picked) {
+                    (Route::Clear { to, .. }, None) => crate::route::vehicle(&chain.asked, *to),
+                    _ => None,
                 };
                 let how = Routing {
                     by: name.into(),
                     model: Some(asker.model().into()),
                     ms,
+                    others: others.into_iter().map(Into::into).collect(),
+                    lost: chain.lost,
                     ..found
                 };
                 return routed(core, id, route, how, chain.current);
             }
             (Err(Failed::Gone), &Asker::Agent(agent, _)) => {
                 core.seams.gone.push(agent.id());
+                (chain.alive, chain.lost) = (chain.alive - 1, true);
                 crate::route::gone(agent.name())
             }
             (Err(Failed::Limit(back, words)), &Asker::Agent(agent, _)) => {
@@ -1192,15 +1343,51 @@ fn repeated(first: Option<AttemptOutcome>) -> Outcome {
     }
 }
 
-/// Tells the person a question opened: `host.notify` to every connected
-/// host that offered it in `hello`, which decides whether to show anything.
-/// Fire and forget: nothing waits for the reply, and nothing is sent when no
-/// host offered the ability or the question cannot be read. The fixtures
-/// note it too.
-fn notify(core: &mut Core, question: QuestionId) {
+/// A task taken back whose project's folder was made for it: the folder
+/// goes while it is still empty, and the workspace it opened closes. One
+/// that holds anything stays as it is.
+fn unmake(core: &mut Core, project: ProjectId) {
+    let Some(at) = core.seams.made.iter().position(|p| *p == project) else {
+        return;
+    };
+    // Only while nothing else is there: no other task placed, running or
+    // ended there, no session in it, and the folder still empty.
+    let found = read(core, |tx| Ok((tx.project(project)?, tx.used(project)?)));
+    let Ok((Some(mut p), false)) = found else {
+        return;
+    };
+    if std::fs::remove_dir(&p.folder).is_err() {
+        return;
+    }
+    core.seams.made.remove(at);
+    p.open = false;
+    // The project's record stays, closed, as one the person closed does.
+    drop(write(core, |tx| tx.update_project(&p).map_err(stored)));
+}
+
+/// What the person is told of: a question that opened, or a thought a
+/// model was torn about, which waits for their key.
+#[derive(Clone, Copy)]
+enum Told {
+    Question(QuestionId),
+    Waits(ThoughtId),
+    /// It waits no more: its notification is taken back.
+    Waited(ThoughtId),
+}
+
+/// Tells the person a question opened, or a thought waits for their key:
+/// `host.notify` to every connected host that offered it in `hello`, which
+/// decides whether to show anything. Fire and forget: nothing waits for the
+/// reply, and nothing is sent when no host offered the ability or the
+/// question or thought cannot be read. The fixtures note it too.
+fn notify(core: &mut Core, told: Told) {
     #[cfg(feature = "fixtures")]
     if let Some(f) = &mut core.seams.fixture {
-        f.notified.push(question);
+        match told {
+            Told::Question(question) => f.notified.push(question),
+            Told::Waits(thought) => f.waited.push(thought),
+            Told::Waited(_) => {}
+        }
     }
     if !core
         .links
@@ -1209,7 +1396,16 @@ fn notify(core: &mut Core, question: QuestionId) {
     {
         return;
     }
-    let Some(args) = words(core, question) else {
+    let args = match told {
+        Told::Question(question) => words(core, question),
+        Told::Waits(thought) => waits(core, thought),
+        Told::Waited(thought) => Some(tasktap_proto::HostNotify {
+            thought: Some(thought),
+            withdrawn: true,
+            ..unsaid()
+        }),
+    };
+    let Some(args) = args else {
         return;
     };
     for link in &core.links {
@@ -1251,11 +1447,59 @@ fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNot
         (format!("{name} asks"), body)
     };
     Some(tasktap_proto::HostNotify {
-        question,
+        question: Some(question),
+        thought: None,
         title,
         body,
         session: q.session_id,
+        ..unsaid()
     })
+}
+
+/// What a system notification says of a thought that waits for the
+/// person's key: what the router's question says, and the task's words.
+fn waits(core: &mut Core, thought: ThoughtId) -> Option<tasktap_proto::HostNotify> {
+    let t = read(core, |tx| tx.thought(thought)).ok()??;
+    Some(tasktap_proto::HostNotify {
+        question: None,
+        thought: Some(thought),
+        title: crate::route::WHERE.into(),
+        body: cut(&t.text),
+        ..unsaid()
+    })
+}
+
+/// A `host.notify` that says nothing yet.
+fn unsaid() -> tasktap_proto::HostNotify {
+    tasktap_proto::HostNotify {
+        question: None,
+        thought: None,
+        title: String::new(),
+        body: String::new(),
+        session: None,
+        withdrawn: false,
+        waiting: None,
+    }
+}
+
+/// A host that shows notifications came (the app started, or this core
+/// did): it is told every thought that waits for the person now, so it
+/// takes back what it shows of any other, then each one's notification, as
+/// a question that is open has its own (`host.notify`).
+pub(crate) fn waiting(core: &mut Core, link: &crate::conn::Link) {
+    let Ok(waiting) = read(core, |tx| tx.waiting()) else {
+        return;
+    };
+    let all = tasktap_proto::HostNotify {
+        waiting: Some(waiting.clone()),
+        ..unsaid()
+    };
+    drop(link.call::<call::HostNotify>(&all));
+    for thought in waiting {
+        if let Some(args) = waits(core, thought) {
+            drop(link.call::<call::HostNotify>(&args));
+        }
+    }
 }
 
 /// Whitespace collapsed, cut to at most 140 characters at a word boundary,
@@ -1454,6 +1698,7 @@ pub fn script(
         launcher: FixtureLauncher::default(),
         agent: None,
         notified: Vec::new(),
+        waited: Vec::new(),
     });
     f.router = FixtureRouter(route);
     f.agent = args.agent;
@@ -1478,6 +1723,7 @@ pub fn script(
         killed: l.killed.clone(),
         settled: l.settled.iter().map(|&(thought, _)| thought).collect(),
         notified: f.notified.clone(),
+        waited: f.waited.clone(),
     })
 }
 

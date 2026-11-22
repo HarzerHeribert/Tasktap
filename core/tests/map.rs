@@ -834,6 +834,7 @@ fn where_a_projects_agent_works_is_set_on_its_card_and_its_workspace_follows() {
         id: ProjectId::mint(),
         folder: cuegrid.folder.clone(),
         name: None,
+        create: false,
     });
     w.sync();
     assert_eq!(w.model.projects[&id].isolate, Isolate::Always);

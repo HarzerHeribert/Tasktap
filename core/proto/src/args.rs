@@ -384,6 +384,18 @@ pub struct Capture {
     /// a pick: unlike `session_id`, the router still decides (design §8).
     #[serde(default)]
     pub current: Option<SessionId>,
+    /// The workspace in view when the thought was said in Tasktap's window
+    /// (the one its capture sheet was opened in). There, with `current`, the
+    /// names decide where they are sure, as before a model decided every
+    /// task (the chip says the session or the project); a model decides
+    /// where the chip says Auto, and is told the view. Not a pick either.
+    #[serde(default)]
+    pub view: Option<ProjectId>,
+    /// The chip says Auto in Tasktap's window (chosen, or nothing else
+    /// says a place): a model decides, also where the names are sure.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub auto: bool,
 }
 
 /// `route.hint`: where a capture would go, asked while it is typed (the
@@ -396,9 +408,14 @@ pub struct Hint {
     /// As `thought.capture`'s `current`.
     #[serde(default)]
     pub current: Option<SessionId>,
+    /// As `thought.capture`'s `view`: said in Tasktap's window.
+    #[serde(default)]
+    pub view: Option<ProjectId>,
 }
 
-/// `thought.update`: assigns a note to a project.
+/// `thought.update`: sends a thought to a project, or on to a session: a
+/// note, a thought a router asks about, or one placed and still held,
+/// which is placed anew.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Assign {
@@ -411,6 +428,10 @@ pub struct Assign {
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
     pub card_id: Option<CardId>,
+    /// Or a session that can take a follow-up: the thought continues it.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub session_id: Option<SessionId>,
 }
 
 /// `thought.start`. The attempt is committed before anything is spawned, so
@@ -580,17 +601,31 @@ pub struct ShimHold {
     pub stop: bool,
 }
 
-/// A question opened. `title` and `body` are the words a system
-/// notification says; `session` is the session whose terminal shows the
-/// question (a click brings the window there), none for the router's
-/// question, which Home shows.
+/// A question opened, or (`thought` in its place) a thought a model was
+/// torn about waits for the person's key. `title` and `body` are the
+/// words a system notification says; `session` is the session whose
+/// terminal shows the question (a click brings the window there), none for
+/// the router's question and a waiting thought, which Home shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HostNotify {
-    pub question: QuestionId,
+    #[serde(default)]
+    pub question: Option<QuestionId>,
+    #[serde(default)]
+    pub thought: Option<ThoughtId>,
     pub title: String,
     pub body: String,
     pub session: Option<SessionId>,
+    /// The thought waits no more: what was shown of it is taken back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub withdrawn: bool,
+    /// Said once as a host comes (the app started, or the core did), before
+    /// each one's own: every thought that waits for the person now. What
+    /// was shown of any other is taken back, also from an earlier run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub waiting: Option<Vec<ThoughtId>>,
 }
 
 /// `question.withdraw` and `question.received`: the asker names its question
@@ -600,6 +635,11 @@ pub struct HostNotify {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AskKey {
     pub request: String,
+    /// `question.received` only: the answer came, but could not be given
+    /// to the agent (its form takes nothing of that kind), so nothing was.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub undelivered: bool,
 }
 
 /// `question.answer`. Settles only the question it names.
@@ -779,6 +819,8 @@ pub struct RouteTerms {
     pub instructions: String,
     /// What is sent with them, one line for each kind of field.
     pub sends: Vec<String>,
+    /// How much of each text is sent, in one sentence.
+    pub cuts: String,
     /// The version of these terms, which an agreement names: one to an
     /// older version covers nothing.
     pub terms: u32,
@@ -865,6 +907,9 @@ pub struct FixtureLog {
     pub settled: Vec<ThoughtId>,
     /// The questions the host would have been told about.
     pub notified: Vec<QuestionId>,
+    /// The thoughts it would have been told wait for the person's key.
+    #[serde(default)]
+    pub waited: Vec<ThoughtId>,
 }
 
 /// One launch: the terminal it started takes the session's id, and carries
@@ -908,6 +953,11 @@ pub struct AddProject {
     pub folder: String,
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub name: Option<String>,
+    /// Make the folder first, inside a folder that is there: a new project
+    /// a model proposed and the person said yes to.
+    #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub create: bool,
 }
 
 /// `terminal.open`: attaches to terminal `id` and replies with a stream of

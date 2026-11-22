@@ -235,7 +235,6 @@ kbd .i{width:12px;height:12px}
 .cap-none{margin:0;height:var(--row-h);display:flex;align-items:center;font:var(--f-small);color:var(--fg3)}
 /* A thought on its way to a project Tasktap knows and opens when it starts. */
 .way-new{font-style:normal;color:var(--fg3);white-space:nowrap}
-.way-new::before{content:"·";margin:0 6px}
 .qa.elsewhere{display:grid;gap:0}
 .cap-row .key{margin-left:auto}
 /* The Composer's key is metal in every state (NOTES §13): Home's one key, and the notch's and the capture sheet's.

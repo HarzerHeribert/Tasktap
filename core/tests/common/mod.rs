@@ -737,6 +737,7 @@ impl Agent {
     pub fn received(&mut self, request: &str) -> Result<(), Error> {
         let key = AskKey {
             request: request.into(),
+            undelivered: false,
         };
         self.c.call::<call::QuestionReceived>(&key).unwrap()
     }
@@ -744,6 +745,7 @@ impl Agent {
     pub fn withdraw(&mut self, request: &str) -> Result<(), Error> {
         let key = AskKey {
             request: request.into(),
+            undelivered: false,
         };
         self.c.call::<call::QuestionWithdraw>(&key).unwrap()
     }
@@ -822,6 +824,8 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         agent: None,
         model: None,
         current: None,
+        view: None,
+        auto: false,
     }
 }
 
@@ -1148,6 +1152,7 @@ impl Scene {
             id: ProjectId::mint(),
             folder: folder.to_str().unwrap().into(),
             name: None,
+            create: false,
         };
         let project = w.ok::<call::ProjectAdd>(&add);
         let mut scene = Scene {
@@ -1176,6 +1181,7 @@ impl Scene {
             id: ProjectId::mint(),
             folder: folder.to_str().unwrap().into(),
             name: None,
+            create: false,
         };
         self.w.ok::<call::ProjectAdd>(&add)
     }

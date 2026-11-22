@@ -58,6 +58,7 @@ impl Bench {
             id: ProjectId::mint(),
             folder: app.to_str().unwrap().into(),
             name: None,
+            create: false,
         };
         w.ok::<call::ProjectAdd>(&add);
         let shell = *w.model.terminals.keys().next().expect("the fixture shell");

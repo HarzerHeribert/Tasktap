@@ -59,6 +59,8 @@
 .way-h>b{font:var(--f-label);color:var(--fg)}
 .way-h em{flex:none;font-style:normal;color:var(--fg3)}
 .way-h .act{flex:none;height:22px;margin-left:auto}
+/* The decision's other place, on its key, stands before Undo; two stand as the question's rows under the line. */
+.way-h .act+.act{margin-left:0}
 .way-h .btn{flex:none}
 .way-h .btn .i{width:14px;height:14px}
 .way-b,.way-w{margin-top:6px;font:var(--f-text);color:var(--fg);text-wrap:pretty;overflow-wrap:anywhere;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
@@ -76,14 +78,21 @@
 .cap-said>span{min-width:0;text-wrap:pretty}
 .cap-said .btn{flex:none;margin-left:auto}
 .cap-said .btn+.act{margin-left:0}
-/* A thought placed, in one line (NOTES §13): where it starts, who placed it, the rest behind one quiet disclosure, and
-   Undo at the end. Nothing wraps. The project's name is the one word the person needs there: who placed it gives way
-   first, to an ellipsis and then to nothing (it shrinks a million times faster, so the name gives up less than a
-   pixel's 64th meanwhile), and the name is cut only when it alone no longer fits. Where all fits nothing changes. */
-.way-h>.way-to{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A thought placed, in one line (NOTES §13): its decision, the project and how the task goes there ("cuegrid
+   continuing" over its session), the rest behind one quiet disclosure, the other places on their keys, and Undo at
+   the end. No word on it is ever cut: where the line is short, the words beside the decision go whole, down to their
+   chevron and key caps, in this order: the disclosure's, Undo's, the other place's (capture.tsx `give`, `data-bare`;
+   the word stays the tooltip and the name). A decision longer than its room still takes a second line (`data-wrap`). */
+.way-h>.way-to{min-width:0;overflow:hidden;white-space:nowrap}
+.way-h[data-wrap]>.way-to{white-space:normal;overflow-wrap:anywhere;padding-block:3px}
 .way-to>b{font:var(--f-label);color:var(--fg)}
-.way-h>.way-by{flex:0 1000000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.way-h>.way-by::before{content:"·";margin-right:var(--sp2);color:var(--fg3)}
+/* The decision is the project's name, then how the task goes there in the muted tone, apart by spacing only. */
+.way-to>em{margin-left:4px}
+.way-h>[data-bare]>span{display:none}
+/* The session a follow-up continues, under the project's name in the muted tone: two lines at most. */
+.way-s{margin:-6px 0 0 calc(16px + var(--sp2));font:var(--f-small);color:var(--fg3);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.way-s[data-waits]{margin-left:calc(var(--key-h) + var(--sp2))}
+.way-h[data-wrap]+.way-s{margin-top:0}
 .way-more{display:inline-flex;flex:none;align-items:center;gap:4px;height:22px;padding:0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg3)}
 .way-more:hover{background:var(--hover);color:var(--fg)}
 .way-more .i{width:12px;height:12px;transition:transform var(--t-fast)}

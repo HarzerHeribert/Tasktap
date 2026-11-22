@@ -1198,6 +1198,8 @@ fn history_pages_the_questions_and_results_of_a_thought_that_do_not_fit_one_repl
                     created: Time::new(1).unwrap(),
                     delivered: None,
                 }),
+                create: None,
+                answers: None,
             };
             rows.push(q.id.uuid());
             Set::Questions(Rows {

@@ -84,6 +84,12 @@ async function main() {
     await page.locator('.line.ag[data-agent=opencode] .chev').click();
     await page.waitForTimeout(200);
     await sheet(page, 'agents-open');
+    expect(await page.locator('.ag-d .set > .t:text-is("Status")').count() === 0, 'an opened row has no Status line');
+    const chev = await page.evaluate(() => [...document.querySelectorAll('.line.ag')].map((l) => {
+      const c = l.querySelector('.chev'), b = l.querySelector('.acts .btn');
+      return { bg: getComputedStyle(c).backgroundColor, gap: b ? c.getBoundingClientRect().left - b.getBoundingClientRect().right : 99 };
+    }));
+    expect(chev.every((c) => c.bg === 'rgba(0, 0, 0, 0)' && c.gap >= 12), `every chevron is plain, with a gap from any button (${JSON.stringify(chev)})`);
     const start = page.locator('.line.ag[data-agent=claude] + .ag-d input');
     await start.focus();
     await page.waitForTimeout(200);
@@ -113,6 +119,8 @@ async function main() {
     const r = results();
     page = await open(browser, { label: 'workspace', records: r.records, url: server.url, dpr: 2 });
     await page.waitForFunction(() => window.__ws?.ui.ready, null, { timeout: 15000 }).catch(() => {});
+    const home = await plain(page, '.hq, .hr, .setup');
+    expect(!home.dots, 'no "·" in the question rows, the task rows and the Setup rows of Home');
     await page.evaluate(() => ((window.__ws.ui.fold = 'results'), window.__motion.redraw()));
     await page.evaluate(() => document.querySelector('.hr.task.res')?.scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(500);
@@ -144,6 +152,7 @@ async function main() {
     await page.evaluate((id) => window.__ws.open({ kind: 'session', id: window.__ws.records.thoughts.get(id).session_id }), r.answered.id);
     await page.waitForTimeout(400);
     await sheet(page, 'session-head');
+    expect(!(await text(page, '.sheet .sx')).includes('**'), 'the session sheet shows the answer without Markdown marks');
     expect(await page.locator('.sheet .sx .line .amark').count() === 1 && await page.locator('.sheet .sx .line:first-child > .ring-o').count() === 0, "the session's head has the agent's plain mark, no ring");
     await page.context().close();
   } finally {

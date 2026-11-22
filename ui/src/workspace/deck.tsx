@@ -6,6 +6,7 @@ import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
+import { plain } from './markdown.ts';
 import { Answer, Glyph, I, Mark, Seat, ago, madeAt, when } from '../ui.tsx';
 import { tip } from '../keys.ts';
 import { shownPath } from '../system.ts';
@@ -188,7 +189,7 @@ export function ResultStrip({ t }: { t: Thought & { workdir: NonNullable<Thought
       e.preventDefault();
     }}>
       <p class="meta"><b>Result</b><time>{when(t.updated)}</time><span class="end"><Status t={t} /></span></p>
-      {unheard(t) ? <p class="qp">{endedSays(t)}</p> : r?.summary && <p class="qp">{r.summary}</p>}
+      {unheard(t) ? <p class="qp">{endedSays(t)}</p> : r?.summary && <p class="qp">{plain(r.summary)}</p>}
       <Told t={t} />
       {!busy && (
         <div class="qa">

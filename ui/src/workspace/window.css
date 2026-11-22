@@ -341,8 +341,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .setup-h{display:flex;align-items:center;gap:var(--sp2);border-top:1px solid var(--line)}
 .setup:not(.open) .setup-h{border-bottom:1px solid var(--line)}
 .setup .fold-h{flex:1;width:auto;border-top:0;grid-template-columns:var(--lead) auto auto minmax(0,1fr)}
-.setup-n{padding:0 var(--sp4) 0 0;font:var(--f-small);color:var(--fg3)}
-.setup-n::before{content:"·";margin:0 var(--sp2)}
+.setup-n{padding:0 var(--sp4) 0 var(--sp3);font:var(--f-small);color:var(--fg3)}
 .setup.open .fold-h .i{transform:rotate(90deg)}
 .setup.open .fold-h b{color:var(--fg)}
 .setup-h .act{height:var(--ctl-h);margin-right:6px;font:var(--f-small);color:var(--fg3)}
@@ -369,8 +368,8 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 /* a question: the first open, in full, with its answers; the rest a row each */
 .hq{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) 48px;align-items:baseline;padding:12px 0 13px;border-bottom:1px solid var(--line);text-align:left}
 .hq>.st{align-self:center;justify-self:center;margin-block:-3px}
-.hq-m{display:flex;gap:var(--sp2);min-width:0;font:var(--f-small);color:var(--fg2);white-space:nowrap}
-.hq-m>span::before{content:"·";margin-right:var(--sp2);color:var(--fg3)}
+.hq-m{display:flex;gap:var(--sp3);min-width:0;font:var(--f-small);color:var(--fg2);white-space:nowrap}
+.hq-m>span{color:var(--fg3)}
 .hq-t{overflow:hidden;text-overflow:ellipsis}
 .hq time{font:var(--f-num);color:var(--fg3);text-align:right}
 .hq-a{grid-column:2/4;margin-top:5px}
@@ -533,11 +532,12 @@ button.line:hover{background:var(--hover)}
 .line .acts{display:flex;align-items:center;gap:var(--sp2);padding-left:var(--sp3)}
 /* An agent's line: its mark, name and version (or the start command that is kept, in mono), what wants the person, and the
    chevron that opens it. Opened, its facts stand under it as the rows of Settings do, and are part of the line above. */
-.line.ag{grid-template-columns:28px 190px minmax(0,1fr) auto 28px}
+.line.ag{grid-template-columns:28px 190px minmax(0,1fr) auto 40px}
 .line.ag .x{color:var(--fg3)}
 .line.ag .x.warn{color:var(--asks)}
 .line.ag .acts .x{min-width:0;max-width:260px}
-.line.ag .chev{justify-self:end;width:28px;color:var(--fg3)}
+.line.ag .chev{justify-self:end;width:28px;background:none;color:var(--fg3)}
+.line.ag .chev:is(:hover,:active){background:none;color:var(--fg)}
 .line.ag .chev .i{width:14px;height:14px;transition:transform var(--t-fast)}
 .line.ag .chev[aria-expanded=true] .i{transform:rotate(90deg)}
 .line.ag:has(+ :is(.ag-d,.own)){border-bottom-color:transparent}

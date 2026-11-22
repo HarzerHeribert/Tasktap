@@ -451,6 +451,8 @@ async function starts(browser, url, system) {
   const why = (await err.count()) ? await err.textContent() : '';
   expect(why === 'Tasktap sets --resume itself for Claude Code: take --resume out of the command.' && await stored() === kept, `${at}: a command with --resume, then Return, is refused under the field and the one before stays: "${why}"`);
   await picture(page, 'agents-refused', system);
+  // The pointer rests on the field's row: the hint (markup) there gave way to the refusal, and the foot says nothing now.
+  expect(((await page.locator('.sheet .sh-hint').textContent()) ?? '').trim() === '', `${at}: the refusal replaces the row's hint in the foot, the pointer resting on the row`);
   // The refusal belongs to what the field holds: the section left and shown again, the field holds the one kept.
   await section(page, 'thoughts');
   await section(page, 'agents');

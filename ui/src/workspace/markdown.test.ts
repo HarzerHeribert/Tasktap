@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { type Block, type Inline, firstLine, inline, parse } from './markdown.ts';
+import { type Block, type Inline, firstLine, inline, parse, plain } from './markdown.ts';
 
 /** A line's parts back as one string, with what each is: `b(…)`, `i(…)`, `code(…)`, `a(text→target)`. */
 const flat = (s: Inline[]): string => s.map((x) => (typeof x === 'string' ? x : x.t === 'code' ? `code(${x.s})` : x.t === 'a' ? `a(${flat(x.s)}→${x.to})` : `${x.t}(${flat(x.s)})`)).join('');
@@ -68,4 +68,8 @@ test('the first line of an answer as plain words', () => {
   assert.equal(firstLine('\n## Done: [the report](out/report.html)'), 'Done: the report');
   assert.equal(firstLine('- *two* files changed'), 'two files changed');
   assert.equal(firstLine(''), '');
+});
+
+test('a whole answer as plain words in one run', () => {
+  assert.equal(plain('**Test Witness** passes.\n\nFiles changed: `4`.'), 'Test Witness passes. Files changed: 4.');
 });

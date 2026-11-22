@@ -17,6 +17,7 @@ import { call, fail, redraw, sentence, ui } from './model.ts';
  *  row it is of, so that a hint that changes with the row's state (a sentence) is said as it changes. */
 type Said = { by: object; hint: ComponentChildren } | null;
 export const foot: { focus: Said; point: Said } = { focus: null, point: null };
+const wordsOf = (h: ComponentChildren): string => (h == null || typeof h === 'boolean' ? '' : Array.isArray(h) ? h.map(wordsOf).join('') : typeof h === 'object' ? wordsOf((h as { props?: { children?: ComponentChildren } }).props?.children) : String(h));
 export const footing = () => (foot.point ?? foot.focus)?.hint ?? null;
 export const unfoot = () => ((foot.focus = foot.point = null), undefined);
 /** In Settings a row's hint is not drawn in the row: the foot says it while the row has the pointer or the keyboard.
@@ -25,9 +26,14 @@ export function Row({ name, hint, children }: { name: string; hint?: ComponentCh
   const settings = ui.sheet?.kind === 'settings', me = useRef({}).current;
   const say = (at: 'focus' | 'point') => hint && foot[at]?.by !== me && ((foot[at] = { by: me, hint }), redraw());
   const lose = (at: 'focus' | 'point') => foot[at]?.by === me && ((foot[at] = null), redraw());
+  // A hint that changes with its row (a sentence or a few words of markup) is said as it changes, the pointer or the
+  // keyboard being on the row all the while; compared by its words, since markup is new at every draw.
   useLayoutEffect(() => {
     let changed = false;
-    for (const at of ['focus', 'point'] as const) if (typeof hint === 'string' && foot[at]?.by === me && foot[at].hint !== hint) (foot[at] = { by: me, hint }, (changed = true));
+    for (const at of ['focus', 'point'] as const) {
+      const now = foot[at];
+      if (now?.by === me && wordsOf(now.hint) !== wordsOf(hint)) (foot[at] = hint ? { by: me, hint } : null, (changed = true));
+    }
     if (changed) redraw();
   });
   return (

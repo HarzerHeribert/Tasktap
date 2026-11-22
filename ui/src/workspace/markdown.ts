@@ -97,6 +97,10 @@ export function parse(text: string, depth = 0): Block[] {
 }
 
 const words = (a: Inline[]): string => a.map((x) => (typeof x === 'string' ? x : x.t === 'code' ? x.s : words(x.s))).join('');
-/** The first line of a Markdown text as plain words: its list or heading mark gone, and the marks of emphasis, code and
- *  links reduced to what they hold. */
-export const firstLine = (text: string) => words(inline((text.split('\n').find((l) => l.trim()) ?? '').trim().replace(/^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/, '')));
+/** One line of Markdown as plain words: its list or heading mark gone, and the marks of emphasis, code and links
+ *  reduced to what they hold. */
+const bare = (line: string) => words(inline(line.trim().replace(/^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/, '')));
+/** The first line of a Markdown text as plain words, wherever one line of an answer is shown as text. */
+export const firstLine = (text: string) => bare(text.split('\n').find((l) => l.trim()) ?? '');
+/** A whole Markdown text as plain words in one run, for where all of an answer is shown as text. */
+export const plain = (text: string) => text.split('\n').filter((l) => l.trim()).map(bare).join(' ');

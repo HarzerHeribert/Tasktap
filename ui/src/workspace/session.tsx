@@ -7,6 +7,7 @@ import type { Question, Session, Thought, TurnResult } from '../../../core/proto
 import { useEffect, useRef } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { pending, Status, Told } from '../changes.tsx';
+import { plain as unmarked } from './markdown.ts';
 import { Glyph, I, Mark, madeAt, plural, when } from '../ui.tsx';
 import { plain, shownPath } from '../system.ts';
 import { briefOf, placed } from '../way.ts';
@@ -48,7 +49,7 @@ function Turn({ t, s, questions, results }: { t: Thought; s: Session; questions:
       ) : (
         <>
           <time>{clock(e.at)}</time><Mark s={e.r.kind === 'failure' ? 'failed' : 'ready'} label="" />
-          <p class="tn-r">{e.r.kind === 'failure' ? `${why(t)}${e.r.summary ? `: ${e.r.summary}` : ''}` : e.r.summary}</p>
+          <p class="tn-r">{e.r.kind === 'failure' ? `${why(t)}${e.r.summary ? `: ${unmarked(e.r.summary)}` : ''}` : unmarked(e.r.summary)}</p>
         </>
       ))}
       {runs && <><time /><Mark s="working" label="" /><p class="tn-r">{s.activity.at(-1) ?? 'Working'}</p></>}

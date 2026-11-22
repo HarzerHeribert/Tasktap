@@ -4,6 +4,7 @@
 import type { Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useState } from 'preact/hooks';
 import { Capture, cap, going } from '../capture.tsx';
+import { plain } from '../workspace/markdown.ts';
 import { talk } from '../speech/record.ts';
 import { lost, next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Answer as Act, Seat, type State, elapsed, plural, when } from '../ui.tsx';
@@ -29,7 +30,7 @@ function Row({ t }: { t: Thought }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const live = t.status === 'working' || t.status === 'routed';
   // Placed and held: it starts once its hold ends, or waits for Return where none runs (a model was torn).
-  const fact = t.status === 'routed' ? (t.hold_until ? 'Starting soon' : 'Waits for you') : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : unheard(t) ? endedSays(t) : resultOf(t)?.summary;
+  const fact = t.status === 'routed' ? (t.hold_until ? 'Starting soon' : 'Waits for you') : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : unheard(t) ? endedSays(t) : plain(resultOf(t)?.summary ?? '');
   return (
     <button type="button" class="row" data-status={t.status} title={[t.text, fact].filter(Boolean).join('\n')} disabled={!t.session_id}
       onClick={() => t.session_id && peek(t.session_id)}>
@@ -73,7 +74,7 @@ function Result({ t }: { t: Thought }) {
     <section class="result" tabIndex={-1} data-result={t.id} data-keys onKeyDown={keys}>
       <p class="ctx">{t.status === 'failed' ? 'Failed' : unheard(t) ? 'Ended' : 'Result'}</p>
       <p class="qp">{title(t)}</p>
-      {(t.status === 'failed' || unheard(t) || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : unheard(t) ? endedSays(t) : r!.summary}</p>}
+      {(t.status === 'failed' || unheard(t) || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${plain(r.summary)}` : ''}` : unheard(t) ? endedSays(t) : plain(r!.summary)}</p>}
       {t.workdir && t.workdir.changes !== 'none' && <p class="status"><Status t={{ ...t, workdir: t.workdir }} /></p>}
       {changes && <Told t={changes} />}
       {asking ? (

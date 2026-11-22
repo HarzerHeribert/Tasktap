@@ -152,7 +152,6 @@ export function AgentsPane() {
         {open && (
           <div class="ag-d">
             {a.identity && <Row name="Account"><span class="v">{a.identity}</span></Row>}
-            {state && <Row name="Status"><span class="v">{up(state)}</span></Row>}
             {about(a).map(([k, v]) => <Row name={k}><span class="v">{v}</span></Row>)}
             {on && a.options.map((o) => {
               const id = `${a.id}.${o.id}`;

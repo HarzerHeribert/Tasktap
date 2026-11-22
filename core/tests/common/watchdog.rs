@@ -3,6 +3,7 @@
 use std::process::Child;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::Duration;
+use tasktap_core::client::Said;
 
 /// Longest a test may hold a core.
 pub const PATIENCE: Duration = Duration::from_secs(60);
@@ -43,12 +44,13 @@ pub struct Watchdog {
 }
 
 impl Watchdog {
-    pub fn new(core: &Child) -> Watchdog {
-        Self::patient(core, PATIENCE)
+    pub fn new(core: &Child, said: Said) -> Watchdog {
+        Self::patient(core, PATIENCE, said)
     }
 
     /// The same, after `patience`: a live agent's turn takes minutes.
-    pub fn patient(core: &Child, patience: Duration) -> Watchdog {
+    /// `said`: what the core wrote, which it says too.
+    pub fn patient(core: &Child, patience: Duration, said: Said) -> Watchdog {
         let (armed, disarmed) = mpsc::channel();
         let pid = core.id();
         let test = std::thread::current().name().unwrap_or("a test").to_owned();
@@ -56,6 +58,7 @@ impl Watchdog {
             if disarmed.recv_timeout(patience) == Err(RecvTimeoutError::Timeout) {
                 eprintln!("{test} still holds its core after {patience:?}: killing it");
                 eprintln!("what it did until then:\n{}", super::notes(&test));
+                eprintln!("{}", super::last_words(&said));
                 kill(pid);
             }
         });

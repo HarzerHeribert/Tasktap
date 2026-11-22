@@ -27,7 +27,17 @@ pub fn serve_command(exe: &Path, data: &Path) -> Command {
 /// this one, or the one that held it already, in which case this one exits.
 /// There is no retry and no sleep: one read waits for the line `serve`
 /// writes, `ready` or why it failed.
-pub fn start(mut serve: Command) -> io::Result<Child> {
+pub fn start(serve: Command) -> io::Result<Child> {
+    start_said(serve).map(|(child, _)| child)
+}
+
+/// The last lines a core wrote after `ready`: a panic's message, or why it
+/// stopped. A core that runs well writes none.
+pub type Said = std::sync::Arc<std::sync::Mutex<VecDeque<String>>>;
+
+/// [`start`], keeping the last 40 lines the core writes after `ready`, on
+/// a thread that reads them until every copy of the pipe is closed.
+pub fn start_said(mut serve: Command) -> io::Result<(Child, Said)> {
     let (reader, writer) = io::pipe()?;
     serve
         .stdin(Stdio::null())
@@ -38,16 +48,30 @@ pub fn start(mut serve: Command) -> io::Result<Child> {
     // `serve` keeps this process's copies of the write end; the pipe only
     // ends once every copy is closed.
     drop(serve);
-    let mut said = String::new();
-    match BufReader::new(reader).read_line(&mut said) {
+    let (mut said, mut reader) = (String::new(), BufReader::new(reader));
+    match reader.read_line(&mut said) {
         Err(e) if e.kind() != io::ErrorKind::BrokenPipe => return Err(e),
         _ => {}
     }
     match said.trim_end() {
-        "ready" => Ok(child),
-        "" => Err(io::Error::other("the core ended before it listened")),
-        why => Err(io::Error::other(why.to_owned())),
+        "ready" => {}
+        "" => return Err(io::Error::other("the core ended before it listened")),
+        why => return Err(io::Error::other(why.to_owned())),
     }
+    let said = Said::default();
+    let kept = said.clone();
+    std::thread::spawn(move || {
+        for line in reader.lines().map_while(Result::ok) {
+            let mut kept = kept
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if kept.len() == 40 {
+                kept.pop_front();
+            }
+            kept.push_back(line);
+        }
+    });
+    Ok((child, said))
 }
 
 /// Connects to the core serving `data`.
@@ -368,5 +392,25 @@ fn read(stream: &mut Stream, decoder: &mut Decoder) -> io::Result<Frame> {
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_a_core_writes_after_it_is_ready_is_kept() {
+        let mut serve = Command::new("/bin/sh");
+        serve.args(["-c", "echo ready; echo one; echo two >&2"]);
+        let (mut child, said) = start_said(serve).unwrap();
+        child.wait().unwrap();
+        for _ in 0..100 {
+            if said.lock().unwrap().len() == 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(*said.lock().unwrap(), ["one", "two"]);
     }
 }

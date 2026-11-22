@@ -134,6 +134,7 @@ impl StandIn {
 
     /// Until `ready` holds of what it saw, for at most 10 s.
     fn until(&self, what: &str, ready: impl Fn(&State) -> bool) {
+        note(&format!("until the stand-in saw {what}"));
         for _ in 0..200 {
             if self.with(|s| ready(s)) {
                 return;
@@ -754,6 +755,7 @@ impl Placing {
 
     /// Starts a sign-in: the address the core answers with.
     fn start(&mut self) -> String {
+        note("chatgpt.sign_in");
         let address = self.w.ok::<call::ChatgptSignIn>(&Empty {});
         self.w.until("waiting", |m| {
             matches!(m.prefs.get(&PrefKey::Chatgpt), Some(PrefValue::Chatgpt(Some(c))) if c.state == SignIn::Waiting)
@@ -764,17 +766,22 @@ impl Placing {
     /// The browser at OpenAI's page, sent back to the core: what the
     /// core's page says.
     fn browse(&mut self, address: &str) -> (u16, String) {
+        note("the browser at OpenAI's page");
         let (status, back, _) = get(address);
         assert_eq!(status, 302);
+        note("the browser back at the core");
         let (status, _, page) = get(&back.unwrap());
+        note(&format!("the core's page: {status}"));
         (status, page)
     }
 
     /// The sign-in once it no longer waits.
     fn ended(&mut self) -> ChatGpt {
+        note("until the sign-in ends");
         self.w.until("the sign-in ended", |m| {
             matches!(m.prefs.get(&PrefKey::Chatgpt), Some(PrefValue::Chatgpt(Some(c))) if c.state != SignIn::Waiting)
         });
+        note(&format!("it ended: {:?}", self.state()));
         self.chatgpt().unwrap()
     }
 
@@ -787,8 +794,10 @@ impl Placing {
     }
 
     fn sign_out(&mut self) {
+        note("chatgpt.sign_out");
         self.w.ok::<call::ChatgptSignOut>(&Empty {});
         self.w.sync();
+        note("signed out");
     }
 
     fn capture(&mut self, text: &str) -> ThoughtId {
@@ -814,8 +823,10 @@ impl Placing {
         if let Some(reply) = reply {
             self.openai.answers(reply);
         }
+        note("a thought captured");
         let t = self.capture(SPOKEN);
         let route = self.settled(t).route.unwrap();
+        note(&format!("placed by {}", route.by));
         (route.by, route.fallback)
     }
 
@@ -826,15 +837,23 @@ impl Placing {
 
     /// No token the stand-in gave out is in any file of the data folder
     /// (the database, its journal, anything else the core wrote), nor in a
-    /// record the pages were sent.
+    /// record the pages were sent. The fixture agent's program, which the
+    /// test put there (a link to the core's own binary, tens of megabytes
+    /// in a debug build), is not the core's writing and is not read.
     fn kept_nowhere(&self) {
+        note("searching the data folder and the records for the tokens");
         let secrets = self.openai.with(|s| s.secrets.clone());
         assert!(secrets.len() >= 4, "{secrets:?}");
+        let fixture = |path: &std::path::Path| {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            path.parent() == Some(&*self.data.0.join("agents")) && name.starts_with("fixture-agent")
+        };
         let mut files = vec![self.data.0.clone()];
         let mut texts = Vec::new();
         while let Some(path) = files.pop() {
             match std::fs::read_dir(&path) {
                 Ok(dir) => files.extend(dir.flatten().map(|e| e.path())),
+                Err(_) if fixture(&path) => {}
                 Err(_) => texts.push((path.clone(), std::fs::read(&path).unwrap_or_default())),
             }
         }
@@ -850,6 +869,7 @@ impl Placing {
                 assert!(!found, "a token is in {}", path.display());
             }
         }
+        note("no token found");
     }
 }
 

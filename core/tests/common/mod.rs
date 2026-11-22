@@ -40,6 +40,20 @@ pub fn note(what: &str) {
     notes.push((test, format!("{s:>5}.{us:06} {what}")));
 }
 
+/// What a core wrote after it was ready, its last lines: a panic's
+/// message, or why it stopped. One that runs well writes none.
+pub fn last_words(said: &client::Said) -> String {
+    let said = said.lock().unwrap_or_else(|e| e.into_inner());
+    match said.is_empty() {
+        true => "the core wrote nothing after it was ready".into(),
+        false => said
+            .iter()
+            .fold("what the core wrote:\n".to_owned(), |all, line| {
+                all + "  " + line + "\n"
+            }),
+    }
+}
+
 /// The notes of `test`, one a line.
 pub fn notes(test: &str) -> String {
     let notes = NOTES.lock().unwrap_or_else(|e| e.into_inner());
@@ -111,6 +125,8 @@ pub struct Core {
     child: Child,
     pub data: PathBuf,
     _watchdog: Watchdog,
+    /// The last lines the core wrote after `ready`.
+    pub said: client::Said,
 }
 
 impl Core {
@@ -136,11 +152,12 @@ impl Core {
         let data = data.as_ref();
         let mut serve = client::serve_command(Path::new(EXE), data);
         serve.args(["--idle-ms", "600000"]);
-        let child = client::start(serve).unwrap();
+        let (child, said) = client::start_said(serve).unwrap();
         Core {
-            _watchdog: Watchdog::patient(&child, patience),
+            _watchdog: Watchdog::patient(&child, patience, said.clone()),
             child,
             data: data.to_owned(),
+            said,
         }
     }
 
@@ -175,12 +192,13 @@ impl Core {
             );
         }
         serve.envs(env.iter().copied());
-        let child = client::start(serve).unwrap();
+        let (child, said) = client::start_said(serve).unwrap();
         note(&format!("core {} started", child.id()));
         Core {
-            _watchdog: Watchdog::patient(&child, patience),
+            _watchdog: Watchdog::patient(&child, patience, said.clone()),
             child,
             data: data.to_owned(),
+            said,
         }
     }
 
@@ -246,7 +264,10 @@ impl Core {
 
     /// A device watching every collection.
     pub fn watch(&self) -> Watch {
-        Watch::new(self.device())
+        Watch {
+            said: Some(self.said.clone()),
+            ..Watch::new(self.device())
+        }
     }
 
     /// Retires the core and waits until it has exited.
@@ -430,6 +451,8 @@ pub struct Watch {
     /// The frames of a change cut into several, until its last arrives.
     part: Option<Change>,
     next: u32,
+    /// What the core wrote, said when it is gone.
+    pub said: Option<client::Said>,
 }
 
 impl Watch {
@@ -445,6 +468,7 @@ impl Watch {
             statuses: HashMap::new(),
             part: None,
             next: 10,
+            said: None,
         };
         loop {
             match w.c.recv().unwrap() {
@@ -504,7 +528,11 @@ impl Watch {
 
     /// Takes the next frame: a change is applied, a reply returned.
     fn step(&mut self) -> Option<(CallId, Outcome)> {
-        match self.c.recv().unwrap() {
+        let frame = match self.c.recv() {
+            Ok(frame) => frame,
+            Err(e) => self.gone(e),
+        };
+        match frame {
             Frame::Control(Control::Change(change)) => {
                 self.apply(change);
                 None
@@ -517,8 +545,16 @@ impl Watch {
     pub fn send<C: Call>(&mut self, args: &C::Args) -> CallId {
         let id = CallId(self.next);
         self.next += 1;
-        self.c.send(&C::request(id, args)).unwrap();
+        if let Err(e) = self.c.send(&C::request(id, args)) {
+            self.gone(e)
+        }
         id
+    }
+
+    /// The core is gone, or does not answer: with what it wrote last.
+    fn gone(&self, e: std::io::Error) -> ! {
+        let said = self.said.as_ref().map(last_words).unwrap_or_default();
+        panic!("{e}: the core is gone, or does not answer\n{said}")
     }
 
     /// Waits for the reply to a call sent with [`Watch::send`].

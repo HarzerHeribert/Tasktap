@@ -44,6 +44,7 @@ use tasktap_proto::{
     Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia, Response, SessionEvent,
 };
 
+use super::Weights;
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Heard, Payload, Prompt, Run, WORDS, activity, digest, fit, line,
@@ -64,7 +65,7 @@ pub const RULES: Rules = Rules {
     // Its own default stands: the approvals the person set.
     default: &[],
     // Where the task goes, the session it continues, its model.
-    taken: &["-i", "--interactive", "--continue", "--resume", "--model"],
+    taken: &["-i", "--interactive", "--continue", "--resume"],
 };
 
 /// Seconds a hook that asked may wait for the person before Copilot gives
@@ -198,11 +199,25 @@ impl Agent for Copilot {
         }
     }
 
+    fn weights(&self) -> Option<Weights> {
+        Some(Weights {
+            model: &["--model"],
+            effort: &["--reasoning-effort"],
+        })
+    }
+
     fn launch(&self, run: &Run) -> Vec<String> {
         let mut argv = vec![self.program().to_owned()];
-        if let Some(model) = run.model {
-            argv.extend(["--model".into(), model.into()]);
-        }
+        argv.extend(
+            run.model
+                .into_iter()
+                .flat_map(|m| ["--model".into(), m.into()]),
+        );
+        argv.extend(
+            run.effort
+                .into_iter()
+                .flat_map(|e| ["--reasoning-effort".into(), e.into()]),
+        );
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
         if let Some(handle) = run.resume {

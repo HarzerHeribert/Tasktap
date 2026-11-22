@@ -28,6 +28,7 @@ fn run<'a>(resume: Option<&'a str>, args: &'a [String]) -> Run<'a> {
         prompt: "Fix the build",
         words: None,
         model: None,
+        effort: None,
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/x"),
@@ -250,7 +251,7 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
             "claude --settings x.json",
             "--settings",
         ),
-        ("claude", "Claude Code", "claude --model opus", "--model"),
+        ("claude", "Claude Code", "claude --resume x", "--resume"),
         ("claude", "Claude Code", "caffeinate -i claude -- hi", "--"),
         ("codex", "Codex", "codex e", "e"),
         ("codex", "Codex", "codex exec", "exec"),
@@ -261,8 +262,6 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
         ("codex", "Codex", "codex -C/tmp/x", "-C"),
         ("codex", "Codex", "codex -C=/tmp/x", "-C"),
         ("codex", "Codex", "codex --cd /tmp/x", "--cd"),
-        ("codex", "Codex", "op run -- codex --model o3", "--model"),
-        ("codex", "Codex", "codex -m o3", "-m"),
         (
             "agy",
             "Antigravity",
@@ -298,6 +297,10 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
         "claude -dhooks",
         "codex -p work",
         "codex -c model_reasoning_effort=high",
+        // The model and the effort are the person's to name: the ladder gives way to them.
+        "claude --model opus --effort high",
+        "op run -- codex --model o3",
+        "codex -m o3",
     ] {
         let agent = if fine.contains("codex") {
             "codex"
@@ -323,12 +326,12 @@ fn what_tasktap_sets_for_a_run_is_refused_in_the_persons_arguments_with_one_sent
 #[test]
 fn a_stored_command_this_build_refuses_harms_only_its_own_agent() {
     let _one = COMMANDS.lock().unwrap_or_else(|e| e.into_inner());
-    let bad = line("claude", "claude --model opus");
+    let bad = line("claude", "claude --resume x");
     let good = line("codex", "codex -c model_reasoning_effort=high");
     // Put: a command kept as it was stands; one new or changed is judged.
     let was = [bad.clone()];
     assert!(agents::check_commands(&[bad.clone(), good.clone()], &was).is_ok());
-    let said = "Tasktap sets --model itself for Claude Code: take --model out of the command";
+    let said = "Tasktap sets --resume itself for Claude Code: take --resume out of the command";
     assert_eq!(
         agents::check_commands(std::slice::from_ref(&bad), &[]).unwrap_err(),
         said

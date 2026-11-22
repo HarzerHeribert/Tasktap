@@ -136,6 +136,8 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         resume: caps.resume,
         permissions: caps.permissions,
         questions: caps.questions,
+        models: agent.weights().is_some(),
+        efforts: agent.weights().is_some_and(|w| !w.effort.is_empty()),
     };
     let start = super::started(agent);
     health.installed = start.is_ok();

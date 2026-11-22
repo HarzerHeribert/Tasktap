@@ -35,7 +35,7 @@ use tasktap_proto::{
     Project, ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource,
     QuestionState as Q, READ_HOLD, Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing,
     Secret, Session, SessionId, SessionState as S, Source, Status, Terminal, TerminalId,
-    TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
+    TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Weight, Workdir,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -346,6 +346,7 @@ pub struct Launch {
     pub cwd: String,
     pub agent: String,
     pub model: Option<String>,
+    pub effort: Option<String>,
     /// What the run is told: the thought's brief, or its text.
     pub prompt: String,
     /// The person's own words, when `prompt` is a brief that says them
@@ -1167,6 +1168,7 @@ impl Machine<'_, '_> {
             placed: (mode == Mode::Note).then_some(Placed::Kept),
             agent: Some(agent),
             model: c.model,
+            weight: c.weight,
             workdir: None,
             hold_until: None,
             read: false,
@@ -1630,6 +1632,24 @@ impl Machine<'_, '_> {
             // tool does that by itself.
             let kept = target.as_ref().and_then(|s| s.model.clone());
             let model = kept.or_else(|| t.model.clone());
+            // A new run starts on the person's ladder for its weight; a continued one on what its session ran on.
+            let (effort, weight) = match &target {
+                Some(s) => (s.effort.clone(), s.weight),
+                None => (None, None),
+            };
+            let (model, effort, weight) = match (&target, crate::agents::find(&agent)) {
+                (None, Some(a)) => {
+                    let ladder = match self.tx.pref(PrefKey::AgentWeights)?.map(|p| p.value) {
+                        Some(PrefValue::AgentWeights(list)) => list,
+                        _ => Vec::new(),
+                    };
+                    let said = t.weight.unwrap_or(Weight::Standard);
+                    let (m, e) = crate::agents::weighed(a, said, &ladder);
+                    let given = m.is_some() || e.is_some();
+                    (model.or(m), e, given.then_some(said))
+                }
+                _ => (model, effort, weight),
+            };
             // A new run is named by the title a model gave the work.
             let title = t.route.as_ref().and_then(|r| r.title.clone());
             let title = title.filter(|_| target.is_none());
@@ -1647,6 +1667,8 @@ impl Machine<'_, '_> {
                 named_at: title.as_ref().map(|_| self.now),
                 name: title,
                 model: model.clone(),
+                effort: effort.clone(),
+                weight,
                 cwd,
                 exit: None,
                 error: None,
@@ -1662,6 +1684,7 @@ impl Machine<'_, '_> {
                 cwd: session.cwd,
                 agent,
                 model,
+                effort,
                 prompt: text,
                 words,
                 resume: target.and_then(|s| s.resume),
@@ -1987,6 +2010,8 @@ impl Machine<'_, '_> {
             name: None,
             named_at: None,
             model: None,
+            effort: None,
+            weight: None,
             cwd,
             exit: None,
             error: None,
@@ -2063,6 +2088,7 @@ impl Machine<'_, '_> {
             placed: Some(Placed::Picked),
             agent: Some(s.agent.clone()),
             model: s.model.clone(),
+            weight: s.weight,
             workdir: None,
             hold_until: None,
             read: false,

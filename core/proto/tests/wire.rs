@@ -208,6 +208,7 @@ fn every_call_round_trips() {
         session_id: Some(id(3)),
         agent: None,
         model: Some("sonnet".into()),
+        weight: None,
         current: Some(id(4)),
         view: None,
         auto: false,
@@ -408,6 +409,8 @@ fn every_call_round_trips() {
         resume: true,
         permissions: Some(ReplyVia::Core),
         questions: Some(ReplyVia::Terminal),
+        efforts: false,
+        models: false,
     };
     let detect = DetectAgents {
         agents: Some(vec!["codex".into()]),
@@ -564,6 +567,7 @@ fn every_call_round_trips() {
         session_id: None,
         agent: None,
         model: None,
+        weight: None,
         current: None,
         view: None,
         auto: false,

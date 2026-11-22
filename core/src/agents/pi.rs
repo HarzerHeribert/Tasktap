@@ -40,6 +40,7 @@ use std::path::Path;
 use serde_json::Value;
 use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia};
 
+use super::Weights;
 use super::rules::Rules;
 use super::{Agent, Caps, Choice, Detect, Heard, Payload, Prompt, Run, WORDS, activity};
 use super::{fit, line, said};
@@ -56,7 +57,7 @@ pub const RULES: Rules = Rules {
     default: &[],
     // The session it continues or forks, whether a project's own code is
     // read (the person's switch), its model; the task after `--`.
-    taken: &["--session", "--fork", "--approve", "--no-approve", "--model", "--"],
+    taken: &["--session", "--fork", "--approve", "--no-approve", "--"],
 };
 
 /// The option that lets a run read its project's own `.pi`.
@@ -181,12 +182,26 @@ impl Agent for Pi {
         }]
     }
 
+    fn weights(&self) -> Option<Weights> {
+        Some(Weights {
+            model: &["--model"],
+            effort: &["--thinking"],
+        })
+    }
+
     fn launch(&self, run: &Run) -> Vec<String> {
         let mut argv = vec![self.program().to_owned()];
         // Also for a resume, which is then on the model its session had.
-        if let Some(model) = run.model {
-            argv.extend(["--model".into(), model.into()]);
-        }
+        argv.extend(
+            run.model
+                .into_iter()
+                .flat_map(|m| ["--model".into(), m.into()]),
+        );
+        argv.extend(
+            run.effort
+                .into_iter()
+                .flat_map(|e| ["--thinking".into(), e.into()]),
+        );
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
         // What a project's own `.pi` holds is code of that project's, which

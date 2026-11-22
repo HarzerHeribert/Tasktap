@@ -121,6 +121,11 @@ pub enum PrefPatch {
     ),
     SetupHidden(bool),
     UpdateChecks(bool),
+    /// Refused by the core unless each is as [`crate::records::AgentWeight`] says.
+    AgentWeights(
+        #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+        Vec<crate::records::AgentWeight>,
+    ),
     /// Refused by the core unless each is as [`crate::records::AgentCommand`] says.
     AgentCommands(
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
@@ -192,6 +197,7 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::SetupHidden(v) => PrefValue::SetupHidden(v),
             PrefPatch::UpdateChecks(v) => PrefValue::UpdateChecks(v),
             PrefPatch::AgentCommands(v) => PrefValue::AgentCommands(v),
+            PrefPatch::AgentWeights(v) => PrefValue::AgentWeights(v),
         }
     }
 }
@@ -379,6 +385,10 @@ pub struct Capture {
     /// The model a new run asks its agent for; without one, the agent's own default.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub model: Option<String>,
+    /// How heavy the task is: the line of the agent's ladder (`agent_weights`)
+    /// a new run starts on; without one, Standard. A model named above wins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<crate::records::Weight>,
     /// The session the person was in when they captured, which the router
     /// sends the thought on to unless its text names another project. Not
     /// a pick: unlike `session_id`, the router still decides (design §8).
@@ -572,6 +582,10 @@ pub struct AgentHealth {
     pub permissions: Option<crate::records::ReplyVia>,
     /// Where the questions it asks the person are answered; none: none are heard.
     pub questions: Option<crate::records::ReplyVia>,
+    /// Tasktap knows how to pass it a model at start: its row in Settings
+    /// has a ladder. Of `efforts` too, an effort.
+    pub models: bool,
+    pub efforts: bool,
 }
 
 /// Something an agent does only when the person lets it: a switch in its

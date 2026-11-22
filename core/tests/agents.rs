@@ -362,6 +362,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         prompt,
         words: None,
         model,
+        effort: None,
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/x"),
@@ -1269,6 +1270,8 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         resume: true,
         permissions: None,
         questions: None,
+        efforts: false,
+        models: false,
     };
     let codex = agents::find("codex").unwrap();
     let usable = |health: Option<AgentHealth>| agents::usable(codex, health.as_ref());

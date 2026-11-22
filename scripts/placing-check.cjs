@@ -465,6 +465,52 @@ async function main(out, dist) {
       await page.context().close();
     }
 
+    // A model unsure of one place only: that place alone, on Return's key, with no key of another place beside it; no
+    // hold runs, as with two.
+    {
+      const r = decision('held', (t) => ((t.hold_until = null), (t.route = { ...t.route, others: [] })));
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 2, viewport: { width: 560, height: 420 } });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(800);
+      await page.focus('#capture-input');
+      await page.waitForTimeout(150);
+      await page.evaluate(() => document.fonts.ready);
+      const seen = await look(), keys = await page.evaluate(() => document.querySelectorAll('.way [data-offer]').length);
+      expect(/^cuegrid new run\b/.test(seen.line) && !seen.line.includes('·'), `decision-torn-one: the decision line says "${seen.line}"`);
+      expect(seen.still === true && seen.ret === true, `decision-torn-one: its hold stands still, Return's key first (still ${seen.still}, Return's key ${seen.ret})`);
+      expect(keys === 0 && !seen.rows.length, `decision-torn-one: no other place on a key, ${keys} keys and ${seen.rows.length} rows`);
+      whole('decision-torn-one', seen);
+      await page.locator('.capture').screenshot({ path: path.join(out, 'decision-torn-one.png') });
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+
+    // A notch a question opened by itself folds half a second after its answer. A task a model was torn about that comes
+    // in that half second keeps it open on its line, as a question that comes then does (on a fast machine the smoke's
+    // task came 0.3 s after the answer of the one before, and the notch was folded away under it).
+    {
+      const r = flow(scene('normal'), 'asked'), q = r.questions.pop(), at = r.thoughts.find((t) => t.id === q.thought_id), held = flow(scene('normal'), 'held').thoughts.pop();
+      Object.assign(at, { status: 'captured' });
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 1, viewport: { width: 560, height: 420 } });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.waitForTimeout(500);
+      const push = (rev, sets) => page.evaluate(([rv, ss]) => window.__fake.push({ t: 'change', rev: rv, sets: ss }), [rev, sets]);
+      await push(9000, [{ c: 'questions', put: [{ ...q, rev: 9000 }] }]);
+      await page.waitForTimeout(500);
+      const asked = await page.evaluate(() => !document.querySelector('#sheet').inert && /Which project/.test(document.querySelector('#sheet').innerText));
+      await push(9001, [{ c: 'questions', put: [{ ...q, state: 'answered', answer: 'cuegrid', rev: 9001 }] }, { c: 'thoughts', put: [{ ...at, status: 'routed', rev: 9001 }] }]);
+      await page.waitForTimeout(150);
+      const torn = { ...held, id: at.id, text: at.text, session_id: null, project_id: r.ids.projects.cuegrid, hold_until: null, rev: 9002,
+        route: { ...held.route, others: [{ project: r.ids.projects.fieldnotes }] } };
+      await push(9002, [{ c: 'thoughts', put: [torn] }]);
+      await page.waitForTimeout(1500);
+      const called = await page.evaluate(() => ({ open: !document.querySelector('#sheet').inert, field: !!document.querySelector('#capture-input'), line: document.querySelector('.way .way-to')?.textContent ?? '' }));
+      expect(asked && called.open && called.field && called.line === 'cuegrid new run', `a torn task that comes as the notch folds after an answer keeps it open on its line: ${JSON.stringify({ asked, ...called })}`);
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+
     // The new project a model proposed leads the question, with its place; its key makes the folder and sends the task.
     const asked = flow(scene('normal'), 'asked'), q = asked.questions[0];
     Object.assign(q, { choices: [], places: [], notes: [], prompt: 'Which project is this task for?', create: { name: 'tide-notes', place: '~/projects', folder: '/Users/example/projects/tide-notes', exists: false } });

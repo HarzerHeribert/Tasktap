@@ -99,8 +99,10 @@ records.onchange = () => {
   const now = going().filter((t) => waits(t)).map((t) => t.id), called = now.some((id) => !waiting.has(id));
   waiting.clear();
   for (const id of now) waiting.add(id);
-  // Where nothing else is open in the notch: on its capture line, whose decision line takes Return and the keys.
-  if (called && !fresh && asksHere('notch') && ui.mode === 'closed') {
+  // Where nothing else is open in the notch: on its capture line, whose decision line takes Return and the keys. Also
+  // in a notch that a question opened by itself and that is about to fold after its answer (`ui.auto`), as a question
+  // that comes then keeps it open (below): the fold is cancelled by revealing it.
+  if (called && !fresh && asksHere('notch') && (ui.mode === 'closed' || ui.auto)) {
     ui.capturing = true;
     reveal('pinned', 'home', '#capture-input');
     ui.auto = true;

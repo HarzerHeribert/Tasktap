@@ -465,6 +465,27 @@ async function main(out, dist) {
       await page.context().close();
     }
 
+    // A model unsure of one place only: that place alone, on Return's key, with no key of another place beside it; no
+    // hold runs, as with two.
+    {
+      const r = decision('held', (t) => ((t.hold_until = null), (t.route = { ...t.route, others: [] })));
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 2, viewport: { width: 560, height: 420 } });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(800);
+      await page.focus('#capture-input');
+      await page.waitForTimeout(150);
+      await page.evaluate(() => document.fonts.ready);
+      const seen = await look(), keys = await page.evaluate(() => document.querySelectorAll('.way [data-offer]').length);
+      expect(/^cuegrid new run\b/.test(seen.line) && !seen.line.includes('·'), `decision-torn-one: the decision line says "${seen.line}"`);
+      expect(seen.still === true && seen.ret === true, `decision-torn-one: its hold stands still, Return's key first (still ${seen.still}, Return's key ${seen.ret})`);
+      expect(keys === 0 && !seen.rows.length, `decision-torn-one: no other place on a key, ${keys} keys and ${seen.rows.length} rows`);
+      whole('decision-torn-one', seen);
+      await page.locator('.capture').screenshot({ path: path.join(out, 'decision-torn-one.png') });
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+
     // The new project a model proposed leads the question, with its place; its key makes the folder and sends the task.
     const asked = flow(scene('normal'), 'asked'), q = asked.questions[0];
     Object.assign(q, { choices: [], places: [], notes: [], prompt: 'Which project is this task for?', create: { name: 'tide-notes', place: '~/projects', folder: '/Users/example/projects/tide-notes', exists: false } });

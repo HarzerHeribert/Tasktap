@@ -153,7 +153,10 @@
     // The history the scene has (`history`), as one page; then, or with none, the empty page that is its end.
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
-    if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
+    if (name === 'route.terms') {
+      const mine = (records.prefs || []).find((p) => p.id === 'own_model')?.value;
+      return reply(id, { ...terms.route, tools: records.tools || [...terms.route.tools, ...(mine ? [{ agent: 'own', model: mine.model, pays: 'plan', ms: null }] : [])] });
+    }
     // The sign-in with ChatGPT (core chatgpt.rs): the address of OpenAI's page, and the wait for the browser, one at a
     // time; the check pushes how it ends. Signing out takes the record and ChatGPT's row of the agreement away, and an
     // agreement left with no row goes with it.
@@ -182,6 +185,24 @@
       push({ t: 'change', rev, sets: [{ c: 'prefs', ...(value === undefined ? { del: [key] } : { put: [{ id: key, value, rev }] }) }] });
     };
     const keys = () => ((records.prefs || []).find((p) => p.id === 'keys') || { value: [] }).value;
+    // The own model (core own.rs): the models a server lists (`records.servers`, by address; one not there does not
+    // answer), setting it up (the preference, a key's address in `keys`, and its row first in the agreement) and taking it away.
+    if (name === 'own_model.list') {
+      (window.__fake.listed ??= []).push(args);
+      const models = (records.servers || {})[args.address];
+      return models ? reply(id, { models }) : refuse('failed', 'the server could not be reached');
+    }
+    if (name === 'own_model.set' || name === 'own_model.remove') {
+      const by = (records.prefs || []).find((p) => p.id === 'route_by')?.value, others = (by?.agents || []).filter((a) => a.agent !== 'own');
+      const row = name === 'own_model.set' ? [{ agent: 'own', model: args.model, on: true }] : [];
+      pref('own_model', name === 'own_model.set' ? { address: args.address, model: args.model } : null);
+      if (args.key) pref('keys', [...keys().filter((s) => s !== args.address), args.address]);
+      if (name === 'own_model.remove' || (by && by.terms === terms.route.terms)) {
+        const agents = [...row, ...others];
+        if (agents.length) pref('route_by', { agents, terms: terms.route.terms }); else if (by) pref('route_by');
+      } else if (row.length) pref('route_by', { agents: row, terms: terms.route.terms });
+      return reply(id, null);
+    }
     if (name === 'delete' && args.c === 'prefs') return pref(args.id), reply(id, null);
     if (name === 'key.set') return pref('keys', [...keys().filter((s) => s !== args.server), args.server]), reply(id, null);
     if (name === 'key.remove') return pref('keys', keys().filter((s) => s !== args.server)), reply(id, null);
@@ -284,13 +305,15 @@
     if (name === 'projects.offer') return void setTimeout(() => reply(id, records.offer || { agents: [], places: [] }), records.offerMs || 0);
     if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
     const look = (row) => {
-      push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] });
+      // `lookLateMs`: the look's record comes this long after the core's answer to `look.add` (the core answers first).
+      const late = records.lookLateMs || 0;
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] }), late);
       if (!row.on) return;
       const found = (records.found || []).filter((c) => !(records.cards || []).some((x) => x.id === c.id));
-      found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), 90 * (i + 1)));
+      found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), late + 90 * (i + 1)));
       // `lookEnds`: how a search in a folder ends instead (its `state` and `note`, as the core records them).
       const end = row.kind === 'folder' ? records.lookEnds : undefined;
-      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now(), ...end }] }] }), 90 * (found.length + 1));
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now(), ...end }] }] }), late + 90 * (found.length + 1));
     };
     if (name === 'look.add') {
       const had = (records.looks || []).find((l) => (args.agent && l.agent === args.agent) || (args.folder && l.folder === args.folder));
@@ -461,6 +484,8 @@
   const hostValue = (name, a) => {
     // The page's word that it has drawn, which shows the window: when, and what its status line said then.
     if (name === 'host.ready') return ((window.__fake.ready ??= { at: performance.now(), rail: document.querySelector('.rail-l')?.textContent ?? null }), null);
+    // What the page asked of its window (host.window): kept in order; `out`, the workspaces that are out, as the records say.
+    if (name === 'host.window') return ((window.__fake.windows ??= []).push(a), a.do === 'out' ? (records.out ?? []) : null);
     if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
     if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
     if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());

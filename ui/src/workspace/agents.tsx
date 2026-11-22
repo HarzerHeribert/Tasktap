@@ -12,10 +12,11 @@
 // life whether they are signed in, as giving an agent its first thought does (calls.rs `look`); "Check now" asks
 // every one.
 import { useEffect, useState } from 'preact/hooks';
-import type { AgentHealth, OwnAgent } from '../../../core/proto/protocol.ts';
+import type { AgentHealth, AgentWeight, OwnAgent, Weight } from '../../../core/proto/protocol.ts';
 import { HERE, mac } from '../system.ts';
 import { Glyph, I, ago } from '../ui.tsx';
 import { agentState, ownAgentLacks } from '../way.ts';
+import { WEIGHTS } from '../weights.tsx';
 import { Choice, Row, Switch, setPref } from './form.tsx';
 import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
 
@@ -76,6 +77,47 @@ function Start({ a }: { a: AgentHealth }) {
         onChange={(e) => void keepCommand(a, e.currentTarget.value).then(say)} />
       {why && <p class="hint err" role="alert">{why}</p>}
     </Row>
+  );
+}
+
+/** The aliases an agent keeps current by itself, offered as suggestions of its Model fields, where it has such: Claude Code's. Tasktap ships no other model name. The fields' placeholder says the agent's own is used. */
+const ALIAS: Record<string, string[]> = { claude: ['haiku', 'sonnet', 'opus'] };
+/** The ladder of an agent (`agent_weights`): what it starts a new task with at each weight, a model and an effort as the
+ *  agent itself takes them; empty is the agent's own. Where the person's own start command already names a model or an
+ *  effort, the foot says that one wins. A refusal belongs to the field it came from: it goes with the next line kept. */
+function Ladder({ a }: { a: AgentHealth }) {
+  const [bad, say] = useState<[Weight, string] | null>(null), p = a.passes!;
+  const lines = (w: Weight) => pref('agent_weights').find((l) => l.agent === a.id && l.weight === w);
+  const keep = (w: Weight, field: 'model' | 'effort', typed: string) => {
+    const rest = pref('agent_weights').filter((l) => l.agent !== a.id || l.weight !== w);
+    const line: AgentWeight = { agent: a.id, weight: w, model: lines(w)?.model ?? '', effort: lines(w)?.effort ?? '', [field]: typed.trim() };
+    void call('put', { c: 'prefs', id: 'agent_weights', patch: line.model || line.effort ? [...rest, line] : rest }).then(() => say(null), (e: Error) => say([w, sentence(e.message)]));
+  };
+  const named = p.model_named && p.effort_named ? 'a model and an effort' : p.model_named ? 'a model' : p.effort_named ? 'an effort' : '';
+  const own = `${a.name}'s own`;
+  return (
+    <>
+      {ALIAS[a.id] && <datalist id={`${a.id}-models`}>{ALIAS[a.id]!.map((m) => <option value={m} />)}</datalist>}
+      {WEIGHTS.map(([w, label]) => {
+        const why = bad?.[0] === w ? bad[1] : '', hint = why ? undefined : named ? `The command that starts ${a.name} names ${named}, so ${a.name} runs on that at every weight.`
+          : `The model and the effort ${a.name} starts a ${label.toLowerCase()} task with; leave a field empty for ${a.name}'s own.`;
+        return (
+          <Row key={w} name={label} hint={hint}>
+            <label class="fld"><span>Model</span>
+              <input class="text" aria-label={`${a.name}, ${label}: model`} list={ALIAS[a.id] ? `${a.id}-models` : undefined} placeholder={own} spellcheck={false} autocomplete="off" maxLength={250} defaultValue={lines(w)?.model ?? ''}
+                onChange={(e) => keep(w, 'model', e.currentTarget.value)} />
+            </label>
+            {p.effort && (
+              <label class="fld"><span>Effort</span>
+                <input class="text short" aria-label={`${a.name}, ${label}: effort`} placeholder={own} spellcheck={false} autocomplete="off" maxLength={250} defaultValue={lines(w)?.effort ?? ''}
+                  onChange={(e) => keep(w, 'effort', e.currentTarget.value)} />
+              </label>
+            )}
+            {why && <p class="hint err" role="alert">{why}</p>}
+          </Row>
+        );
+      })}
+    </>
   );
 }
 
@@ -165,6 +207,7 @@ export function AgentsPane() {
             })}
             {on && a.note && <Row name="Note"><span class="v">{a.note}</span></Row>}
             {!a.own && a.supported && <Start key={a.id} a={a} />}
+            {!a.own && a.supported && a.passes && <Ladder key={`${a.id}.ladder`} a={a} />}
           </div>
         )}
       </>

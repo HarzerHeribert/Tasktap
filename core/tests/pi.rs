@@ -64,6 +64,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         prompt,
         words: None,
         model,
+        effort: None,
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/pi"),

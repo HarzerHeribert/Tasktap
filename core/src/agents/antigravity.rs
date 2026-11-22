@@ -35,6 +35,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tasktap_proto::{Ask, Event, MAX_LINE, QuestionKind, QuestionSource, ReplyVia, SessionEvent};
 
+use super::Weights;
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Headless, Heard, Payload, Prompt, Run, WORDS, fit, line, permission,
@@ -54,7 +55,7 @@ pub const RULES: Rules = Rules {
     default: &[],
     // Where the task goes, the settings its hooks are in, the conversation it
     // continues, its model.
-    taken: &["-i", "--prompt-interactive", "--settings", "--conversation", "--model"],
+    taken: &["-i", "--prompt-interactive", "--settings", "--conversation"],
 };
 
 /// The model a headless question asks, the smallest fast one it lists
@@ -284,6 +285,13 @@ impl Agent for Antigravity {
             permissions: Some(ReplyVia::Terminal),
             questions: Some(ReplyVia::Terminal),
         }
+    }
+
+    fn weights(&self) -> Option<Weights> {
+        Some(Weights {
+            model: &["--model"],
+            effort: &[],
+        })
     }
 
     fn launch(&self, run: &Run) -> Vec<String> {

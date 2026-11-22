@@ -136,6 +136,14 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         resume: caps.resume,
         permissions: caps.permissions,
         questions: caps.questions,
+        passes: agent.weights().map(|w| {
+            let (model_named, effort_named) = super::named(agent);
+            tasktap_proto::Passes {
+                effort: !w.effort.is_empty(),
+                model_named,
+                effort_named,
+            }
+        }),
     };
     let start = super::started(agent);
     health.installed = start.is_ok();

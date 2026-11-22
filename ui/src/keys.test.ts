@@ -69,8 +69,8 @@ test('a key without Command is the same key, in the words Windows prints', () =>
 });
 
 test('no two commands share a key on either system', () => {
-  // The menu's commands and the Composer's own: ⌘K the place's list, ⌘J the agent control's (rings.tsx AGENT_KEY).
-  const all = ['⌘N', '⇧⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘K', '⌘J'];
+  // The menu's commands and the Composer's own: ⌘K the place's list, ⌘J the agent control's (rings.tsx AGENT_KEY), ⌘L the weight control's (weights.tsx WEIGHT_KEY).
+  const all = ['⌘N', '⇧⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘K', '⌘J', '⌘L'];
   for (const onMac of [true, false]) assert.equal(new Set(all.map((k) => spell(k, onMac))).size, all.length);
 });
 

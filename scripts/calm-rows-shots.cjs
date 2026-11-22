@@ -90,7 +90,8 @@ async function main() {
       return { bg: getComputedStyle(c).backgroundColor, gap: b ? c.getBoundingClientRect().left - b.getBoundingClientRect().right : 99 };
     }));
     expect(chev.every((c) => c.bg === 'rgba(0, 0, 0, 0)' && c.gap >= 12), `every chevron is plain, with a gap from any button (${JSON.stringify(chev)})`);
-    const start = page.locator('.line.ag[data-agent=claude] + .ag-d input');
+    // The first field of the opened row is the start command's; the weights' model and effort fields follow it.
+    const start = page.locator('.line.ag[data-agent=claude] + .ag-d input').first();
     await start.focus();
     await page.waitForTimeout(200);
     const hint = await page.locator('.sh-hint').textContent();

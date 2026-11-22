@@ -45,6 +45,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tasktap_proto::{Answer, Ask, Event, MAX_TEXT, QuestionKind, ReplyVia, Response};
 
+use super::Weights;
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Headless, Heard, Payload, Probe, Run, WORDS, activity, digest, fit,
@@ -68,7 +69,7 @@ pub const RULES: Rules = Rules {
     default: &["--approve-for-me"],
     // Another folder to work in, its resuming subcommand, its model; the task
     // after `--`.
-    taken: &["-C", "--cd", "resume", "-m", "--model", "--"],
+    taken: &["-C", "--cd", "resume", "--"],
 };
 
 /// Seconds a hook that asked may wait for the person; Codex shows its own
@@ -206,6 +207,13 @@ impl Agent for Codex {
         }
     }
 
+    fn weights(&self) -> Option<Weights> {
+        Some(Weights {
+            model: &["-m", "--model", "model="],
+            effort: &["model_reasoning_effort="],
+        })
+    }
+
     fn launch(&self, run: &Run) -> Vec<String> {
         let cwd = run.cwd.to_string_lossy();
         let mut argv: Vec<String> = vec![self.program().into(), "--no-daemon".into()];
@@ -217,8 +225,18 @@ impl Agent for Codex {
             format!("projects={{{}={{trust_level=\"trusted\"}}}}", toml(&cwd)),
         ]);
         // As 1.2: a resumed conversation keeps its model.
-        if let (Some(model), None) = (run.model, run.resume) {
-            argv.extend(["--model".into(), model.into()]);
+        if run.resume.is_none() {
+            argv.extend(
+                run.model
+                    .into_iter()
+                    .flat_map(|m| ["--model".into(), m.into()]),
+            );
+            let effort = |e| format!("model_reasoning_effort={}", toml(e));
+            argv.extend(
+                run.effort
+                    .into_iter()
+                    .flat_map(|e| ["-c".into(), effort(e)]),
+            );
         }
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));

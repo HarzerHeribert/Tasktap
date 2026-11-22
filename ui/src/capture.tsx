@@ -9,7 +9,7 @@
 // written down, then the thought being placed, then where it goes with its brief, readable for the length of its hold,
 // with Undo. Every Composer shows every thought on its way, whoever captured it. Return on an empty field starts the
 // newest of them now, and the Composer's key says so: it is the one key that says Start.
-import type { Capture as CaptureArgs, Card, Dictation, DictationTarget, Found, Question, Route, Thought } from '../../core/proto/protocol.ts';
+import type { Capture as CaptureArgs, Card, Dictation, DictationTarget, Found, Question, Route, Thought, Weight } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
@@ -20,6 +20,7 @@ import { Roll, rollIn, rolls, stopRoll } from './lines.ts';
 import { effectsOf } from './motion/motion.tsx';
 import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
+import { WEIGHT_KEY, WeightControl, WeightList, open as openWeights, shows as weighs } from './weights.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, loadTerms, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
@@ -48,7 +49,7 @@ export const rollsHere = (el = document.activeElement) =>
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
  *  it, which Undo gives back with its words. How it came by its place is the thought's own to say (`placed`). */
-export type Sent = { id: string; text: string; to: string | 'later'; pick?: string; agent?: string };
+export type Sent = { id: string; text: string; to: string | 'later'; pick?: string; agent?: string; weight?: Weight };
 
 export const cap = {
   draft: '',
@@ -59,6 +60,9 @@ export const cap = {
   /** The agent the person picked for the thought in the field, by its ring. It goes with that thought and no further:
    *  the next is the usual agent's again (the `agent` preference, which only the Agents sheet changes). */
   agent: undefined as string | undefined,
+  /** The weight the person chose for the thought in the field (weights.tsx): it goes with that thought alone, and the
+   *  next is Standard again. None is Standard. */
+  weight: undefined as Weight | undefined,
   /** The folder of the workspace the capture sheet was opened in, for that opening only: the sheet clears it when it is
    *  put away, and Home's and the notch's Composers never have it. Not a pick, and never the Scratchpad. */
   usual: undefined as string | undefined,
@@ -73,6 +77,8 @@ export const cap = {
   /** The list of who runs the thought is open in the foot (rings.tsx), and what is typed in its field. */
   agents: false,
   findAgent: '',
+  /** The list of weights is open in the foot (weights.tsx). */
+  weights: false,
   /** A thought kept for later that the list, while open, sends to a folder, rather than choosing where the next goes. */
   moving: null as string | null,
   /** What is typed in the list's field to find a project, and what the core found for a text (projects.find). */
@@ -222,14 +228,14 @@ async function send(e: Event, hooks: Hooks) {
   }
   // Before the core has answered, where the task goes is worked out the moment it and its records are there, from
   // what the person had chosen when they started it (nothing can be chosen before); the task goes then, once.
-  const pick = picked(), { dest, undone, agent: by, usual, current } = cap;
+  const pick = picked(), { dest, undone, agent: by, weight, usual, current } = cap;
   let w = where();
   const waited = !core.in;
   const gone = leave(cap, async (text) => {
     if (waited) (await coreIn, (w = where(pick, undefined, usual)));
     let id = uuid7();
     // (An agent is a capture's to name: a thought that goes out again to another agent is captured anew.)
-    if (undone && w.to && w.to !== 'later' && by === undone.agent) {
+    if (undone && w.to && w.to !== 'later' && by === undone.agent && weight === undone.weight) {
       // The thought Undo returned to the person goes out again, with what they changed, rather
       // than a copy of it that would stay behind.
       id = undone.id;
@@ -237,19 +243,19 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.update', { id, ...placeArgs(w.to) });
     } else {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
-      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual, pick === ''), ...(by ? { agent: by } : {}) });
+      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual, pick === ''), ...(by ? { agent: by } : {}), ...(weight ? { weight } : {}) });
     }
-    Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by } });
+    Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by, weight } });
     page.error = '';
   });
-  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, agents: false, undone: null, refused: '', back: pick });
+  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, agents: false, weight: undefined, weights: false, undone: null, refused: '', back: pick });
   // The field is empty again: the next line, rolled in where it rolls, else simply there (Still, Off, Reduce Motion).
   invite.next(rollsHere());
   flights = Promise.allSettled([flights, gone]);
   redraw();
   // Refused: the words are back with their place and their agent, and the core's sentence is under them.
   await gone.catch((err) => {
-    Object.assign(cap, { dest: cap.dest ?? dest, agent: cap.agent ?? by, undone: cap.undone ?? undone, refused: sentence(err instanceof Error ? err.message : String(err)) });
+    Object.assign(cap, { dest: cap.dest ?? dest, agent: cap.agent ?? by, weight: cap.weight ?? weight, undone: cap.undone ?? undone, refused: sentence(err instanceof Error ? err.message : String(err)) });
     askRoute();
   });
   redraw();
@@ -269,14 +275,15 @@ export async function undo(t?: Thought | 'later') {
     if (t === 'later' && sent) {
       const text = records.thoughts.get(sent.id)?.text ?? sent.text;
       await call('delete', { c: 'thoughts', id: sent.id });
-      Object.assign(cap, { sent: null, draft: back(text, cap.draft), dest: sent.pick, agent: sent.agent });
+      Object.assign(cap, { sent: null, draft: back(text, cap.draft), dest: sent.pick, agent: sent.agent, weight: sent.weight });
     } else if (t && t !== 'later') {
       await call('thought.stop', { id: t.id });
       // The agent picked for it alone comes back with it, as the thought itself says.
       const by = t.agent && t.agent !== agent()?.id ? t.agent : undefined;
+      const heavy = t.weight && t.weight !== 'standard' ? t.weight : undefined;
       Object.assign(cap, {
-        undone: { id: t.id, text: t.text, to: t.project_id ?? t.card_id ?? '', agent: by }, sent: sent?.id === t.id ? null : sent, dest: sent?.id === t.id ? sent.pick : cap.dest,
-        agent: by, draft: back(t.text, cap.draft),
+        undone: { id: t.id, text: t.text, to: t.project_id ?? t.card_id ?? '', agent: by, weight: heavy }, sent: sent?.id === t.id ? null : sent, dest: sent?.id === t.id ? sent.pick : cap.dest,
+        agent: by, weight: heavy, draft: back(t.text, cap.draft),
       });
       // Where it goes is asked again for the words that are back, as it was while they were typed.
       askRoute();
@@ -323,7 +330,7 @@ function askRoute() {
 
 export function choose(open: boolean) {
   cap.choosing = open;
-  if (open) cap.agents = false;
+  if (open) Object.assign(cap, { agents: false, weights: false });
   cap.find = '';
   if (!open) cap.moving = null;
   // The field to find a project has the keyboard; the arrows reach the rows under it.
@@ -442,9 +449,9 @@ const icon = (m: Icon) => (m === 'later' ? <Mark s="later" label="" /> : <I n={m
 setAim((field): DictationTarget => {
   if (field?.id !== 'capture-input' || field.value.trim() || cap.undone) return { kind: 'text' };
   const w = where(), id = uuid7();
-  const by = cap.agent;
-  Object.assign(cap, { sent: { id, text: '', to: w.to, pick: picked(), agent: by }, spoken: id, dest: undefined, agent: undefined, refused: '', back: picked() });
-  return { kind: 'thought', id, text: '', strokes: [], source: 'voice', ...named(w), ...(by ? { agent: by } : {}) };
+  const { agent: by, weight } = cap;
+  Object.assign(cap, { sent: { id, text: '', to: w.to, pick: picked(), agent: by, weight }, spoken: id, dest: undefined, agent: undefined, weight: undefined, refused: '', back: picked() });
+  return { kind: 'thought', id, text: '', strokes: [], source: 'voice', ...named(w), ...(by ? { agent: by } : {}), ...(weight ? { weight } : {}) };
 });
 
 /** After every change of the records (each page calls it): heard words go to their field, and a spoken thought that
@@ -457,7 +464,7 @@ export function followSpeech() {
   if (records.thoughts.has(cap.spoken)) cap.spoken = '';
   else if (!talk.id && !talk.asking) {
     const was = cap.sent?.id === cap.spoken ? cap.sent : null;
-    Object.assign(cap, { spoken: '', ...(was && { sent: null, dest: cap.dest ?? was.pick, agent: cap.agent ?? was.agent }) });
+    Object.assign(cap, { spoken: '', ...(was && { sent: null, dest: cap.dest ?? was.pick, agent: cap.agent ?? was.agent, weight: cap.weight ?? was.weight }) });
   }
 }
 
@@ -786,7 +793,7 @@ function answerKey(q: Question, e: KeyboardEvent): boolean {
 /** The Composer. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits on
  *  its sheet with Tasktap's mark beside the thought, up to three lines. `asks`: the router's question about the thought
  *  just sent is asked here, under the field and on the same surface (Home's or the capture sheet's, never both). */
-export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { raised?: boolean; asks?: boolean }) {
+export function Capture({ raised = false, asks = false, weights = false, ...hooks }: Hooks & { raised?: boolean; asks?: boolean; weights?: boolean }) {
   const route = hinted(), w = where();
   const later = w.by === 'later';
   const session = route?.confidence === 'clear' && 'session' in route.to ? route.to.session : undefined;
@@ -844,7 +851,8 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   // itself (parts.css); then the microphone's key hint is dropped, once that word is gone and only where that gives the
   // names room; then the names are cut short, the place's and the agent's. Nothing wraps; the key never moves.
   // Measured when the foot's width or what the chip, the agent and the key say change, and on no other render.
-  const foot = useRef<HTMLDivElement>(null), runs = chosen(session).a?.id;
+  // The weight control stands in the foot where the agent has a ladder (weights.tsx): the notch has none.
+  const foot = useRef<HTMLDivElement>(null), runs = chosen(session).a?.id, weighed = weights && weighs(session) ? cap.weight ?? 'standard' : '';
   useLayoutEffect(() => {
     const row = foot.current;
     if (!row) return undefined;
@@ -868,7 +876,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     const watch = new ResizeObserver(room);
     watch.observe(row);
     return () => watch.disconnect();
-  }, [chip.name, chip.auto, does, busy, hearing, cap.choosing, cap.agents, runs, waits]);
+  }, [chip.name, chip.auto, does, busy, hearing, cap.choosing, cap.agents, cap.weights, runs, weighed, waits]);
   // The line rolls while this field may (lines.ts `rolls`): told on every render, as the field gains or loses the
   // keyboard, as the window does, and as Reduce Motion changes; the field gone, its roll goes with it.
   const sync = () => invite.run(rollsHere(area.current), area.current);
@@ -909,6 +917,10 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
           // Who runs it, from anywhere in the Composer (the agent control's key).
           e.preventDefault();
           openAgents(!cap.agents);
+        } else if (weights && hit(WEIGHT_KEY, e) && weighs(session) && !hearing) {
+          // How heavy it is, from anywhere in the Composer (the weight control's key).
+          e.preventDefault();
+          openWeights(!cap.weights);
         }
       }}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
@@ -955,7 +967,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
           // engine says so (Chromium, so Windows). The list takes the keyboard; Escape and a choice give it back to the
           // field. Opened from a kept thought's line, it sends that one.
           <Places w={w} later={later} raised={raised} hooks={hooks} />
-        ) : cap.agents ? <AgentList signIn={hooks.agents} /> : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
+        ) : cap.agents ? <AgentList signIn={hooks.agents} /> : cap.weights && weighed ? <WeightList session={session} /> : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
           // The foot: where it goes, who runs it, the microphone, and the key that says what Return does, in that order.
           <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false} data-starting={w.why === 'starting' || undefined}
@@ -968,6 +980,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
               <I n="chev" />
             </button>
             <AgentControl session={session} />
+            {weights && <WeightControl session={session} />}
             <button type="button" class="mic" data-off={(core.in && !service) || undefined} aria-label="Talk"
               title={!core.in ? undefined : service ? `Hold to talk, or hold ${keyName(talkKey())}. A click keeps it on until the next` : 'Voice needs setting up first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>

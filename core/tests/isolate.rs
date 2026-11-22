@@ -1491,6 +1491,7 @@ fn forge(s: &mut Scene, workdir: Workdir) -> ThoughtId {
         placed: None,
         agent: Some(SILENT.into()),
         model: None,
+        weight: None,
         workdir: Some(workdir),
         hold_until: None,
         read: false,

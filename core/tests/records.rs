@@ -229,6 +229,7 @@ fn thought(id: ThoughtId, mode: Mode, phase: Phase, text: &str) -> Thought {
         placed: None,
         agent: None,
         model: None,
+        weight: None,
         workdir: None,
         hold_until: None,
         read: false,

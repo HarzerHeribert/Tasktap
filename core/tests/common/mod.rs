@@ -823,6 +823,7 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         session_id: None,
         agent: None,
         model: None,
+        weight: None,
         current: None,
         view: None,
         auto: false,

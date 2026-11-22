@@ -302,7 +302,7 @@ export function Home() {
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1} onScroll={unpeek}>
       <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} style={{ '--pj': column([...h.waiting, ...h.running, ...(resultsOpen ? results : [])]) }} onKeyDown={nav}>
-        <Capture raised asks={ui.sheet?.kind !== 'capture'} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
+        <Capture raised weights asks={ui.sheet?.kind !== 'capture'} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
         {/* Under the Composer only what was just sent (its Way, its question); what is offered once is the welcome's. */}
         <Finish />
         <div class="cols">

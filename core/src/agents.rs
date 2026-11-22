@@ -71,6 +71,17 @@ pub struct Caps {
     pub questions: Option<ReplyVia>,
 }
 
+/// What an agent's arguments say when the person's own command names a
+/// model or an effort ([`weighed`]): flags, or for a word that ends in `=` a
+/// setting that begins so. The run [`Agent::launch`] makes passes them as
+/// the agent takes them.
+#[derive(Clone, Copy)]
+pub struct Weights {
+    pub model: &'static [&'static str],
+    /// Empty where Tasktap does not know how to pass an effort.
+    pub effort: &'static [&'static str],
+}
+
 /// A new run, as the launcher starts it.
 pub struct Run<'a> {
     pub session: SessionId,
@@ -82,6 +93,8 @@ pub struct Run<'a> {
     /// differently (design §8).
     pub words: Option<&'a str>,
     pub model: Option<&'a str>,
+    /// The effort it asks for, passed where its model is.
+    pub effort: Option<&'a str>,
     /// The agent's handle of the conversation this run continues.
     pub resume: Option<&'a str>,
     /// This program, which the hooks run as `<hook> hook <id>`.
@@ -322,6 +335,13 @@ pub trait Agent: Sync {
     /// What it does only when the person lets it; nothing for most agents.
     fn options(&self) -> &'static [Choice] {
         &[]
+    }
+
+    /// How it takes a model and an effort at the start of a run, where Tasktap
+    /// knows it: a ladder in its row in Settings (`agent_weights`) is for
+    /// such an agent only.
+    fn weights(&self) -> Option<Weights> {
+        None
     }
 
     /// Its program, found on the PATH of the terminals.
@@ -689,6 +709,73 @@ pub fn theirs<'a>(program: &str, words: &'a [String]) -> &'a [String] {
         Some(at) => &words[at + 1..],
         None => &[],
     }
+}
+
+/// What a new run of `agent` at `weight` starts with besides its own
+/// defaults: the model and the effort of that line of the person's ladder
+/// (`agent_weights`). Empty ones are none, and so is one the person's own
+/// command for the agent already names.
+pub fn weighed(
+    agent: &dyn Agent,
+    weight: tasktap_proto::Weight,
+    ladder: &[tasktap_proto::AgentWeight],
+) -> (Option<String>, Option<String>) {
+    let Some(w) = agent.weights() else {
+        return (None, None);
+    };
+    let line = ladder
+        .iter()
+        .find(|l| l.agent == agent.id() && l.weight == weight);
+    let (model, effort) = named(agent);
+    let given =
+        |text: Option<&String>, named: bool| text.filter(|t| !t.is_empty() && !named).cloned();
+    let effort = given(line.map(|l| &l.effort), effort || w.effort.is_empty());
+    (given(line.map(|l| &l.model), model), effort)
+}
+
+/// Whether the person's own command for `agent` names a model, and an effort.
+pub fn named(agent: &dyn Agent) -> (bool, bool) {
+    let Some(w) = agent.weights() else {
+        return (false, false);
+    };
+    let words = command(agent);
+    let args = theirs(agent.program(), &words);
+    let any = |flags: &[&str]| args.iter().any(|a| rules::at_save(flags, &[], a).is_some());
+    (any(w.model), any(w.effort))
+}
+
+/// Checks the person's ladders as they are put: each line names an agent
+/// Tasktap knows how to give a model, a model or an effort as one word an
+/// agent takes for a value (never a flag), and an effort only where Tasktap
+/// knows how to pass one.
+pub fn check_weights(list: &[tasktap_proto::AgentWeight]) -> Result<(), String> {
+    let word = |what: &str, w: &str| match w.len() <= 250
+        && !w.starts_with('-')
+        && !w.chars().any(char::is_control)
+    {
+        true => Ok(()),
+        false => Err(format!(
+            "{what} is at most 250 characters, none a control, not starting with -"
+        )),
+    };
+    for (i, l) in list.iter().enumerate() {
+        let agent = all().into_iter().find(|a| a.id() == l.agent);
+        let weights = agent.and_then(|a| a.weights());
+        let weights =
+            weights.ok_or_else(|| format!("Tasktap does not pass a model to {}", l.agent))?;
+        if list[..i]
+            .iter()
+            .any(|o| o.agent == l.agent && o.weight == l.weight)
+        {
+            return Err(format!("{} has two lines for one weight", l.agent));
+        }
+        if !l.effort.is_empty() && weights.effort.is_empty() {
+            return Err(format!("Tasktap does not pass an effort to {}", l.agent));
+        }
+        word("A model", &l.model)?;
+        word("An effort", &l.effort)?;
+    }
+    Ok(())
 }
 
 /// What starts an agent, up to the arguments Tasktap gives it: the program

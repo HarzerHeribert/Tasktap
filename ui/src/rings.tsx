@@ -76,7 +76,7 @@ function pick(id: string) {
 
 /** The arrows move from the field through the rows and back; Return in the field takes the first, the browser's
  *  Return and Space press a row; Escape leaves it as it was. */
-function arrows(e: KeyboardEvent) {
+export function arrows(e: KeyboardEvent) {
   if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), open(false));
   const list = e.currentTarget as HTMLElement, field = list.querySelector<HTMLInputElement>('#agent-find');
   const rows = [...list.querySelectorAll<HTMLElement>('button')];

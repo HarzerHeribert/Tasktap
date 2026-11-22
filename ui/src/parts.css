@@ -139,6 +139,13 @@ kbd .i{width:12px;height:12px}
 .cap-agent:not([aria-disabled]):hover{background:var(--hover)}
 .cap-agent:not([aria-disabled]):active{background:var(--sel)}
 .agent-list .ring-o{flex:none}
+/* The weight's mark (weights.tsx): three bars in the ring's place and size, as many lit as the weight is heavy; in the list the
+   one chosen is lit whole, as the agent's ring is. */
+.wmark{width:calc(var(--ring-px,22) * 1px);height:calc(var(--ring-px,22) * 1px);flex:none;color:var(--fg)}
+.wmark rect{fill:currentColor}
+.wmark .off{opacity:.28}
+.agent-list .wmark{--ring-px:20}
+.agent-list [aria-selected=false] .wmark{opacity:.62}
 .agent-list [data-s=off] span{color:var(--asks)}
 /* Signing in, the list's last row while an agent is signed out: its mark in the rings' column. */
 .agent-list .sign>.i{flex:none;width:20px;height:14px}

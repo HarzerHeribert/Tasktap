@@ -89,6 +89,11 @@ pub struct Thought {
     pub placed: Option<Placed>,
     pub agent: Option<String>,
     pub model: Option<String>,
+    /// How heavy the person said the task is, when they did: the line of
+    /// the agent's ladder (`agent_weights`) its new run starts on. None is
+    /// Standard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<Weight>,
     pub workdir: Option<Workdir>,
     pub hold_until: Option<Time>,
     pub read: bool,
@@ -456,6 +461,13 @@ pub struct Session {
     pub name: Option<String>,
     pub named_at: Option<Time>,
     pub model: Option<String>,
+    /// The effort its run was started with, when one was named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// The weight its run was started on, when the person's ladder gave it
+    /// a model or an effort.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<Weight>,
     pub cwd: String,
     pub exit: Option<u32>,
     pub error: Option<String>,
@@ -781,6 +793,10 @@ pub enum PrefValue {
     /// own way: a command line each, which stands where the agent's program
     /// would. An agent that is not here is started as Tasktap starts it.
     AgentCommands(Vec<AgentCommand>),
+    /// The person's ladder for each agent: the model and the effort a new run
+    /// of it starts with at each weight. A weight that is not here, or has
+    /// both empty, starts the agent as it starts on its own.
+    AgentWeights(Vec<AgentWeight>),
     /// The person put Setup away on Home (design/ui-directions/NOTES.md §13):
     /// its one-time offers stay in Settings, and Home shows it no more.
     /// False: Home shows it while one of its steps is not done.
@@ -876,6 +892,23 @@ pub struct AgentCommand {
     /// Its command line, apart by spaces, with quotes around a word that
     /// has spaces: `caffeinate -i claude --model opus`.
     pub command: String,
+}
+
+words! {
+    /// How heavy a task is, as the person says it when they start it.
+    pub enum Weight { Light, Standard, Heavy }
+}
+
+/// One line of an agent's ladder: what a new run of `agent` at `weight`
+/// asks for, each as the agent itself takes it. An empty one is the agent's
+/// own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AgentWeight {
+    pub agent: String,
+    pub weight: Weight,
+    pub model: String,
+    pub effort: String,
 }
 
 /// A key combination in a portable form: the modifiers held, and the key
@@ -1205,7 +1238,7 @@ words! {
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
         AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey,
-        AgentCommands, Chatgpt, OwnModel
+        AgentCommands, Chatgpt, OwnModel, AgentWeights
     }
 }
 
@@ -1271,6 +1304,7 @@ impl PrefKey {
             PrefKey::YesKey => PrefValue::YesKey(None),
             PrefKey::NoKey => PrefValue::NoKey(None),
             PrefKey::AgentCommands => PrefValue::AgentCommands(Vec::new()),
+            PrefKey::AgentWeights => PrefValue::AgentWeights(Vec::new()),
             PrefKey::Chatgpt => PrefValue::Chatgpt(None),
             PrefKey::OwnModel => PrefValue::OwnModel(None),
         }
@@ -1309,6 +1343,7 @@ impl PrefValue {
             PrefValue::YesKey(_) => PrefKey::YesKey,
             PrefValue::NoKey(_) => PrefKey::NoKey,
             PrefValue::AgentCommands(_) => PrefKey::AgentCommands,
+            PrefValue::AgentWeights(_) => PrefKey::AgentWeights,
             PrefValue::Chatgpt(_) => PrefKey::Chatgpt,
             PrefValue::OwnModel(_) => PrefKey::OwnModel,
         }

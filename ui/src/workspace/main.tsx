@@ -14,6 +14,7 @@ import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { cap, followSpeech, invite } from '../capture.tsx';
 import { AGENT_KEY, open as openAgents } from '../rings.tsx';
+import { WEIGHT_KEY, open as openWeights } from '../weights.tsx';
 import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { audio, live, loudness, recording, talk } from '../speech/record.ts';
@@ -161,6 +162,8 @@ document.addEventListener('keydown', (e) => {
   // ⌘J on Home, wherever its keyboard is: who runs the thought, the list open in the Composer (the review's N4). In
   // the Composer its form takes it (and closes the list with it).
   if (ui.view === 'home' && hit(AGENT_KEY, e) && !(e.target as HTMLElement).closest?.('.home form.capture') && document.querySelector('.home .cap-agent:not([aria-disabled])')) return (e.preventDefault(), openAgents(true));
+  // ⌘L the same for how heavy it is, where the Composer has the control.
+  if (ui.view === 'home' && hit(WEIGHT_KEY, e) && !(e.target as HTMLElement).closest?.('.home form.capture') && document.querySelector('.home .cap-weight')) return (e.preventDefault(), openWeights(true));
   const inTerminal = !!(e.target as HTMLElement).closest?.('.xterm');
   const id = current()?.id, term = inTerminal && id ? engines.get(id)?.term : undefined;
   // ⌘↓ returns a terminal scrolled back to its end.

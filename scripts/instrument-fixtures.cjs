@@ -241,7 +241,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
     shell('devsrv', 'cuegrid', 'dev server', 'dev');
   }
 
-  const agent = (id, version, signed) => ({ id, name: { claude: 'Claude Code', codex: 'Codex' }[id] ?? id, program: id, supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: now, installed: true, version, signed_in: signed, identity: signed ? 'person@example.com' : null, events: true, resume: true, permissions: 'core', questions: 'core' });
+  const agent = (id, version, signed) => ({ id, name: { claude: 'Claude Code', codex: 'Codex' }[id] ?? id, program: id, supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: now, installed: true, version, signed_in: signed, identity: signed ? 'person@example.com' : null, events: true, resume: true, permissions: 'core', questions: 'core', passes: { effort: true, model_named: false, effort_named: false } });
   const agents = [agent('claude', '2.1.326', true), agent('codex', '0.169.0', !first)];
   // The arrangement: the timer and the result left; the shell and the dev server right; the export below them.
   const layouts = [];

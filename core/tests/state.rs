@@ -21,7 +21,7 @@ use tasktap_proto::{
     ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState, READ_HOLD,
     Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
     SessionState, Set, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
-    ThoughtId, Time, TurnResult, Workdir,
+    ThoughtId, Time, TurnResult, Weight, Workdir,
 };
 
 /// Seconds a thought is held while the preference is unset.
@@ -88,6 +88,7 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         session_id: None,
         agent: None,
         model: None,
+        weight: None,
         current: None,
         view: None,
         auto: false,
@@ -744,6 +745,7 @@ fn row_hold_end_launches_once_the_attempt_is_written() {
         cwd: FOLDER.into(),
         agent: AGENT.into(),
         model: None,
+        effort: None,
         prompt: "fix the build".into(),
         resume: None,
         worktree: None,
@@ -921,6 +923,7 @@ fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
         cwd: FOLDER.into(),
         agent: AGENT.into(),
         model: None,
+        effort: None,
         prompt: "one more thing".into(),
         resume: Some("conversation-1".into()),
         worktree: None,
@@ -928,6 +931,102 @@ fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
     };
     assert_eq!(effects, [Effect::Unhold(f), Effect::Launch(launch)]);
     assert_eq!(w.thought(f).session_id, Some(session));
+}
+
+/// The person's ladder for Claude Code: Light on `haiku` with a low effort, Heavy on `opus` with a high one.
+fn ladder(w: &mut World) {
+    let line = |weight, model: &str, effort: &str| tasktap_proto::AgentWeight {
+        agent: AGENT.into(),
+        weight,
+        model: model.into(),
+        effort: effort.into(),
+    };
+    let list = vec![
+        line(Weight::Light, "haiku", "low"),
+        line(Weight::Heavy, "opus", "high"),
+    ];
+    w.write(|tx| tx.put_pref(&PrefValue::AgentWeights(list)).unwrap());
+}
+
+#[test]
+fn a_new_run_starts_on_the_ladder_of_its_weight() {
+    let mut w = World::new("weights");
+    ladder(&mut w);
+    for (weight, model, effort, kept) in [
+        (
+            Some(Weight::Light),
+            Some("haiku"),
+            Some("low"),
+            Some(Weight::Light),
+        ),
+        (
+            Some(Weight::Heavy),
+            Some("opus"),
+            Some("high"),
+            Some(Weight::Heavy),
+        ),
+        // A weight with no line, and none said: the agent's own, and nothing recorded.
+        (Some(Weight::Standard), None, None, None),
+        (None, None, None, None),
+    ] {
+        let id = ThoughtId::mint();
+        w.ok(captured(Capture {
+            weight,
+            ..capture(id, "fix the build")
+        }));
+        let to = Destination::New(w.project);
+        w.ok(Event::Pick { thought: id, to });
+        let launch = w.start(id);
+        assert_eq!(
+            (launch.model.as_deref(), launch.effort.as_deref()),
+            (model, effort),
+            "{weight:?}"
+        );
+        let session = w.session(launch.session);
+        assert_eq!(
+            (
+                session.model.as_deref(),
+                session.effort.as_deref(),
+                session.weight
+            ),
+            (model, effort, kept),
+            "{weight:?}"
+        );
+    }
+}
+
+#[test]
+fn a_continued_session_keeps_what_it_runs_on() {
+    let mut w = World::new("weights-follow-up");
+    ladder(&mut w);
+    let (_, s) = w.turn();
+    w.write(|tx| {
+        let mut session = tx.session(s).unwrap().unwrap();
+        session.resume = Some("conversation-1".into());
+        (session.model, session.effort) = (Some("sonnet".into()), Some("medium".into()));
+        tx.update_session(&session).unwrap();
+    });
+    w.say(s, Said::TurnFinished { answer: None }).unwrap();
+    w.ok(Event::Exited {
+        session: s,
+        code: Some(0),
+        silent: false,
+    });
+    let f = ThoughtId::mint();
+    w.ok(captured(Capture {
+        weight: Some(Weight::Heavy),
+        ..capture(f, "one more thing")
+    }));
+    w.ok(Event::Pick {
+        thought: f,
+        to: Destination::Session(s),
+    });
+    let launch = w.start(f);
+    assert_eq!(launch.resume.as_deref(), Some("conversation-1"));
+    assert_eq!(
+        (launch.model.as_deref(), launch.effort.as_deref()),
+        (Some("sonnet"), Some("medium"))
+    );
 }
 
 #[test]
@@ -1818,6 +1917,7 @@ fn finished(project: ProjectId, updated: u64) -> Thought {
         placed: None,
         agent: Some(AGENT.into()),
         model: None,
+        weight: None,
         workdir: None,
         hold_until: None,
         read: true,
@@ -1851,6 +1951,8 @@ fn session_in(
         name: None,
         named_at: None,
         model: None,
+        effort: None,
+        weight: None,
         cwd: FOLDER.into(),
         exit: Some(0),
         error: None,
@@ -4407,6 +4509,7 @@ mod dictations {
             session_id: None,
             agent: None,
             model: None,
+            weight: None,
             current: None,
             view: None,
             auto: false,

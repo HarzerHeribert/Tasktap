@@ -39,6 +39,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia, Response};
 
+use super::Weights;
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Headless, Heard, Payload, Prompt, Run, WORDS, activity, digest, fit, line,
@@ -58,7 +59,7 @@ pub const RULES: Rules = Rules {
     // Another conversation, its session's id, the settings its hooks are in,
     // its model; the task after `--`.
     #[rustfmt::skip]
-    taken: &["-c", "--continue", "-r", "--resume", "--session-id", "--settings", "--model", "--"],
+    taken: &["-c", "--continue", "-r", "--resume", "--session-id", "--settings", "--"],
 };
 
 /// Seconds a hook that asked may wait for the person before Claude Code
@@ -248,11 +249,27 @@ impl Agent for Claude {
         }
     }
 
+    fn weights(&self) -> Option<Weights> {
+        Some(Weights {
+            model: &["--model"],
+            effort: &["--effort"],
+        })
+    }
+
     fn launch(&self, run: &Run) -> Vec<String> {
         let mut argv = vec![self.program().to_owned()];
         // As 1.2: a resumed conversation keeps its model.
-        if let (Some(model), None) = (run.model, run.resume) {
-            argv.extend(["--model".into(), model.into()]);
+        if run.resume.is_none() {
+            argv.extend(
+                run.model
+                    .into_iter()
+                    .flat_map(|m| ["--model".into(), m.into()]),
+            );
+            argv.extend(
+                run.effort
+                    .into_iter()
+                    .flat_map(|e| ["--effort".into(), e.into()]),
+            );
         }
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));

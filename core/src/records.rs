@@ -704,6 +704,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                     }
                 }
                 PrefValue::OwnAgents(agents) => crate::agents::plain::own(agents).map(|_| ()),
+                PrefValue::AgentWeights(list) => crate::agents::check_weights(list),
                 // A command kept as it was stands: only its own agent's row
                 // says why this build refuses it.
                 PrefValue::AgentCommands(list) => {

@@ -712,7 +712,7 @@ function fixtures({ question = true } = {}) {
   ];
   const agent = (n, version) => ({
     id: n, name: { claude: 'Claude Code', codex: 'Codex' }[n] ?? n, program: n, supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: NOW, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true,
-    permissions: 'core', questions: 'core',
+    permissions: 'core', questions: 'core', passes: { effort: true, model_named: false, effort_named: false },
   });
   return {
     thoughts, sessions, questions, results,

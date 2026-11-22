@@ -3,7 +3,7 @@
 // thought that began it, in the person's words, with the brief if one was written and how it came by its place; then,
 // in their order, what was asked and how that was answered, and what came back. All of it is from records the page
 // holds; turns that left the live set are read from the core's history (past.ts), as many pages as it takes to find them.
-import type { Question, Session, Thought, TurnResult } from '../../../core/proto/protocol.ts';
+import type { Question, Session, Thought, TurnResult, Weight } from '../../../core/proto/protocol.ts';
 import { useEffect, useRef } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { pending, Status, Told } from '../changes.tsx';
@@ -14,6 +14,10 @@ import { briefOf, placed } from '../way.ts';
 import { agentName, cue, dismiss, focusSession, label, open, page, projectOf, records, why } from './model.ts';
 import { older, past } from './past.ts';
 import { type Act, Frame } from './sheets.tsx';
+import { WEIGHTS } from '../weights.tsx';
+
+/** A weight in Tasktap's word. */
+const named = (w: Weight) => WEIGHTS.find(([id]) => id === w)![1];
 
 /** The time of day of something in a turn; the turn's own first line says the day. */
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -97,8 +101,15 @@ export function SessionSheet({ id }: { id: string }) {
           <Glyph agent={s.agent} />
           <span class="t">{agentName(s.agent)}</span>
           <span class="x"><span class="sx-s"><Mark s={c.s} label="" />{c.words}</span>{c.activity && c.s === 'working' && <span class="sx-m">{c.activity}</span>}</span>
-          <span class="x">{plural(s.turn, 'turn', 'turns')}{s.model && <span class="sx-m">{s.model}</span>}</span>
+          <span class="x">{plural(s.turn, 'turn', 'turns')}</span>
         </div>
+        {(s.model || s.effort) && (
+          <div class="line">
+            <I n="weight" />
+            <span class="t">Model</span>
+            <span class="x">{[s.weight && named(s.weight), s.model, s.effort && `${s.effort} effort`].filter(Boolean).join(', ')}</span>
+          </div>
+        )}
         <div class="line">
           <I n={w ? 'bg' : 'folder'} />
           <span class="t">{w ? `A copy of ${project?.name ?? 'its folder'}` : (project?.name ?? 'Its folder')}</span>

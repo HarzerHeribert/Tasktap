@@ -80,9 +80,8 @@ function Start({ a }: { a: AgentHealth }) {
   );
 }
 
-/** The one alias an agent keeps current by itself, at each weight, where it has such aliases: Claude Code's. Tasktap
- *  ships no other model name. */
-const ALIAS: Record<string, Partial<Record<Weight, string>>> = { claude: { light: 'haiku', standard: 'sonnet', heavy: 'opus' } };
+/** The aliases an agent keeps current by itself, offered as suggestions of its Model fields, where it has such: Claude Code's. Tasktap ships no other model name. The fields' placeholder says the agent's own is used. */
+const ALIAS: Record<string, string[]> = { claude: ['haiku', 'sonnet', 'opus'] };
 /** The ladder of an agent (`agent_weights`): what it starts a new task with at each weight, a model and an effort as the
  *  agent itself takes them; empty is the agent's own. Where the person's own start command already names a model or an
  *  effort, the foot says that one wins. A refusal belongs to the field it came from: it goes with the next line kept. */
@@ -95,20 +94,22 @@ function Ladder({ a }: { a: AgentHealth }) {
     void call('put', { c: 'prefs', id: 'agent_weights', patch: line.model || line.effort ? [...rest, line] : rest }).then(() => say(null), (e: Error) => say([w, sentence(e.message)]));
   };
   const named = p.model_named && p.effort_named ? 'a model and an effort' : p.model_named ? 'a model' : p.effort_named ? 'an effort' : '';
+  const own = `${a.name}'s own`;
   return (
     <>
+      {ALIAS[a.id] && <datalist id={`${a.id}-models`}>{ALIAS[a.id]!.map((m) => <option value={m} />)}</datalist>}
       {WEIGHTS.map(([w, label]) => {
         const why = bad?.[0] === w ? bad[1] : '', hint = why ? undefined : named ? `The command that starts ${a.name} names ${named}, so ${a.name} runs on that at every weight.`
           : `The model and the effort ${a.name} starts a ${label.toLowerCase()} task with; leave a field empty for ${a.name}'s own.`;
         return (
           <Row key={w} name={label} hint={hint}>
             <label class="fld"><span>Model</span>
-              <input class="text" aria-label={`${a.name}, ${label}: model`} placeholder={ALIAS[a.id]?.[w]} spellcheck={false} autocomplete="off" maxLength={250} defaultValue={lines(w)?.model ?? ''}
+              <input class="text" aria-label={`${a.name}, ${label}: model`} list={ALIAS[a.id] ? `${a.id}-models` : undefined} placeholder={own} spellcheck={false} autocomplete="off" maxLength={250} defaultValue={lines(w)?.model ?? ''}
                 onChange={(e) => keep(w, 'model', e.currentTarget.value)} />
             </label>
             {p.effort && (
               <label class="fld"><span>Effort</span>
-                <input class="text short" aria-label={`${a.name}, ${label}: effort`} spellcheck={false} autocomplete="off" maxLength={250} defaultValue={lines(w)?.effort ?? ''}
+                <input class="text short" aria-label={`${a.name}, ${label}: effort`} placeholder={own} spellcheck={false} autocomplete="off" maxLength={250} defaultValue={lines(w)?.effort ?? ''}
                   onChange={(e) => keep(w, 'effort', e.currentTarget.value)} />
               </label>
             )}

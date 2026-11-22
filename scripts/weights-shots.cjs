@@ -3,8 +3,8 @@
 // opened row, its ladder empty and filled; the Composer without the weight control (an empty ladder) and with it, in the
 // agent control's form and size, and with its list open; the session's sheet with its "Model" line. And what holds:
 // - an agent Tasktap knows no way to give a model has no ladder in its row; the ladder's lines are Light, Standard and
-//   Heavy, each a Model and an Effort field (Effort only where Tasktap can pass one), Claude Code's placeholders its
-//   three aliases and no other agent's any name; the foot says the line's sentence while a field has the keyboard, and
+//   Heavy, each a Model and an Effort field (Effort only where Tasktap can pass one), every empty field's placeholder the agent's own, and
+//   Claude Code's three aliases offered as suggestions (a datalist), no other agent's any name; the foot says the line's sentence while a field has the keyboard, and
 //   says the person's own start command wins where that names a model; a field typed in and left is `put prefs
 //   agent_weights`, an empty line gone;
 // - the Composer has the control only while the chosen agent has a line filled, never in the notch; it is the agent
@@ -75,9 +75,10 @@ async function agentsPane(browser, url) {
   const names = await ladderRows(page, 'claude').locator('> .t').allTextContents();
   expect(names.join() === 'Light,Standard,Heavy', `the lines are Light, Standard, Heavy (${names})`);
   const fields = await ladderRows(page, 'claude').first().locator('.fld').evaluateAll((els) => els.map((e) => [e.querySelector('span').textContent, e.querySelector('input').placeholder]));
-  expect(JSON.stringify(fields) === JSON.stringify([['Model', 'haiku'], ['Effort', '']]), `Light has a Model field with haiku and an Effort field (${JSON.stringify(fields)})`);
-  const alias = await ladderRows(page, 'claude').locator('.fld input').evaluateAll((els) => els.filter((e) => e.placeholder).map((e) => e.placeholder));
-  expect(alias.join() === 'haiku,sonnet,opus', `Claude Code's three aliases are the only names shown (${alias})`);
+  expect(JSON.stringify(fields) === JSON.stringify([['Model', "Claude Code's own"], ['Effort', "Claude Code's own"]]), `Light has a Model and an Effort field, both saying Claude Code's own (${JSON.stringify(fields)})`);
+  const alias = await page.evaluate(() => [...document.querySelectorAll('.ag-d datalist')].map((d) => [d.id, [...d.options].map((o) => o.value).join()]));
+  expect(JSON.stringify(alias) === JSON.stringify([['claude-models', 'haiku,sonnet,opus']]), `Claude Code's three aliases are suggestions of its Model fields, no other agent has any (${JSON.stringify(alias)})`);
+  expect(await ladderRows(page, 'claude').locator('.fld input[list=claude-models]').count() === 3, 'each of its Model fields offers them');
   expect(await ladderRows(page, 'opencode').count() === 0, 'OpenCode, which Tasktap knows no way to give a model, has no ladder');
   const at = await plain(page, '.set-pane');
   expect(!at.dots && at.rings === 0, `no "·", no ring in the opened rows (${JSON.stringify(at)})`);

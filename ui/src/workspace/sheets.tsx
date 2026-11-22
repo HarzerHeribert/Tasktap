@@ -19,7 +19,7 @@ import { mac, plain, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import {
   agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, open, openWorkspace,
-  pickFolder, projectName, projects, quiet, QUIET, byPerson, records, setLayout, stop, title, ui,
+  pickFolder, projectName, projects, QUIET, byPerson, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
 import { SessionSheet } from './session.tsx';
@@ -37,94 +37,47 @@ export type Act = { k: string; label: string; do: () => void; kind?: 'primary' |
 /** The frame of every sheet. `size`: a quick decision (the default), a form or a list (`md`), a view to read (`lg`).
  *  `choices`: answers that are a list of their own (where to move, where to send), each a row of the body with its
  *  key. `acts`: the foot. The way out (Esc) is always there, "Close" unless the sheet names it. `bare`: the body is
- *  the Composer, which has its own key, so there is no title to read and no foot. `guard`: the sheet came by itself
- *  (Setup's first step at the first start), so a key answers it only after 600 ms in which no key was pressed anywhere,
- *  and never one held down (page.ts quiet), so nothing the person was typing, and no Return pressed twice, lands on
- *  its answer; one it holds back is said in its foot, and a key it does not take at all is the Composer's, given to it
- *  by `typed`, never swallowed (NOTES §13). `hint`: the foot has a place of a fixed height at its left for a line that
+ *  the Composer, which has its own key, so there is no title to read and no foot. A Return within 600 ms of its answer appearing or changing
+ *  by itself is held back and said in the foot, so nothing meant for what was there before lands on it. `hint`: the foot has a place of a fixed height at its left for a line that
  *  comes and goes (null: empty), which Settings fills with the hint of the row pointed at or focused (form.tsx `foot`). Escape, which only puts it away, and a click are the person's at once. */
-export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, guard = false, typed, hint }: {
-  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean; guard?: boolean;
-  typed?: () => void; hint?: ComponentChildren;
+export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, hint }: {
+  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean; hint?: ComponentChildren;
 }) {
   const [held, hold] = useState('');
-  // A sheet that came by itself is guarded whoever draws it, from the moment it came.
-  const self = guard;
   const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
   const rest = acts.filter((x) => x.k !== 'esc');
-  // What Return gives, and since when: from the moment a sheet that came by itself came; and on every sheet, again from
-  // the moment it appears or changes by itself (the core's answer turns "Searching…" into a question), never by the
+  // What Return gives, and since when: from the moment it appears or changes by itself (the core's answer turns "Searching…" into a question), never by the
   // person's own key or click. A Return within 600 ms of that is held back: one meant for what was there before, or
   // pressed twice, never answers what the person has not seen.
   const returns = [...choices, ...rest].find((x) => x.k === '↩')?.label ?? '';
-  const since = useRef({ what: returns, at: self ? performance.now() : -Infinity });
+  const since = useRef({ what: returns, at: -Infinity });
   if (since.current.what !== returns) since.current = { what: returns, at: byPerson() ? since.current.at : performance.now() };
   // The answer: the one Return gives, else the only one there is, unless the answers are a list of their own.
   const main = rest.find((x) => x.kind === 'primary') ?? (rest.length === 1 && !choices.length ? rest[0] : undefined);
   // Escape does what the answer does (a sheet that only reports): one key is shown, the answer's; Escape still works.
   const one = !!main && main.do === out.do;
-  /** `beside`: the key was pressed in the Composer's field, which keeps the keyboard while a sheet that came by itself
-   *  is over it, so that whatever the person types, however (a dead key, an input method, a paste, a space), goes there:
-   *  then Return with the field empty is the sheet's answer, and Escape and the sheet's ⌘ keys are the sheet's. */
-  const keys = (e: KeyboardEvent, beside = false) => {
-    if (beside && (e.isComposing || (e.target as HTMLTextAreaElement).value?.trim())) return;
-    const typing = !beside && (e.target as HTMLElement).matches('input, textarea');
-    const act = [...choices, ...rest, out].find((x) => (beside && x.k === '↩' ? e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey : matches(x.k, e, typing || (beside && x.k.length === 1))));
+  const keys = (e: KeyboardEvent) => {
+    const typing = (e.target as HTMLElement).matches('input, textarea');
+    const act = [...choices, ...rest, out].find((x) => matches(x.k, e, typing));
     // Return or Space on a button of it is the browser's press of that button, and held back the same.
-    const press = !beside && !act && (e.key === 'Enter' || e.key === ' ') && !!(e.target as HTMLElement).closest('button');
-    // Two clocks (the review's N3): no key in the sheet's first 600 ms, nor within 600 ms of the last key anywhere; and on
-    // any sheet, no Return within 600 ms of its answer appearing or changing by itself.
-    const early = self ? !quiet(e, since.current.at) : e.key === 'Enter' && performance.now() - since.current.at < QUIET;
+    const press = !act && (e.key === 'Enter' || e.key === ' ') && !!(e.target as HTMLElement).closest('button');
+    // No Return within 600 ms of its answer appearing or changing by itself.
+    const early = e.key === 'Enter' && performance.now() - since.current.at < QUIET;
     if (early && (act ? act !== out : press)) {
       e.preventDefault();
       e.stopPropagation();
-      const k = act ? act.k : e.key === ' ' ? 'Space' : '↩';
+      const k = act ? act.k : '↩';
       return hold(`You were typing: press ${said(k)} again${act ? ` to ${toDo(act.label)}` : ''}.`);
     }
-    if (!act) {
-      // Text, typed with the keyboard on the sheet (after Tab, or a click): the Composer's, with the keyboard, the
-      // sheet put away (as Not now). A character with Option or AltGr, a dead key or an input method's first key too.
-      const text = (e.key.length === 1 && !e.metaKey && !(e.ctrlKey && !e.altKey)) || e.key === 'Dead' || e.key === 'Process' || e.keyCode === 229;
-      if (self && typed && !typing && !beside && !press && text) typed();
-      return;
-    }
+    if (!act) return;
     e.preventDefault();
     e.stopPropagation();
     hold('');
     act.do();
   };
-  // While the keyboard is in the Composer under it, the sheet is not modal (a screen reader would hide the field that
-  // has the keyboard): the field is described by the sheet's title and words, and the sheet's arrival is said once, in a
-  // polite live region. With the keyboard in it (Tab), it is modal as any sheet.
-  const [inside, setInside] = useState(false);
-  useLayoutEffect(() => {
-    const field = self && !inside ? document.querySelector<HTMLElement>('.home #capture-input') : null;
-    field?.setAttribute('aria-describedby', 'sheet-title sheet-body');
-    return () => field?.removeAttribute('aria-describedby');
-  }, [self, inside]);
-  useEffect(() => {
-    if (!self) return undefined;
-    const live = document.getElementById('sheet-said') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'sheet-said', className: 'sr' }));
-    live.setAttribute('aria-live', 'polite');
-    const t = setTimeout(() => (live.textContent = [document.getElementById('sheet-title')?.textContent, document.getElementById('sheet-body')?.textContent].filter(Boolean).join('. ')), 100);
-    return () => (clearTimeout(t), (live.textContent = ''));
-  }, []);
-  // A sheet that came by itself leaves the keyboard in the Composer's field (Sheets): its keys are taken there, and
-  // the first text that lands in the field (typed, composed, pasted, dropped) puts the sheet away as Not now.
-  useLayoutEffect(() => {
-    if (!self) return undefined;
-    const inField = (e: Event) => (e.target as HTMLElement)?.id === 'capture-input' && !(e.target as HTMLElement).closest('.sheet');
-    const down = (e: KeyboardEvent) => inField(e) && keys(e, true);
-    // After the field's own handler has taken the text (so the render that puts the sheet away keeps it).
-    const input = (e: Event) => inField(e) && (e.target as HTMLTextAreaElement).value && queueMicrotask(() => typed?.());
-    document.addEventListener('keydown', down, true);
-    document.addEventListener('input', input);
-    return () => (document.removeEventListener('keydown', down, true), document.removeEventListener('input', input));
-  });
   const answer = (x: Act) => <Answer cls="act" k={x.k} label={x.label} danger={x.kind === 'danger'} onClick={x.do} />;
   return (
-    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal={!self || inside ? 'true' : 'false'} aria-labelledby="sheet-title" aria-describedby="sheet-body" tabIndex={-1} data-keys={self ? 'composer' : true} onKeyDown={(e) => keys(e)}
-      onFocusIn={() => setInside(true)} onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setInside(false)}>
+    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-body" tabIndex={-1} data-keys onKeyDown={keys}>
       <header class="sh-h"><h2 id="sheet-title">{name}</h2>{aside}</header>
       <div class="sh-b" id="sheet-body">
         {children}

@@ -17,6 +17,7 @@ const allow = async (page) => {
   await page.waitForSelector('.sheet .sh-f .key');
   await page.click('.sheet .sh-f .key');
 };
+const search = (p) => p.click('.sheet .sh-f >> text=Search in a folder…');
 const both = (...fs) => async (page) => { for (const f of fs) await f(page); };
 /** Scrolls Settings' pane so that what `sel` names is at its top. */
 const scrollTo = (sel, by = 0) => (page) => page.evaluate(([s, b]) => {
@@ -36,7 +37,7 @@ function shots() {
     // Settings says what the first run's sheet says of a search that found nothing.
     'settings-gone': { records: projects('settings-gone'), act: settings,
       says: ['Too many folders in Downloads', 'Over 5,000 folders in ~/Downloads. Choose the folder inside Downloads that holds your projects.',
-        'Found no projects in src', 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.',
+        'No projects found in src',
         'Tasktap may not read code', 'macOS keeps Tasktap out of ~/Documents/code. Allow Tasktap under System Settings › Privacy & Security › Files and Folders, then search code again.',
         'git could not be read', '/Volumes/nas/git: Input/output error.'] },
     'settings-remove': { records: projects('settings-gone'), act: both(settings, wait(300), (p) => p.click('.line.pl:has(.t.path:text("~/projects")) >> text=Remove'), wait(100), scrollTo('.line-n.ask', 160)) },
@@ -70,11 +71,11 @@ function begins() {
 // sentence and the rest behind the "What exactly is read" that follows it, which the check has opened by a click: the
 // note is read with the text that fold shows.
 function promises() {
-  const bad = [], cards = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden);
+  const bad = [], every = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside), cards = every.filter((c) => !c.hidden);
   const text = (sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent).join(' ');
   if (/\band \d+ more\b/i.test(text('.found, .set-pane'))) bad.push('a list of projects says "and N more"');
   const found = document.querySelector('.sheet .found .fr-s');
-  if (found && document.querySelectorAll('.found .fr').length !== cards.length) bad.push(`the first run shows ${document.querySelectorAll('.found .fr').length} of ${cards.length} projects found`);
+  if (found && document.querySelectorAll('.found .fr').length !== every.length) bad.push(`the first run shows ${document.querySelectorAll('.found .fr').length} of ${every.length} projects found`);
   if (document.querySelector('.home .found, .home .fr')) bad.push('what was found stands on Home, not in its sheet');
   const rows = document.querySelectorAll('.pjs > .line.pj');
   if (document.querySelector('.pjs') && !document.querySelector('.set-pane .field input')?.value && rows.length !== cards.length) bad.push(`Settings › Projects shows ${rows.length} of ${cards.length} projects`);

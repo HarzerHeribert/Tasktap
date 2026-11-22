@@ -690,51 +690,11 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
    hold their pose by the same rule in the notch (parts.css). */
 :root:is([data-effects=still],[data-effects=off]) :is(.capture.raised::before,.capture.raised .cap,.capture.raised .cap::after,.pool,.glyph,.turn canvas){transition:none}
 
-/* ——— Projects (projects.tsx): Setup's first step, a sheet, and Settings › Projects ——— */
-/* The folders a person may keep projects in: each a choice that is ticked or not, and one more by the system's dialog. */
-.ticks{display:flex;flex-wrap:wrap;gap:var(--sp2);margin:var(--sp2) 0 var(--sp3)}
-.tick{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);box-shadow:inset 0 0 0 1px var(--line2);font:var(--f-num);color:var(--fg2)}
-.tick:hover{background:var(--hover);color:var(--fg)}
-.tick>i{position:relative;flex:none;width:12px;height:12px;border-radius:2px;box-shadow:inset 0 0 0 var(--i-w) var(--fg3)}
-.tick[aria-checked=true]{color:var(--fg)}
-.tick[aria-checked=true]>i{background:var(--key);box-shadow:none}
-.tick[aria-checked=true]>i::after{content:"";position:absolute;left:4px;top:1.5px;width:3px;height:6.5px;border:solid var(--ink);border-width:0 var(--i-w) var(--i-w) 0;transform:rotate(45deg)}
-.tick.add{font:var(--f-small)}
-.tick.add .i{width:12px;height:12px;color:var(--fg3)}
-/* What was found: a list of Home's kind, on the Composer's edges, one line a project: the name, its folder, why. Every
-   one, in a list that scrolls in the room under the Composer (its height is measured: projects.tsx useRoom). */
-/* The rows share one set of columns (each a subgrid of the list), so the reasons, which give way last, stand on one edge. */
-.fr-s{display:grid;grid-template-columns:var(--lead) calc(140px * var(--ts)) minmax(0,1fr) fit-content(calc(290px * var(--ts)));align-content:start;overflow-y:auto}
-.fr{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
-.fr>.i{align-self:center;justify-self:center;width:14px;height:14px;color:var(--fg3)}
-.fr>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fr-n{font:var(--f-label);color:var(--fg)}
-.fr-f{padding-left:var(--sp3);font:var(--f-num);color:var(--fg3)}
-.fr-w{grid-column:4;padding-left:var(--sp3)}
-.found-n{margin:var(--sp2) 0 0;padding-left:var(--lead);font:var(--f-small);color:var(--fg3)}
-.found-s{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp2) var(--sp3);margin:var(--sp2) 0 0;padding-left:var(--lead);font:var(--f-text);color:var(--fg2)}
-.found-s b{font:var(--f-num);color:var(--fg)}
-.found-o{margin:0 var(--pad) var(--sp2);font:var(--f-small);color:var(--fg3)}
-/* In the sheet the list is the sheet's body: it scrolls with it, and dissolves at its foot as the body does. */
-.sheet .found{padding:0 var(--pad) var(--sp3)}
-.sheet .found .found-o{margin-inline:0}
-.sheet .fr-s{overflow:visible;border-top:1px solid var(--line)}
-.sheet h2 .st{margin-right:var(--sp2);vertical-align:-1px}
-/* Setup's sheets: three facts a person takes in at a glance, then the full sentence behind one quiet line. */
-.facts{display:grid;gap:6px;margin:2px var(--pad) var(--sp3);padding:0;list-style:none;font:var(--f-text);color:var(--fg)}
-.facts li{display:grid;grid-template-columns:16px minmax(0,1fr);text-wrap:pretty}
-.facts li::before{content:"";width:6px;height:1px;margin-top:9px;background:var(--fg3)}
-.facts-n{color:var(--fg2)}
+/* ——— Projects (projects.tsx): Settings › Projects ——— */
 .more-l{display:flex;align-items:center;gap:6px;height:var(--row-h);margin:0 calc(var(--pad) - 6px) var(--sp2);padding:0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
 .more-l:hover{background:var(--hover);color:var(--fg)}
 .more-l .i{width:12px;height:12px;transition:transform var(--t-fast)}
 .more-l[aria-expanded=true] .i{transform:rotate(90deg)}
-.sh-b>.facts-all{margin:0 var(--pad) var(--sp3);font:var(--f-small);color:var(--fg2);text-wrap:pretty;-webkit-user-select:text;user-select:text}
-.sh-b>.ticks{margin:var(--sp1) var(--pad) var(--sp3)}
-@container (max-width:640px){
-  .fr-s{grid-template-columns:var(--lead) calc(120px * var(--ts)) 0 minmax(0,1fr)}
-  .fr-f{display:none}
-}
 /* Settings › Projects: where Tasktap learns of projects, as the Agents list is drawn (a mark, a name, what it found,
    what can be done); then every project, a row that opens to what Tasktap knows of it. A path is in the figures'
    face; a sentence under a row wraps on the name's edge and belongs to the row above. */
@@ -784,6 +744,3 @@ button.line.pj{grid-template-columns:28px 190px minmax(0,1fr) auto}
   .pj-k{grid-template-columns:128px minmax(0,1fr)}
 }
 /* ——— end of Projects ——— */
-/* In the projects step's sheet a found project is its name and why: its folder is in its tooltip, so neither is cut. */
-.sheet .fr-s{grid-template-columns:var(--lead) calc(140px * var(--ts)) 0 minmax(0,1fr)}
-.sheet .fr-f{display:none}

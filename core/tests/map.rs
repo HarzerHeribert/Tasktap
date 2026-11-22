@@ -2232,3 +2232,108 @@ fn git_init_in_a_plain_folder_five_down_is_noticed() {
     let now = map::stamp(&Rule::new(&home, &data), &look);
     assert_ne!(Some(now), look.stamp, "the check notices it");
 }
+
+#[test]
+fn a_folder_with_no_project_in_it_is_offered_as_the_one_result() {
+    let t = Folder::new("bare-named");
+    let (home, data) = home_of(&t);
+    mkdir(&home.join("notes/2024"));
+    mkdir(&home.join("notes/2025"));
+    write(&home.join("notes/todo.txt"), "milk");
+    let (state, note, found) = found_in(&home, &data, &home.join("notes"));
+    assert_eq!((state, note), (LookState::Ready, None));
+    assert_eq!(found, [""], "the folder itself");
+    // Where a project is, the folder is not one beside it.
+    init(&home.join("notes/2025/ledger"));
+    let (_, _, found) = found_in(&home, &data, &home.join("notes"));
+    assert_eq!(found, ["2025/ledger"]);
+    // Nor is a folder that was not searched to its end.
+    let wide = home.join("wide");
+    for i in 0..map::ENTRIES + 1 {
+        mkdir(&wide.join(format!("d{i:05}")));
+    }
+    let out = map::read(Input {
+        rule: Rule::new(&home, &data),
+        data: data.clone(),
+        looks: vec![folder_look(&wide)],
+        opened: Vec::new(),
+        known: Default::default(),
+    });
+    assert_eq!(out.looks[0].1, LookState::Many);
+    assert!(out.cards.is_empty());
+}
+
+#[test]
+fn the_home_folder_is_searched_without_its_plain_and_system_folders() {
+    let t = Folder::new("home-search");
+    let (home, data) = home_of(&t);
+    for rel in [
+        "projects/harbor",
+        "projects/clients/acme/ledger",
+        "tidepool",
+        "Documents/kept",
+        "Library/Caches/cached",
+        "Desktop/draft",
+    ] {
+        init(&home.join(rel));
+    }
+    let (state, note, found) = found_in(&home, &data, &home);
+    assert_eq!((state, note), (LookState::Ready, None));
+    assert_eq!(
+        found,
+        [
+            "projects/clients/acme/ledger",
+            "projects/harbor",
+            "tidepool"
+        ]
+    );
+    // The call the sheet makes: the home folder by name, or as the folder
+    // panel gives it; another person's folder stays refused.
+    let home_text = home.to_str().unwrap().to_owned();
+    let core = Core::start_env(&data, &[], &[("HOME", home_text.as_str())]);
+    let mut w = core.watch();
+    for named in ["~", home_text.as_str()] {
+        w.ok::<call::LookAdd>(&AddLook {
+            id: LookId::mint(),
+            folder: Some(named.to_owned()),
+            agent: None,
+            on: None,
+        });
+    }
+    w.ok::<call::ProjectsLook>(&Empty {});
+    w.sync();
+    assert_eq!(w.model.looks.len(), 1, "one look for the one folder");
+    assert_eq!(w.model.cards.len(), 3);
+    let e = w.refused::<call::LookAdd>(&AddLook {
+        id: LookId::mint(),
+        folder: Some(home.parent().unwrap().to_str().unwrap().to_owned()),
+        agent: None,
+        on: None,
+    });
+    assert_eq!(e.code, Code::Invalid, "{e}");
+}
+
+/// A folder the system will not let Tasktap read ends nothing: what lies
+/// beside it and after it is found, and the walk says it read to its end.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cannot_be_read_is_passed_by_and_the_search_goes_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = Folder::new("refused");
+    let (home, data) = home_of(&t);
+    let top = home.join("code");
+    for rel in ["a/first", "z/last", "m/deeper/down/lowest"] {
+        init(&top.join(rel));
+    }
+    mkdir(&top.join("b/closed/inner"));
+    let closed = top.join("b/closed");
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = std::fs::read_dir(&closed).is_ok();
+    let (state, note, found) = found_in(&home, &data, &top);
+    std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if readable {
+        return; // run as a user the rights do not bind
+    }
+    assert_eq!((state, note), (LookState::Ready, None));
+    assert_eq!(found, ["a/first", "m/deeper/down/lowest", "z/last"]);
+}

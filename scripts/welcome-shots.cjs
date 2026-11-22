@@ -22,7 +22,7 @@ const sheet = (page, name) => page.locator('.sheet').screenshot({ path: path.joi
 const ready = (page) => page.waitForFunction(() => window.__ws?.ui.ready, null, { timeout: 15000 });
 const speech = (r, model = 'none') => ((r.speech = { supported: true, model, have: model === 'ready' ? 1.6e9 : model === 'fetching' ? 6e8 : 0, of: 1.6e9, error: null }), r);
 const state = (page) => page.evaluate(() => ({
-  welcome: !!document.querySelector('.welcome .wc'), home: !!document.querySelector('.hx'), title: document.querySelector('.wc h1')?.textContent ?? '',
+  welcome: !!document.querySelector('.welcome .wc'), home: !!document.querySelector('.hx'), title: document.querySelector('.wc h1')?.firstChild?.textContent ?? '',
   finish: [...document.querySelectorAll('.finish')].map((b) => b.textContent), focus: document.activeElement?.id ?? '', marks: document.querySelectorAll('.wc-m li[data-on]').length,
   rings: document.querySelectorAll('.wc .ring-o, .sheet .ring-o').length, dots: (document.querySelector('.welcome, .finish')?.innerText ?? '').includes('·'),
 }));
@@ -38,11 +38,17 @@ async function main() {
     await settle(page, 1500);
     let s = await state(page);
     expect(s.welcome && !s.home && s.title === 'Your projects', `a first start shows the welcome by itself, in place of Home: "${s.title}"`);
-    expect(await page.locator('.wc-r').count() === 9 && await page.locator('.wc-r [role=switch][aria-checked=true]').count() === 9, 'the search started by itself and the nine projects found are listed, all chosen');
+    expect(await page.locator('.wc-r').count() === 8 && await page.locator('.wc-r [role=switch][aria-checked=true]').count() === 8 && await page.locator('.wc-k').textContent() === '9 found' && await page.locator('.wc-more').textContent() === 'and 1 more', 'the search started by itself: nine found, the count beside the headline as data, eight rows and "and 1 more", all chosen');
+    const order = await page.evaluate(() => ({ looks: [...window.__ws.records.looks.values()].map((l) => l.agent ?? l.folder) }));
+    expect(order.looks.length > 0 && !order.looks.includes('~'), `the search went first to what the core offers (${order.looks.join(', ')}), not to the home folder`);
+    const on = await page.evaluate(() => { const r = (e) => e.getBoundingClientRect(), p = r(document.querySelector('.wc-i')); return ['.wc h1', '.wc-b', '.wc-a', '.wc-f'].every((q) => { const b = r(document.querySelector(q)); return b.left >= p.left - 1 && b.right <= p.right + 1 && b.top >= p.top - 1 && b.bottom <= p.bottom + 1; }) && getComputedStyle(document.querySelector('.wc-i')).backgroundColor !== 'rgba(0, 0, 0, 0)'; });
+    expect(on, 'the whole step stands on one panel of the raised material');
     await shot(page, '1-projects');
     await page.locator('.wc-r [role=switch]').first().click();
     expect(await page.locator('.wc-r [role=switch][aria-checked=false]').count() === 1, 'a project can be switched off');
     await page.locator('.wc-r [role=switch]').first().click();
+    await page.locator('.wc-more').click();
+    expect(await page.locator('.wc-r').count() === 9 && await page.locator('.wc-more').count() === 0, '"and 1 more" opens the full list in place');
     // Return takes the primary action: Continue.
     await page.locator('.wc').focus();
     await page.keyboard.press('Enter');
@@ -55,6 +61,7 @@ async function main() {
     await settle(page, 400);
     s = await state(page);
     expect(s.title === 'Let Tasktap find the project for each task', `step 3: "${s.title}"`);
+    expect(await page.locator('.wc-o > section').count() === 2 && await page.locator('#wc-go').textContent() === 'Sign in with ChatGPT', 'step 3 has two cards, ChatGPT and Your agents, and "Sign in with ChatGPT" is the primary action');
     expect(await page.locator('.wc .sends').count() === 0, 'what is sent is not on the surface before it is asked for');
     await shot(page, '3-placing');
     await page.getByRole('button', { name: 'What is sent' }).click();
@@ -63,6 +70,11 @@ async function main() {
     expect(sends.length > 0 && /password/i.test(sends.join(' ')), `"What is sent" opens the core's full list, one action away (${sends.length} lines)`);
     await shot(page, '3-placing-what-is-sent');
     expect(!(await state(page)).dots && (await state(page)).rings === 0, 'no "·" and no ring in the welcome');
+    // Return takes the primary action: the sign-in with ChatGPT is asked for.
+    await page.locator('.wc').focus();
+    await page.keyboard.press('Enter');
+    await settle(page, 300);
+    expect(await page.evaluate(() => JSON.stringify(window.__fake.calls).includes('chatgpt.sign_in')), 'Return asks for the sign-in with ChatGPT');
     // Skip leaves the step open.
     await page.getByRole('button', { name: 'Skip' }).click();
     await settle(page, 400);
@@ -84,6 +96,20 @@ async function main() {
     expect(s.welcome && s.title !== '', `"Finish setup" comes back to the first open step ("${s.title}")`);
     await page.context().close();
 
+    // ——— Step 1 with 59 projects found ———
+    const many = speech(projects('first-agents'));
+    many.found = [...many.found, ...Array.from({ length: 50 }, (_, i) => ({ ...many.found[i % 9], id: `019a8b6c-7d10-7000-8000-9${String(i).padStart(11, '0')}`, name: `${many.found[i % 9].name}-${i + 2}`, folder: `${many.found[i % 9].folder}-${i + 2}` }))];
+    page = await open(browser, { label: 'workspace', records: many, url: server.url, dpr: 2 });
+    await ready(page);
+    await settle(page, 9000);
+    expect(await page.locator('.wc-k').textContent() === '59 found' && await page.locator('.wc-r').count() === 8 && await page.locator('.wc-more').textContent() === 'and 51 more', 'with 59 found: the count beside the headline, eight rows, "and 51 more"');
+    await shot(page, '1-projects-59');
+    await page.locator('.wc-more').click();
+    await settle(page, 300);
+    expect(await page.locator('.wc-r').count() === 59 && await page.evaluate(() => { const l = document.querySelector('.wc-l'); return l.scrollHeight > l.clientHeight; }), '"and 51 more" opens all 59 in place, in a list that scrolls');
+    await shot(page, '1-projects-59-all');
+    await page.context().close();
+
     // ——— A later start: no welcome by itself ———
     page = await open(browser, { label: 'workspace', records: speech(scene('normal')), url: server.url, dpr: 2 });
     await ready(page);
@@ -95,7 +121,7 @@ async function main() {
     // ——— Step 1 with nothing found ———
     page = await open(browser, { label: 'workspace', records: speech(projects('first-searched', { some: 0 })), url: server.url, dpr: 2 });
     await ready(page);
-    await settle(page, 2000);
+    await settle(page, 3500);
     s = await state(page);
     expect(s.title === 'No projects found in your home folder' && await page.locator('#wc-go').textContent() === 'Search in a folder…', `nothing found: "${s.title}" with "Search in a folder…" as the primary action`);
     await shot(page, '1-projects-none');

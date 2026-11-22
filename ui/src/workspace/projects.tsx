@@ -1,21 +1,20 @@
 // What Tasktap knows of the person's projects (docs/projects-design.md, and the owner's decisions of 2026-11-19 at its
-// end), in the two places a person sees it. At the first run, as Setup's first step (setup.tsx): a sheet that asks
-// where it may learn of them, in three short facts with the full sentence of what is read behind one line, the
-// folders its agents worked in first; then, in the same sheet, what it found, as the sign that looking worked. In Settings › Projects: where it learns of them, every project it knows, and what it knows of each,
-// to see and to correct. The app does the housekeeping; neither place is a list the person has to keep.
+// end), in the two places a person sees it. At the first run, as the welcome's first step (welcome.tsx), whose search is
+// `useFirstSearch`: what the core offers first, then the home folder, and what was found filling in. In Settings ›
+// Projects: where it learns of them, every project it knows, and what it knows of each, to see and to correct. The app
+// does the housekeeping; neither place is a list the person has to keep.
 //
 // Everything shown is the core's: where it looks (`records.looks`), what it knows of each folder (`records.cards`), and
 // what could be looked at, found by `stat` alone with nothing inside read (`projects.offer`). The page keeps only what
 // the person did here a moment ago.
 import type { AddLook, Card, Isolate, Look, Offer, Project } from '../../../core/proto/protocol.ts';
 import { Component, type ComponentChildren } from 'preact';
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
-import { HERE, mac, shownPath } from '../system.ts';
-import { Glyph, I, Key, Mark, ago, plural } from '../ui.tsx';
+import { HERE, mac, plain, shownPath } from '../system.ts';
+import { Glyph, I, ago, plural } from '../ui.tsx';
 import { Choice, Switch } from './form.tsx';
-import { agentName, call, dismiss, fail, focus, open, records, redraw } from './model.ts';
-import { type Act, Frame } from './sheets.tsx';
+import { agentName, call, fail, records, redraw } from './model.ts';
 
 // ——— Words ———
 
@@ -47,8 +46,6 @@ function reasons(c: Card): string[] {
     signs: 'Notes for agents in it',
   })[e]);
 }
-/** The one reason a row on Home gives: an agent's work, else what it says it is, else the strongest sign. */
-const reason = (c: Card) => (c.why.includes('agent') && c.agents.length ? worked(c) : c.about ? `${file(c.about_from) || 'It says'}: ${c.about}` : (reasons(c)[0] ?? ''));
 
 /** What Tasktap reads, said before it reads it: of an agent's history, and of a folder; and what of it goes anywhere. */
 // As the core says what it sends (core/src/route.rs, `SENDS`): of up to 8 projects, the name, the other names and one line.
@@ -58,12 +55,12 @@ const READS_AGENTS = (names: string[]) =>
 /** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */
 const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, never what was said there, and keeps what it learns on ${HERE}.`;
 const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
-/** What makes a folder a project, said where a search found none. */
-const COUNTS = 'A folder counts as a project when it has Git or a package file in it, or when an agent worked there.';
 /** As many folders as one search in a folder goes through (core/src/map.rs, `ENTRIES`). */
 const BUDGET = 5000;
-/** A folder as a person names it: the last part of its path. */
-const folderName = (folder: string) => shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder;
+/** The home folder as either system writes it: /Users/name, /home/name, C:\Users\name. */
+const HOME_FOLDER = /^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)[\\/]?$/;
+/** A folder as a person names it: the last part of its path, and the home folder as what it is. */
+const folderName = (folder: string) => (HOME_FOLDER.test(plain(folder)) ? 'your home folder' : (shownPath(folder).split(/[\\/]/).filter(Boolean).pop() ?? folder));
 /** A search in a folder that found no project, or could not search it: why, in a title and a line, as the core recorded
  *  it. The first run's sheet, Setup's line and Settings › Projects say the same. */
 function nothing(l: Look): { title: string; line: string } | undefined {
@@ -76,7 +73,7 @@ function nothing(l: Look): { title: string; line: string } | undefined {
     case 'failed': return { title: `${name} could not be read`, line: `${path}: ${said}${/[.!?]$/.test(said) ? '' : '.'}` };
     case 'many': return { title: `Too many folders in ${name}`, line: `Over ${BUDGET.toLocaleString('en')} folders in ${path}. Choose the folder inside ${name} that holds your projects.` };
     case 'gone': return { title: `${name} is not there now`, line: `Nothing is at ${path} now. Tasktap searches ${name} again when ${name} is back.` };
-    case 'ready': return l.found ? undefined : { title: `Found no projects in ${name}`, line: COUNTS };
+    case 'ready': return l.found ? undefined : { title: `No projects found in ${name}`, line: '' };
     default: return undefined;
   }
 }
@@ -88,12 +85,12 @@ const stuck = () => looks().find((l) => l.kind === 'folder' && l.on && ['denied'
 function nothingFound(): { title: string; line: string } | undefined {
   const folders = looks().filter((l) => l.kind === 'folder' && l.on), last = folders.find((l) => l.id === begun.last), trouble = stuck();
   return (last && nothing(last)) || (trouble && nothing(trouble))
-    || (folders.length ? { title: `Found no projects in ${and(folders.map((l) => folderName(l.folder ?? '')))}`, line: COUNTS } : undefined);
+    || (folders.length ? { title: `No projects found in ${and(folders.map((l) => folderName(l.folder ?? '')))}`, line: '' } : undefined);
 }
-/** A look is asked for or reads. */
-const searching = () => begun.asking > 0 || looks().some(reading);
-/** What was found, in a few words: the first run's sheet's title, and Setup's line once Tasktap searches. */
-const foundTitle = (n: number) => (searching() && !n ? 'Searching…' : n ? `Found ${plural(n, 'project', 'projects')}` : (nothingFound()?.title ?? 'Found no projects'));
+/** A look is asked for, or the core has named it and its record has not come yet, or it reads. */
+const searching = () => begun.asking > 0 || [...named].some((id) => !records.looks.has(id)) || looks().some(reading);
+/** The looks the core named in its answer to `look.add`. */
+const named = new Set<string>();
 const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} Tasktap opens no project until a task goes there.`;
 
 // ——— What Tasktap knows ———
@@ -103,6 +100,8 @@ const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of e
 export function known(): Card[] {
   return [...records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden).sort(recent);
 }
+/** What a search found, for the first run's sheet: the projects, also those the person switched off there. */
+const found = () => [...records.cards.values()].filter((c) => !c.copy_of && !c.inside).sort(recent);
 const recent = (a: Card, b: Card) => (b.used ?? 0) - (a.used ?? 0) || a.name.localeCompare(b.name);
 const looks = () => [...records.looks.values()];
 /** An agent's history or a folder, being read now. */
@@ -124,188 +123,56 @@ function useOffer(): Offer | undefined {
   }, [now]);
   return offered.now;
 }
-/** Something is still to come: a look is asked for or reads, or what is offered after it is not answered yet. */
-const settling = () => begun.asking > 0 || looks().some(reading) || offered.for !== stand();
 /** The agents whose history is offered and was never asked about: no look names them, on or off. */
 const unasked = (o: Offer) => o.agents.filter((a) => !looks().some((l) => l.kind === 'agent' && l.agent === a.agent));
-/** A folder that holds several projects Tasktap found and was not looked in: a place the person keeps them. */
-const derived = (o: Offer | undefined) => o?.places.find((p) => p.projects >= 2);
 
 /** Adds looks; until the core has them, the first run counts them as reading. */
 const add = (asked: AddLook[]) => {
   begun.asking += asked.length;
-  return Promise.all(asked.map((l) => call('look.add', l).finally(() => (begun.asking--, redraw())))).catch(fail);
+  return Promise.all(asked.map((l) => call('look.add', l).then((id) => (named.add(id), id)).finally(() => (begun.asking--, redraw())))).catch(fail);
 };
 const lookAgents = (agents: string[], on: boolean) => add(agents.map((agent) => ({ id: uuid7(), agent, on })));
 /** Folders to search: the last of them is what the first run's sheet then speaks of. */
 const lookIn = (folders: string[], on = true) =>
   add(folders.map((folder) => ({ id: uuid7(), folder, on }))).then((ids) => void (on && ids?.length && ((begun.last = ids.at(-1)!), redraw())));
-/** A folder chosen in the system's folder panel, searched at once. */
-const pickAndLook = async () => {
+/** A folder chosen in the system's folder panel, searched at once; what it holds is then what the first run's sheet shows. */
+export const searchInFolder = async () => {
   const f = await call('host.pick', { folder: true }).catch(fail);
-  if (f) await lookIn([f]);
+  if (f) ((begun.looked = true), await lookIn([f]));
 };
+/** The home folder, searched at once (the core names it `~`). */
+export const searchHome = () => ((begun.looked = true), lookIn(['~']));
 
-// ——— The first run: Setup's first step, as a sheet ———
+// ——— The first search: the welcome's first step ———
 
-/** What the person did here, in this page's life: looked from the sheet (what was found shows in it), and the folders
- *  ticked and added. Not kept: what they said to Tasktap is in the looks. */
-const begun = { looked: false, asking: 0, ticked: null as Set<string> | null, added: [] as string[], last: null as string | null };
+/** What the person did in this page's life: searched from the welcome (what was found shows there), the folders asked
+ *  for, and the last of them, which a search that found nothing speaks of. Not kept: what they said to Tasktap is in the
+ *  looks. `home`: the home folder was searched, after the folders the core offers found nothing. */
+const begun = { looked: false, asking: 0, last: null as string | null, home: false };
 
-type Step = 'wait' | 'agents' | 'folders' | 'found';
-/** What the projects step shows: the question about the agents' history first, asked once; for a person with none,
- *  where their projects are; after either, what was found. */
-function step(o: Offer | undefined): Step {
-  if (begun.looked) return 'found';
-  if (!o) return 'wait';
-  if (unasked(o).length) return 'agents';
-  if (!o.agents.length && !looks().length) return 'folders';
-  return 'found';
-}
-
-/** The projects step for Setup (setup.tsx): whether it was ever answered (a look exists, on or off: then it never opens
- *  by itself again), whether it is done (Tasktap looks somewhere), and what its row says. */
-export function projectsStep() {
-  const o = useOffer(), all = looks(), n = known().length;
-  // Answered: a look was kept (on, or off for Not now), or Not now was said where there was nothing to keep (Setup's
-  // preference is then stored, as shown).
-  const asked = seen() || offered.failed, done = all.some((l) => l.on);
-  const says = done ? foundTitle(n) : asked ? 'Skipped' : o?.agents.length ? `Where ${and(o.agents.map((a) => a.name))} worked` : 'Choose where your projects are';
-  return { asked, done, says, ready: !!o };
-}
 /** What is stored says the first step was seen: a look was kept, Setup's preference was stored, or a thought was put in
  *  (then Tasktap is in use). Read from the records alone, so it is known before Home's first picture (setup.tsx). */
 export const seen = () => records.looks.size > 0 || records.prefs.has('setup_hidden') || records.thoughts.size > 0;
 
-/** "What exactly is read": the full sentence, behind one quiet line (Setup's sheets). */
-export function Details({ text, label = 'What exactly is read' }: { text: string; label?: string }) {
-  const [shown, show] = useState(false);
-  return (
-    <>
-      <button type="button" class="more-l" aria-expanded={shown} onClick={() => show(!shown)}><I n="chev" /><span>{label}</span></button>
-      {shown && <p class="facts-all">{text}</p>}
-    </>
-  );
-}
-
-/** Setup's first step (NOTES §13), a sheet from the sheet family: a headline, three facts a person takes in at a
- *  glance, the full sentence of what is read behind "What exactly is read", and the keys. Allowed, the same sheet
- *  shows what was found, filling in as the looks read, every project in a list that scrolls inside it; never on Home.
- *  `auto`: it is up by itself at the first start, part of Home's first picture, its facts filling in as the core says
- *  what there is; it takes a key only after 600 ms without one (Frame `guard`), and a key it does not take puts it away
- *  and types into the Composer. Put away in any way (Escape, a click beside it, Open a folder…), it was answered Not
- *  now, and it does not come by itself again. */
-export function ProjectsSheet({ auto }: { auto?: boolean }) {
-  const o = useOffer();
-  const at = step(o);
-  const other: Act = { k: '⌘O', label: 'Open a folder…', do: () => open({ kind: 'open-workspace' }) };
-  // Not now, as the step stands when the sheet goes, whichever way it goes, the moment it goes (after the next frame it
-  // could come after an answer given in a sheet opened again); nothing once it was answered here.
-  const notNow = useRef<() => void>(() => {});
-  useLayoutEffect(() => () => notNow.current(), []);
-  const once = (f: () => void) => () => ((notNow.current = () => {}), f());
-  // A key the sheet does not take is the Composer's: the sheet goes as Not now, and the field has the keyboard before
-  // the key types, so what it types is there.
-  const typed = auto ? () => (focus(document.querySelector<HTMLElement>('.home #capture-input')), dismiss()) : undefined;
-  if (at === 'wait') {
-    notNow.current = answered;
-    return (
-      <Frame size="md" title="Find your projects" guard={auto} typed={typed} acts={[{ k: 'esc', label: 'Not now', do: dismiss }]}>
-        <p class="facts-n" role="status">Searching {HERE} for your agents’ history…</p>
-      </Frame>
-    );
-  }
-  if (at === 'agents' && o) {
-    const asks = unasked(o), names = asks.map((a) => a.name);
-    const later = () => (void lookAgents(asks.map((a) => a.agent), false), answered());
-    notNow.current = later;
-    const allow = once(() => ((begun.looked = true), void lookAgents(asks.map((a) => a.agent), true), redraw()));
-    return (
-      <Frame size="md" title="Find your projects" guard={auto} typed={typed}
-        acts={[other, { k: 'esc', label: 'Not now', do: once(() => (later(), dismiss())) }, { k: '↩', label: 'Allow', kind: 'primary', do: allow }]}>
-        <ul class="facts">
-          <li>Tasktap reads which folders {and(names)} worked in, and when.</li>
-          <li>It never reads what was said.</li>
-          <li>And the first lines of each project's README.</li>
-        </ul>
-        <Details text={READS_AGENTS(names)} />
-      </Frame>
-    );
-  }
-  if (at === 'folders' && o) {
-    const places = [...o.places.map((p) => p.folder), ...begun.added];
-    const ticked = (begun.ticked ??= new Set(o.places.map((p) => p.folder)));
-    const tick = (f: string) => (ticked.has(f) ? ticked.delete(f) : ticked.add(f), redraw());
-    const another = async () => {
-      const f = await call('host.pick', { folder: true }).catch(fail);
-      if (f && !places.includes(f)) begun.added.push(f);
-      if (f) ticked.add(f);
-      redraw();
-    };
-    const chosen = places.filter((f) => ticked.has(f));
-    // Not now is an answer: each folder offered is kept as one not looked in, so it is not offered here again.
-    const later = () => (void lookIn(o.places.map((p) => p.folder), false), answered());
-    notNow.current = later;
-    const look = () => (chosen.length ? ((notNow.current = () => {}), (begun.looked = true), void lookIn(chosen), redraw()) : undefined);
-    return (
-      <Frame size="md" title="Choose where your projects are" guard={auto} typed={typed}
-        acts={[other, { k: 'esc', label: 'Not now', do: once(() => (later(), dismiss())) }, { k: '↩', label: 'Search there', kind: 'primary', do: look }]}>
-        <div class="ticks" role="group" aria-label="Folders to look in">
-          {places.map((f) => <button type="button" class="tick" role="checkbox" aria-checked={ticked.has(f)} onClick={() => tick(f)}><i /><span>{shownPath(f)}</span></button>)}
-          <button type="button" class="tick add" onClick={() => void another()}><I n="plus" /><span>Another folder…</span></button>
-        </div>
-        <ul class="facts">
-          <li>Tasktap reads the names of the folders in them.</li>
-          <li>And the first lines of each project's README.</li>
-          <li>All of it stays on {HERE}.</li>
-        </ul>
-        <Details text={READS_FOLDERS} />
-      </Frame>
-    );
-  }
-  notNow.current = () => {};
-  // Called, not mounted: the same Frame stays, and with it the keyboard, as the step turns into what was found.
-  return Found({ o, other });
-}
-/** Not now is an answer, also where nothing was offered to keep as one: the first step does not come down by itself
- *  again (Setup's preference, stored as it stands, says it was seen). */
-const answered = () => void (records.prefs.has('setup_hidden') || call('put', { c: 'prefs', id: 'setup_hidden', patch: false }).catch(fail));
-
-/** What was found, filling in as the looks read: every project, the most recently worked on first, each with its
- *  folder and why, in a list that scrolls in the sheet. Under it, where most of them are, if Tasktap has not looked
- *  there. */
-function Found({ o, other }: { o: Offer | undefined; other: Act }) {
-  const all = known(), coming = settling(), busy = searching();
-  const place = derived(o), most = place && place.projects * 2 >= all.length;
-  const none = nothingFound(), title = foundTitle(all.length);
-  // A search that stopped at its budget says so under what it found.
-  const stopped = looks().find((l) => l.kind === 'folder' && l.on && l.state === 'ready' && l.note)?.note;
-  return (
-    // It only reports (what it found stays in Setup and Settings): text typed in the Composer under it puts it away.
-    <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} typed={dismiss} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
-      <section class="found" aria-busy={busy}>
-        {all.length > 0 && <p class="found-o">No project is open yet. A task that names a project opens that project.</p>}
-        {all.length > 0 && (
-          <div class="fr-s">
-            {all.map((c) => (
-              <div class="fr" key={c.id} title={[c.name, shownPath(c.folder), c.about].filter(Boolean).join('\n')}>
-                <I n="folder" /><span class="fr-n">{c.name}</span><span class="fr-f">{shownPath(c.folder)}</span><span class="fr-w">{reason(c)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {all.length > 0 && stopped && <p class="found-n">{stopped}</p>}
-        {!busy && !all.length && <p class="found-n">{none?.line ?? COUNTS}</p>}
-        {!busy && !all.length && none && <p class="found-s"><button type="button" class="btn" onClick={() => void pickAndLook()}>Choose another folder…</button></p>}
-        {place && !coming && (
-          <p class="found-s">
-            <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Search there for the others too?</span>
-            <button type="button" class="btn" onClick={() => void lookIn([place.folder])}>Search there</button>
-          </p>
-        )}
-      </section>
-    </Frame>
-  );
+/** The welcome's first step (welcome.tsx): the search starts by itself as the step appears, first with what the core
+ *  offers (the folders the agents worked in, and the places it offers), and when that finds nothing, the home folder.
+ *  It says what stands of it: every project found (also one the person switched off there), whether a look is still to
+ *  come (until the record of each has arrived), and, once everything searched found nothing, why. */
+export function useFirstSearch() {
+  const o = useOffer(), all = found(), busy = searching();
+  useEffect(() => {
+    if (!o || begun.looked || looks().length) return;
+    begun.looked = true;
+    const agents = unasked(o).map((a) => a.agent), places = o.places.map((p) => p.folder);
+    if (!agents.length && !places.length) begun.home = true, void searchHome();
+    else void Promise.all([agents.length && lookAgents(agents, true), places.length && lookIn(places)]);
+  }, [!!o]);
+  // What the core offers found nothing: the home folder, by itself, once.
+  useEffect(() => {
+    if (begun.looked && !begun.home && !busy && !all.length && o && !begun.asking) (begun.home = true, void searchHome());
+  }, [busy, all.length, !!o]);
+  const none = begun.home && !busy && !all.length;
+  return { all, busy, none, why: none ? nothingFound() : undefined };
 }
 
 // ——— Settings › Projects ———
@@ -357,7 +224,7 @@ export function ProjectsPane() {
             <span class="acts"><button type="button" class="btn" onClick={() => void (s.look ? call('put', { c: 'looks', id: s.look.id, patch: { on: true } }).catch(fail) : lookIn([s.folder]))}>Search it</button></span>
           </div>
         ))}
-        <button type="button" class="line fold-l" onClick={() => void pickAndLook()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
+        <button type="button" class="line fold-l" onClick={() => void searchInFolder()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
       </div>
       <p class="note">{SAYS_FOLDERS}</p>
       <button type="button" class="more-l" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>What exactly is read</span></button>

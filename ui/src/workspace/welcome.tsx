@@ -7,11 +7,10 @@
 // setup", that comes back to the first open one; Settings › About shows the welcome again. Nothing of it is kept by the
 // page but where it is: what was answered is in the records (a look, `route_by`, speech), and that the first start was
 // seen is the `setup_hidden` preference, written as the welcome first shows.
-import type { AgentHealth, Card } from '../../../core/proto/protocol.ts';
+import type { AgentHealth } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
-import { uuid7 } from '../client.ts';
 import { keyName } from '../keys.ts';
 import { Voice } from '../motion/voice.ts';
 import { keyTimes, talkKey } from '../page.ts';
@@ -25,7 +24,7 @@ import { PLACING_SAYS, PLACING_TITLE, Sent, serviceName, signInWithChatGPT, useR
 import { Choice, Row, Switch, setPref } from './form.tsx';
 import { Light, useLight } from './light.tsx';
 import { CHATGPT, agent, agentName, call, core, dismiss, fail, loadTerms, page, placers, pref, records, redraw, runs, ui } from './model.ts';
-import { seen } from './projects.tsx';
+import { searchInFolder, seen, useFirstSearch } from './projects.tsx';
 import './welcome.css';
 
 export type Step = 'projects' | 'agents' | 'placing' | 'voice';
@@ -96,9 +95,10 @@ export function WelcomeRow() {
 // ——— The page of a step ———
 
 type Act = { label: string; do: () => void; off?: boolean };
-/** One step: its headline, at most a sentence, what it shows, its one primary action, and the quiet ones. Return takes
- *  the primary action (unless a control has it), Escape leaves, Skip goes on and leaves the step open. */
-function Page({ title, says, primary, other, children }: { title: string; says?: string; primary?: Act; other?: Act; children?: ComponentChildren }) {
+/** One step on one panel: its headline (with `aside`, quiet data beside it), at most a sentence, what it shows, its one
+ *  primary action, the quiet ones, and at the foot where the person is and Skip. Return takes the primary action (unless
+ *  a control has it), Escape leaves, Skip goes on and leaves the step open. */
+function Page({ title, aside, says, primary, other, children }: { title: string; aside?: string; says?: string; primary?: Act; other?: Act; children?: ComponentChildren }) {
   const at = STEPS.indexOf(welcome.step);
   const keys = (e: KeyboardEvent) => {
     if (e.key === 'Escape') return (e.preventDefault(), leave());
@@ -107,55 +107,40 @@ function Page({ title, says, primary, other, children }: { title: string; says?:
   return (
     <div class="wc" id="wc" tabIndex={-1} onKeyDown={keys}>
       <div class="wc-i" key={welcome.step}>
-        <h1>{title}</h1>
+        <h1>{title}{aside && <span class="wc-k">{aside}</span>}</h1>
         {says && <p class="wc-s">{says}</p>}
         <div class="wc-b">{children}</div>
         <div class="wc-a">
           {primary && <button type="button" class="key" id="wc-go" disabled={primary.off} onClick={primary.do}><I n="ret" /><span>{primary.label}</span></button>}
           {other && <button type="button" class="btn lg" onClick={other.do}>{other.label}</button>}
         </div>
+        <footer class="wc-f">
+          <ol class="wc-m" aria-label={`Step ${at + 1} of ${STEPS.length}`}>{STEPS.map((s, i) => <li key={s} data-on={i === at || undefined} data-done={i < at || undefined} />)}</ol>
+          <button type="button" class="wc-skip" onClick={next}>Skip</button>
+        </footer>
       </div>
-      <footer class="wc-f">
-        <ol class="wc-m" aria-label={`Step ${at + 1} of ${STEPS.length}`}>{STEPS.map((s, i) => <li key={s} data-on={i === at || undefined} data-done={i < at || undefined} />)}</ol>
-        <button type="button" class="wc-skip" onClick={next}>Skip</button>
-      </footer>
     </div>
   );
 }
 
 // ——— 1. Projects ———
 
-/** The search, asked once as the step appears: the history of every agent Tasktap may look in, else the folders it
- *  offers in the home folder (what `projects.offer` says, as projects.tsx's first run asks it). */
-let searched = false, finished = false;
-async function search() {
-  if (searched) return;
-  searched = true;
-  if (records.looks.size) return void (finished = true);
-  const o = await call('projects.offer', {}).catch(() => null);
-  const asked = o?.agents.length ? o.agents.map((a) => ({ id: uuid7(), agent: a.agent, on: true })) : (o?.places ?? []).map((p) => ({ id: uuid7(), folder: p.folder, on: true }));
-  await Promise.all(asked.map((l) => call('look.add', l))).catch(fail);
-  finished = true;
-  redraw();
-}
-const projectsAll = (): Card[] => [...records.cards.values()].filter((c) => !c.copy_of && !c.inside).sort((a, b) => (b.used ?? 0) - (a.used ?? 0) || a.name.localeCompare(b.name));
-const inFolder = async () => {
-  const folder = await call('host.pick', { folder: true }).catch(fail);
-  if (folder) await call('look.add', { id: uuid7(), folder, on: true }).catch(fail);
-};
-
+/** Rows shown before "and N more". */
+const ROWS = 8;
 function Projects() {
-  useEffect(() => void search(), []);
-  const all = projectsAll(), looking = [...records.looks.values()].some((l) => l.on && l.state === 'new');
-  const none = finished && !looking && !all.length;
+  const { all, busy, none, why } = useFirstSearch();
+  const [more, showMore] = useState(false);
+  const shown = more ? all : all.slice(0, ROWS);
+  const title = none ? (why && !/^No projects found/.test(why.title) ? why.title : 'No projects found in your home folder') : 'Your projects';
   return (
-    <Page title={none ? 'No projects found in your home folder' : 'Your projects'}
-      primary={none ? { label: 'Search in a folder…', do: () => void inFolder() } : { label: 'Continue', do: next }}
-      other={none ? undefined : { label: 'Search in a folder…', do: () => void inFolder() }}>
-      {looking && !all.length && <p class="wc-n" role="status"><Mark s="working" label="" />Searching</p>}
+    <Page title={title} aside={all.length ? `${all.length} found` : undefined}
+      primary={none ? { label: 'Search in a folder…', do: () => void searchInFolder() } : { label: 'Continue', do: next, off: !all.length }}
+      other={none ? undefined : { label: 'Search in a folder…', do: () => void searchInFolder() }}>
+      {busy && !all.length && <p class="wc-n" role="status"><Mark s="working" label="" />Searching…</p>}
+      {none && why?.line && <p class="wc-n">{why.line}</p>}
       {all.length > 0 && (
-        <div class="wc-l" role="group" aria-label="Projects" aria-busy={looking}>
-          {all.map((c) => (
+        <div class={`wc-l${more ? ' all' : ''}`} role="group" aria-label="Projects" aria-busy={busy}>
+          {shown.map((c) => (
             <div class="wc-r" key={c.id} data-off={c.hidden || undefined}>
               <I n="folder" /><span class="t">{c.name}</span><span class="x">{shownPath(c.folder)}</span>
               <Switch on={!c.hidden} name={`${c.name} is a project`} set={(on) => void call('put', { c: 'cards', id: c.id, patch: { hidden: !on } }).catch(fail)} />
@@ -163,6 +148,7 @@ function Projects() {
           ))}
         </div>
       )}
+      {!more && all.length > ROWS && <button type="button" class="wc-more" onClick={() => showMore(true)}>and {all.length - ROWS} more</button>}
     </Page>
   );
 }
@@ -199,25 +185,19 @@ function Placing() {
   const c = pref('chatgpt')?.state, signed = c === 'signed_in', waiting = c === 'waiting', says = chatgptRow(pref('chatgpt')).says;
   const agree = (only: (agent: string) => boolean) => void write(rows.map((r) => ({ ...r, on: only(r.agent) }))).then(next, fail);
   const asked = rows.filter((r) => r.agent !== CHATGPT && tools.some((x) => x.agent === r.agent));
-  const no = () => void call('put', { c: 'prefs', id: 'route_by', patch: null }).then(next, fail);
   return (
-    <Page title={PLACING_TITLE} says={PLACING_SAYS}>
+    <Page title={PLACING_TITLE} says={PLACING_SAYS}
+      primary={signed ? { label: 'Use ChatGPT', do: () => agree((a) => a === CHATGPT), off: !t } : { label: 'Sign in with ChatGPT', do: signInWithChatGPT, off: waiting }}>
       <div class="wc-o" role="group" aria-label="Who finds the project">
         <section>
           <h2>ChatGPT</h2>
           <Glyph agent={CHATGPT} size={28} />
-          {signed ? <p class="x">Signed in</p> : <button type="button" class="btn lg" disabled={waiting} onClick={signInWithChatGPT}>Sign in with ChatGPT</button>}
-          {signed && <button type="button" class="key" disabled={!t} onClick={() => agree((a) => a === CHATGPT)}><span>Use ChatGPT</span></button>}
+          {(signed || waiting) && <p class="x">{signed ? 'Signed in' : 'Waiting for your browser'}</p>}
         </section>
         <section>
           <h2>Your agents</h2>
           <ol class="wc-q">{asked.map((r) => <li key={r.agent}><Glyph agent={r.agent} size={16} /><span>{agentName(r.agent)}</span></li>)}</ol>
-          <button type="button" class="key" disabled={!t || !asked.length} onClick={() => agree((a) => a !== CHATGPT)}><span>Use my agents</span></button>
-        </section>
-        <section>
-          <h2>Not now</h2>
-          <p class="x">Tasktap asks you where a task goes.</p>
-          <button type="button" class="btn lg" onClick={no}>Not now</button>
+          <button type="button" class="btn lg" disabled={!t || !asked.length} onClick={() => agree((a) => a !== CHATGPT)}>Use my agents</button>
         </section>
       </div>
       {says && <p class={`wc-n${c === 'failed' || c === 'no_plan' || c === 'no_model' ? ' warn' : ''}`} role="status">{says}</p>}

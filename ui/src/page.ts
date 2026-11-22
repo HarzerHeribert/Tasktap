@@ -100,22 +100,16 @@ export function markHeld() {
   for (const el of document.querySelectorAll<HTMLElement>('[data-keys]'))
     el.toggleAttribute('data-held', el.dataset.keys === 'window' ? on : !!at && at !== document.body && (el.contains(at)
       // `field`: the keys act from the Composer's field it stands under too (a question asked at the Composer).
-      || (el.dataset.keys === 'field' && at.id === 'capture-input' && !!el.closest('form')?.contains(at))
-      // `composer`: a sheet that came by itself, whose keys act from Home's Composer, which keeps the keyboard.
-      || (el.dataset.keys === 'composer' && at.id === 'capture-input' && !!at.closest('.home'))));
+      || (el.dataset.keys === 'field' && at.id === 'capture-input' && !!el.closest('form')?.contains(at))));
 }
 
 /** When keys were pressed in this page, anywhere: `last` is the key being handled now, `prev` the one before it. A
- *  key that answers something that came by itself counts only after 600 ms of quiet (`quiet`), so nothing the person
- *  was typing, nor a Return pressed twice, lands on an answer (design/ui-directions/NOTES.md §13). */
+ *  Return within `QUIET` ms of what it would answer appearing is held back (sheets.tsx Frame). */
 export const keyTimes = { last: -Infinity, prev: -Infinity };
 // A modifier pressed alone is not a key here: ⌘ before O is one press, ⌘O.
 const MODIFIERS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'AltGraph', 'CapsLock', 'Fn', 'OS']);
 addEventListener('keydown', (e) => MODIFIERS.has(e.key) || ((keyTimes.prev = keyTimes.last), (keyTimes.last = performance.now())), true);
 export const QUIET = 600;
-/** Whether the key being handled came after `QUIET` ms in which no key was pressed, and `since` (when what it would
- *  answer arrived) is as long ago. A key held down never counts. */
-export const quiet = (e: KeyboardEvent, since = -Infinity) => !e.repeat && performance.now() - Math.max(keyTimes.prev, since) >= QUIET;
 /** Whether what changes now is the person's own doing: it is drawn while their key, click or typing is being handled
  *  (the browser's event of the moment, which a render in its handler's microtasks still sees), not by a timer or the
  *  core's answer. What Return would do that changes by itself counts again only `QUIET` ms later (NOTES §13). */

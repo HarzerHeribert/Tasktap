@@ -203,7 +203,7 @@ async function main(out, dprs, only, check) {
             const rl = role(key, where.some((w) => /\bkbd\b/.test(w))), width = key.split(' ')[4];
             if (width !== '100%') failures.push(`${name} (${TEXT}): text at width ${width} (${where.slice(0, 3).join(', ')})`);
             else if (!rl) failures.push(`${name} (${TEXT}): "${key.split(' ').slice(0, 4).join(' ')}" is no role's (${where.slice(0, 3).join(', ')})`);
-            for (const at of where) if (/\bkbd\b/.test(at) !== (role(key, /\bkbd\b/.test(at))?.name === 'key') && !/ring-o text/.test(at)) failures.push(`${name} (${TEXT}): ${/\bkbd\b/.test(at) ? 'a key outside the key role' : 'the key role on what is no key'} (${at})`);
+            for (const at of where) if (/\bkbd\b/.test(at) !== (role(key, /\bkbd\b/.test(at))?.name === 'key') && !/(ring-o|amark) text/.test(at)) failures.push(`${name} (${TEXT}): ${/\bkbd\b/.test(at) ? 'a key outside the key role' : 'the key role on what is no key'} (${at})`);
           }
           for (const c of await page.evaluate(cut)) notes.push(`${name} (${TEXT}): cut short ${c}`);
         }

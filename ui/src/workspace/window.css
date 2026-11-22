@@ -383,12 +383,11 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .ask-home .qa{margin-top:10px}
 .ask-home .q-detail{max-width:62ch}
 .ask-home:focus-visible{outline-offset:6px}
-/* One row, one thought: an object that keeps its shape at every width. On its first line the agent's seat in the state
-   the thought is in, the thought in the person's words, and the time; under it, quietly, where it is, who works on it
-   and the one fact, in that order, so that what gives way where there is no room is the end of the fact. Words of
-   different sizes stand on one baseline; the seat is centred on the first line. Rows share their columns, and stand
-   two abreast where the column is wide enough for both to be read. A question that is not open is such a row, the
-   question where the thought would be. */
+/* One row, one thought: an object that keeps its shape at every width. On its first line the agent's mark in the state
+   the thought is in, the thought in the person's words, the project and the time; under it, quietly, only what there is
+   to say (a task's row, below). Words of different sizes stand on one baseline; the mark is centred on the first line.
+   Rows share their columns, and stand two abreast where the column is wide enough for both to be read. A question that
+   is not open is such a row, the question where the thought would be. */
 .hrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));column-gap:var(--sp6)}
 .hrs>.hr:only-child{grid-column:1/-1}
 /* A row is as long as the column, every row: the column is the Composer's width (tokens.css --home-w), about 100
@@ -402,13 +401,19 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hr time{grid-area:1/4;font:var(--f-num);color:var(--fg3);text-align:right}
 .hr-m{grid-area:2/2/auto/5;display:flex;min-width:0;white-space:nowrap;color:var(--fg3)}
 .hr-m>*{flex:none}
-.hr-m>*+*::before{content:"·";margin:0 6px;color:var(--fg3)}
-.hr-m>.hr-x{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg2)}
-.hr:has(>.hr-d) .hr-m{grid-column:2/3}
+.hr-m>*+*{margin-left:var(--sp3)}
+.hr-m>.hr-x{flex:0 1 auto;min-width:0;color:var(--fg2)}
+/* A task's row: the project at the right of the title, in one column for every row, and then the time. Under the title
+   only what there is to say: how it failed, or the first line of its answer, quietly. */
+.hr.task{grid-template-columns:var(--lead) minmax(0,1fr) round(120px * var(--ts),1px) 48px}
+.hr.task .hr-t{grid-area:1/2}
+.hr-p{grid-area:1/3;min-width:0;padding-right:var(--sp3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg3)}
+.hr.task .hr-x{grid-area:2/2/auto/5;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg3)}
+.hr.task .hr-x.fail{color:var(--fail)}
+.hr.task:has(>.hr-d) .hr-x{grid-column:2/3}
 .hr-d{grid-area:2/3/auto/5;display:flex;gap:var(--sp3);justify-content:flex-end;min-width:0;padding-left:var(--sp3);font:var(--f-num);white-space:nowrap}
 .hr.bgd .hr-t{color:var(--fg2)}
 .hr.seen .hr-t{font:var(--f-text);color:var(--fg2)}
-.hr.seen .hr-x{color:var(--fg3)}
 .hr-a{grid-column:2/-1;display:flex;gap:6px;padding:8px 0 1px}
 .hr>.told{grid-column:2/-1;margin:6px 0 0}
 .hr .said{font:var(--f-small);color:var(--fg2);white-space:normal}
@@ -476,6 +481,11 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .sh-f{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp1);flex:none;margin-top:-1px;padding:var(--sp2) 10px;border-top:1px solid var(--line)}
 .sh-r{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp1);margin-left:auto}
 .sh-f .act{color:var(--fg2)}
+/* The line Settings' foot has for the hint of the row pointed at or focused: two lines of room whether it says anything or
+   not, so that nothing moves; the rest of the foot keeps to the right. */
+.sh-hint{flex:1 1 0;min-width:0;display:flex;align-items:center;height:round(28px * var(--ts),1px);margin:0;padding:0 var(--sp2);font:var(--f-cap);color:var(--fg3);text-wrap:pretty}
+.sh-hint>span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.sh-f:has(>.sh-hint){flex-wrap:nowrap}
 .sh-f .key{margin-left:6px}
 /* A key the sheet held back while the person was typing (Frame `guard`), said where its keys are. */
 .sh-held{min-width:0;padding:0 var(--sp2);font:var(--f-small);color:var(--asks);text-wrap:pretty}
@@ -509,7 +519,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .sheet .ask-notch .reply{flex:none}
 .sh-b>.list:first-child,.sh-b>:first-child>.list:first-child{border-top:1px solid var(--line)}
 .list{display:grid}
-.line>.ring-o{justify-self:center}
+.line>.amark{justify-self:center}
 .line{display:grid;grid-template-columns:28px 190px minmax(0,1fr) auto;align-items:center;height:var(--home-row);padding:0 18px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .line .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-label);color:var(--fg);white-space:nowrap}
 .line .x{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -519,28 +529,30 @@ button.line:hover{background:var(--hover)}
 .line[data-s=off] .x{color:var(--asks)}
 .line[data-s=none] :is(.t,.x){color:var(--fg3)}
 .line>.i{justify-self:center;width:14px;height:14px;color:var(--fg3)}
-.line .def{color:var(--fg3)}
 /* What a person does with an agent stands at its line's end, side by side. */
 .line .acts{display:flex;align-items:center;gap:var(--sp2);padding-left:var(--sp3)}
-/* Under an agent's line: what it does only when let, with its switch, and what a person should know of it. These
-   are sentences, so they wrap; they stand on the name's edge and are part of the line above, which keeps the rule. */
-.line.ag:has(+ :is(.line.opt,.line-n,.own)){border-bottom-color:transparent}
-.line.opt{height:auto;align-items:start;padding-block:2px 10px}
-.line.opt .t{font:var(--f-small);color:var(--fg2);line-height:18px}
-.line.opt .x{white-space:normal;text-wrap:pretty;font:var(--f-cap);line-height:18px;color:var(--fg3)}
-.line.opt .switch{margin-left:var(--sp3)}
+/* An agent's line: its mark, name and version (or the start command that is kept, in mono), what wants the person, and the
+   chevron that opens it. Opened, its facts stand under it as the rows of Settings do, and are part of the line above. */
+.line.ag{grid-template-columns:28px 190px minmax(0,1fr) auto 28px}
+.line.ag .x{color:var(--fg3)}
+.line.ag .x.warn{color:var(--asks)}
+.line.ag .acts .x{min-width:0;max-width:260px}
+.line.ag .chev{justify-self:end;width:28px;color:var(--fg3)}
+.line.ag .chev .i{width:14px;height:14px;transition:transform var(--t-fast)}
+.line.ag .chev[aria-expanded=true] .i{transform:rotate(90deg)}
+.line.ag:has(+ :is(.ag-d,.own)){border-bottom-color:transparent}
 .line-n{margin:0;padding:0 18px 10px 46px;font:var(--f-cap);color:var(--fg3);text-wrap:pretty}
-:is(.line.opt,.line-n):not(:has(+ :is(.line.opt,.line-n))){border-bottom:1px solid var(--line)}
 /* A line that opens something: the agents that are not here, the form for one of the person's own. */
 button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 .line.fold-l .i{transition:transform var(--t-fast)}
 .line.fold-l[aria-expanded=true] .i{transform:rotate(90deg)}
 .line.fold-l .t{color:var(--fg2)}
 .line.fold-l:hover .t{color:var(--fg)}
-.own{border-bottom:1px solid var(--line)}
-.own .set{border-bottom:0;padding-block:6px}
-.own .set:first-child{padding-top:12px}
-.own .set:last-child{padding-bottom:12px}
+:is(.own,.ag-d){border-bottom:1px solid var(--line)}
+:is(.own,.ag-d) .set{border-bottom:0;padding-block:6px}
+:is(.own,.ag-d) .set:first-child{padding-top:12px}
+:is(.own,.ag-d) .set:last-child{padding-bottom:12px}
+.ag-d .set>.t{color:var(--fg3)}
 /* A session's details (session.tsx), to read: two lines of what it is, what can be done with it, then its turns, the
    newest first. A turn is one set of columns for every line in it: the time, the mark, the words. Nothing is boxed;
    a hairline parts the turns. */

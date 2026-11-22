@@ -1,20 +1,40 @@
 // The parts of a form, wherever one is: Settings, and the sheets that ask before something leaves this Mac. One row
-// for every setting: its question at the left, the answer at the right (a value to read, a control to change it), and
-// under the answer, only where it matters, what the choice means: what is sent, what is stored, what costs power.
+// for every setting: its question at the left, the answer at the right (a value to read, a control to change it). What
+// the choice means (what is sent, what is stored, what costs power) is its hint, which Settings says in the foot of its
+// window while the row has the pointer or the keyboard, and the sheets that ask before something leaves this Mac under
+// the answer.
 // Every row shares the two columns (window.css .set), so labels stand on one edge and answers on another.
 import type { ComponentChildren } from 'preact';
-import { useLayoutEffect, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { PrefPatch, Shortcut } from '../../../core/proto/protocol.ts';
 import { heldNow, isModifier, keyName, pressed, recorder } from '../keys.ts';
 import { Key } from '../ui.tsx';
 import './form.css';
-import { call, fail, sentence } from './model.ts';
+import { call, fail, redraw, sentence, ui } from './model.ts';
 
+/** What the foot of the Settings window says: the hint of the row the pointer is on, else of the row that has the
+ *  keyboard, else nothing (`footing`; Frame `hint`). Nothing else says what a row's choice means. Each is kept with the
+ *  row it is of, so that a hint that changes with the row's state (a sentence) is said as it changes. */
+type Said = { by: object; hint: ComponentChildren } | null;
+export const foot: { focus: Said; point: Said } = { focus: null, point: null };
+export const footing = () => (foot.point ?? foot.focus)?.hint ?? null;
+export const unfoot = () => ((foot.focus = foot.point = null), undefined);
+/** In Settings a row's hint is not drawn in the row: the foot says it while the row has the pointer or the keyboard.
+ *  Elsewhere (the sheets that ask before something leaves this Mac) it stands under the answer. */
 export function Row({ name, hint, children }: { name: string; hint?: ComponentChildren; children: ComponentChildren }) {
+  const settings = ui.sheet?.kind === 'settings', me = useRef({}).current;
+  const say = (at: 'focus' | 'point') => hint && foot[at]?.by !== me && ((foot[at] = { by: me, hint }), redraw());
+  const lose = (at: 'focus' | 'point') => foot[at]?.by === me && ((foot[at] = null), redraw());
+  useLayoutEffect(() => {
+    let changed = false;
+    for (const at of ['focus', 'point'] as const) if (typeof hint === 'string' && foot[at]?.by === me && foot[at].hint !== hint) (foot[at] = { by: me, hint }, (changed = true));
+    if (changed) redraw();
+  });
   return (
-    <div class="set">
+    <div class="set" onFocusIn={settings ? () => say('focus') : undefined} onFocusOut={settings ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && lose('focus') : undefined}
+      onPointerEnter={settings ? () => say('point') : undefined} onPointerLeave={settings ? () => lose('point') : undefined}>
       <span class="t">{name}</span>
-      <div class="c">{children}{hint && <p class="hint">{hint}</p>}</div>
+      <div class="c">{children}{hint && !settings && <p class="hint">{hint}</p>}</div>
     </div>
   );
 }

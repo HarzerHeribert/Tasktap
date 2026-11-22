@@ -2,8 +2,9 @@
 // sections are what a person comes here to do, the most frequent and the most consequential first: what happens to a
 // thought, which agents run the work, the projects and how a thought finds one, how voice becomes text, how the app
 // looks, how a terminal reads, and what the app is and sends. Each row is one decision (form.tsx Row): a label that
-// reads by itself and names what the person decides, the answer readable at a glance with its options completing the
-// label's sentence, and one sentence under it of what changes for them, in plain words; a problem says what to do.
+// reads by itself and names what the person decides, and the answer readable at a glance with its options completing the
+// label's sentence. What changes for them is its hint, one sentence in plain words, said in the foot of the window while
+// the row has the pointer or the keyboard and nowhere else; a problem says what to do, and stays in the row.
 // Every choice the core keeps is a preference (`prefs`), written at once, so the notch and the workspace both follow;
 // nothing is shown that the core cannot keep.
 import { getVersion } from '@tauri-apps/api/app';
@@ -28,7 +29,7 @@ import { ProjectsPane } from './projects.tsx';
 import { ASKS, UpdateRow, checks, update } from './update.tsx';
 import { SetupRow } from './setup.tsx';
 import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
-import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
+import { Choice, Recorder, Row, Switch, setPref, unfoot } from './form.tsx';
 import { agent, agentName, call, fail, loadTerms, openQuestions, page, placers, pref, records, redraw, sentence, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Tasks'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
@@ -372,10 +373,10 @@ function AboutPane() {
         <span class="v">{keys ? KEYS_KEPT : 'None saved'}</span>
       </Row>
       <h3>Licences</h3>
-      <Licence name="Hack" what="The terminal's font · MIT and Bitstream Vera" file="Hack-3.003-LICENSE.md" />
-      <Licence name="Nerd Fonts symbols" what="Symbols in terminal prompts · MIT" file="NerdFonts-3.4.0-LICENSE.txt" />
-      <Licence name="Whisper" what={`The model for speech on ${HERE} · MIT`} file="Whisper-model-LICENSE.txt" />
-      <Licence name="whisper.cpp" what="What runs that model · MIT" file="whisper.cpp-1.9.5-LICENSE.txt" />
+      <Licence name="Hack" what="The terminal's font, MIT and Bitstream Vera" file="Hack-3.003-LICENSE.md" />
+      <Licence name="Nerd Fonts symbols" what="Symbols in terminal prompts, MIT" file="NerdFonts-3.4.0-LICENSE.txt" />
+      <Licence name="Whisper" what={`The model for speech on ${HERE}, MIT`} file="Whisper-model-LICENSE.txt" />
+      <Licence name="whisper.cpp" what="What runs that model, MIT" file="whisper.cpp-1.9.5-LICENSE.txt" />
       <Row name="Libraries" hint="Open source, under the MIT and Apache 2.0 licences; SQLite is in the public domain."><span class="v">xterm.js, Preact, Tauri, Tokio, SQLite</span></Row>
     </>
   );
@@ -389,6 +390,8 @@ const PANES: Record<Section, () => ComponentChildren> = {
 export function Settings({ at }: { at: Section }) {
   shown.at = at;
   useEffect(() => void loadTerms(), []);
+  // The foot's hint belongs to a row of the section shown: gone with it.
+  useLayoutEffect(() => unfoot, [at]);
   // A section by its key, ⌘1 to ⌘7 in the order of the list, from anywhere in the sheet, and only while it is up: the
   // keys go with it the moment it goes (a key pressed right after ⌘W would bring it back).
   useLayoutEffect(() => {

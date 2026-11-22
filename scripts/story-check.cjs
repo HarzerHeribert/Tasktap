@@ -68,7 +68,7 @@ function state() {
     heard: text('#sheet .hear-t'),
     listening: !!d.querySelector('#sheet .cap-row.hear'),
     way: text('#sheet .way'),
-    working: rows.filter((r) => r.dataset.status === 'working' && r.querySelector('.ring-o .turn')).length,
+    working: rows.filter((r) => r.dataset.status === 'working' && r.querySelector('.amark[data-working]')).length,
     asks: !!d.querySelector('#sheet [data-question] .qp'),
     answers: d.querySelectorAll('#sheet [data-question] .ans').length,
     result: text('#sheet .result'),

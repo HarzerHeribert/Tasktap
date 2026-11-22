@@ -52,9 +52,8 @@ i{font-style:normal}
 .st[data-s=failed]{color:var(--fail)}
 .st.bgd{opacity:.45}
 .st[data-s=shell]{color:var(--fg3)}.st[data-s=shell] .i{width:14px;height:14px}
-/* A session's seat (ui.tsx Seat): its agent's ring where the mark would stand, in the mark's colours. Its circle is drawn
-   at the icons' weight whatever its size (--seat, in px) and says the state: the attention colour while it asks, lit
-   for a result not yet seen, the failure colour; while it works the ring's own arc turns. */
+/* A session's seat (ui.tsx Seat): its agent's plain mark where the state mark would stand, --seat px wide, in the state's
+   colours (above): the attention colour while it asks, white for a result not yet seen, the failure colour. */
 .st.of{width:calc(var(--seat,16) * 1px);height:calc(var(--seat,16) * 1px);gap:0}
 .st[data-s=later]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--fg2)}
 
@@ -74,7 +73,7 @@ i{font-style:normal}
 @keyframes pass-3{0%,66.7%{opacity:0}100%{opacity:1}}
 /* Below Full on the effects control (motion.tsx effectsOf) the marks of work hold a pose, in the window and the notch
    alike: the mark at rest, and an agent's ring without its turning arc's motion. */
-:root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn){animation:none}
+:root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn,.amark){animation:none}
 
 /* ——— Materials (tokens.css; NOTES §5). Every control is one of these ———
    Metal: the key and the caps that show a key. Two sizes of key: 24 px, and 34 px on Home's surface. Its face is flat;
@@ -111,6 +110,18 @@ kbd .i{width:12px;height:12px}
 .reply input{flex:1;min-width:0;width:0;font:var(--f-text)}
 .reply:focus-within{background:var(--lit) 0 100%/100% 1px no-repeat,var(--hover)}
 
+/* An agent's plain mark (ui.tsx Glyph): its glyph or letters with no circle, --g px wide, in the colour of what it stands in;
+   a tone says what the agent did (it failed, it asks, it is signed out or not here), and while its work goes on it
+   breathes: only its opacity moves, and not at all below Full on the effects control. */
+.amark{width:calc(var(--g,18) * 1px);height:calc(var(--g,18) * 1px);flex:none;overflow:visible}
+.amark :is(path,text){fill:currentColor}
+.amark text{font:var(--f-key);transform:translateY(.7px)}
+.amark text.one{font-size:calc(15px * var(--ts));font-weight:600}
+.amark[data-tone=fail]{color:var(--fail)}
+.amark[data-tone=asks]{color:var(--asks)}
+.amark[data-tone=quiet]{color:var(--fg3)}
+.amark[data-working]{animation:glyph-work 2.4s ease-in-out infinite alternate}
+@keyframes glyph-work{from{opacity:.4}}
 /* An agent's ring (ui.tsx Ring): its mark in a fine circle. Whole when the agent can run; open, in the attention
    colour, when it is not signed in; lit for the one that runs the next thought; a short arc turns on it while its
    sessions work; the attention colour when one of them asks. */

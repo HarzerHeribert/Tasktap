@@ -31,12 +31,12 @@ const { scene, flow } = require('./instrument-fixtures.cjs');
 
 // Lists: the rows that are siblings, and the parts of a row whose edges must agree.
 const LISTS = [
-  { list: '.hrs', row: ':scope > .hr.run', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
-  { list: '.hrs', row: ':scope > .hr.res', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.run', parts: { mark: '.st', label: '.hr-t', fact: '.hr-x, .hr-m', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.res', parts: { mark: '.st', label: '.hr-t', fact: '.hr-x, .hr-m', time: 'time' } },
   { list: '.hrs', row: ':scope > .hr.later', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
   { list: '.hrs', row: ':scope > .hr.ask', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
   { list: '.folds', row: ':scope > .fold > .fold-h', parts: { mark: '.i', name: 'b', count: '.fold-c', time: 'time' } },
-  { list: '.list', row: ':scope > .line', parts: { mark: '.ring-o, :scope > .i', label: '.t', fact: '.x' } },
+  { list: '.list', row: ':scope > .line', parts: { mark: '.amark, :scope > .i', label: '.t', fact: '.x' } },
   { list: '.sx', row: ':scope > .tn', parts: { time: 'time', label: '.tn-t' } },
   { list: '.ws', row: ':scope > .row.s', parts: { mark: '.st', label: '.lbl' } },
   { list: '.tree', row: ':scope > .row.home, :scope > .ws > .row.w', parts: { label: '.lbl' } },
@@ -88,7 +88,7 @@ function audit([LISTS, KEY]) {
   for (const [within, a, b, wraps] of [
     ['.mic', '.i', 'kbd'], ['.cap-agent', '.ring-o', '.nm'], ['.cap-ask', '.q-asks > .st', '.q-asks'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
     ['.way-h', ':scope > b', ':scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
-    ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.rank', '.ring-o', '.t'], ['.line.rank', '.n', '.t'], ['.line.rank', '.t', '.switch'],
+    ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.rank', '.amark', '.t'], ['.line.rank', '.n', '.t'], ['.line.rank', '.t', '.switch'],
     ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span', true], ['.newt', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
   ])
     for (const el of document.querySelectorAll(within)) {
@@ -313,7 +313,7 @@ function weights() {
     }
   // One baseline: words of different sizes on one line of a row.
   for (const [row, parts] of [
-    ['.hr', [':scope > .hr-t', ':scope > time']], ['.hr', [':scope > .hr-m > :last-child', ':scope > .hr-d']], ['.hr', [':scope > .hr-w', ':scope > .hr-t', ':scope > .hr-x', ':scope > time']],
+    ['.hr', [':scope > .hr-t', ':scope > .hr-p', ':scope > time']], ['.hr', [':scope > .hr-m > :last-child', ':scope > .hr-x', ':scope > .hr-d']], ['.hr', [':scope > .hr-w', ':scope > .hr-t', ':scope > time']],
     ['.hq.open', ['.hq-m > b', ':scope > time']], ['button.hq', ['.hr-w', '.hq-w', '.hq-q', 'time']], ['.hsec h3', ['span', 'i']], ['.fold-h', ['b', '.fold-c i', '.fold-p', 'time']], ['.row.s', ['.lbl', '.meta']],
     ['.row.home', ['.lbl', '.cnt']], ['.row.w', ['.lbl', '.cnt']], ['.rail-l', ['b', 'span']], ['.rows .row', ['.t', '.x', 'time']],
   ])
@@ -348,7 +348,7 @@ function weights() {
  *  a box with room in it. `own` is the tab's width before its wings. */
 function glance(own) {
   const bad = [], box = (el) => el.getBoundingClientRect(), tab = box(document.querySelector('#tab'));
-  const drawn = (root) => [...root.querySelectorAll('.st .ring-o, .brand-m > img.p0, .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
+  const drawn = (root) => [...root.querySelectorAll('.st .ring-o, .st .amark, .brand-m > img.p0, .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
   const around = (bs) => ({ left: Math.min(...bs.map((b) => b.left)), right: Math.max(...bs.map((b) => b.right)), top: Math.min(...bs.map((b) => b.top)), bottom: Math.max(...bs.map((b) => b.bottom)) });
   const off = (n) => `${n > 0 ? '+' : ''}${n.toFixed(2)} px`;
   if (!document.body.classList.contains('cutout')) {

@@ -12,7 +12,7 @@ import { Component, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
 import { HERE, mac, shownPath } from '../system.ts';
-import { I, Key, Mark, Ring, ago, plural } from '../ui.tsx';
+import { Glyph, I, Key, Mark, ago, plural } from '../ui.tsx';
 import { Choice, Switch } from './form.tsx';
 import { agentName, call, dismiss, fail, focus, open, records, redraw } from './model.ts';
 import { type Act, Frame } from './sheets.tsx';
@@ -404,10 +404,10 @@ function AgentLook({ agent, name, look }: { agent: string; name: string; look: L
   const on = !!look?.on;
   const set = (to: boolean) => void (look ? call('put', { c: 'looks', id: look.id, patch: { on: to } }) : call('look.add', { id: uuid7(), agent, on: to })).catch(fail);
   const says = !look || !on ? 'Off' : reading(look) ? 'Reading…' : look.state === 'gone' ? `Not on ${HERE} now`
-    : look.state === 'failed' ? (look.note ?? 'Could not be read') : `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}`;
+    : look.state === 'failed' ? (look.note ?? 'Could not be read') : `${plural(look.found, 'project', 'projects')}${look.looked ? `, read ${ago(look.looked)}` : ''}`;
   return (
     <div class="line pl" data-s={on ? undefined : 'none'} data-agent={agent}>
-      <Ring agent={agent} s="" />
+      <Glyph agent={agent} tone={on ? undefined : 'quiet'} />
       <span class="t">{name}</span>
       <span class="x" title={says}>{says}</span>
       <span class="acts"><Switch on={on} name={`Where ${name} has worked`} set={set} /></span>
@@ -425,7 +425,7 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
   // The row says what happened in a few words, as the first run's sheet does; the line under it says the rest.
   const why = reading(look) ? undefined : nothing(look);
   const state = reading(look) ? 'Reading…' : look.state === 'gone' ? 'Not there now' : why ? why.title
-    : `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}`;
+    : `${plural(look.found, 'project', 'projects')}${look.looked ? `, read ${ago(look.looked)}` : ''}`;
   const note = look.state === 'gone' ? `${kept.length ? `Its ${plural(kept.length, 'project is', 'projects are')}` : 'What it held is'} kept for when it is back.`
     : (why?.line ?? (look.state === 'ready' ? (look.note ?? '') : ''));
   return (
@@ -488,7 +488,7 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
           <Fact k="Folder"><span class="mono">{shownPath(c.folder)}</span>{!c.available && <span class="dim">Not there now</span>}</Fact>
           <Fact k="Called"><Names c={c} /></Fact>
           <Fact k="About">{c.about ? <><span>{c.about}</span>{c.about_from && <span class="dim">{c.about_from}</span>}</> : <span class="dim">Its README and package file say nothing about it.</span>}</Fact>
-          <Fact k="Why Tasktap thinks so"><span>{reasons(c).join(' · ') || 'You opened it'}</span></Fact>
+          <Fact k="Why Tasktap thinks so"><span>{reasons(c).join(', ') || 'You opened it'}</span></Fact>
           <Fact k="Last worked on"><span>{c.used ? `${since(c.used)[0]!.toUpperCase()}${since(c.used).slice(1)}, ${new Date(c.used).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}` : 'Not known'}</span></Fact>
           {copies.length > 0 && (
             <Fact k={copies.length === 1 ? 'Another copy' : 'Other copies'}>

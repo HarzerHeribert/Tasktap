@@ -107,7 +107,7 @@ export const fallback = (t: Pick<Thought, 'route'>) => {
  *  where it should go) `route` only says who wrote the brief. Why a model was not used is the core's sentence, as it is;
  *  with no word (the asking was cut short) that sentence is all there is to say. */
 export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string | null {
-  const r = t.route && { ...t.route, fallback: fallback(t) }, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}` : '';
+  const r = t.route && { ...t.route, fallback: fallback(t) }, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? `, ${r.model}` : ''}` : '';
   switch (t.placed) {
     case 'name':
       // No name was said for certain and one project clearly led: what only it has ("its name and “widgetpack”").
@@ -246,7 +246,7 @@ export function placingSays(state: 'off' | 'on' | 'again', asks: string | null, 
 export function placeWhy(t: PlaceTool, limited: number | null | undefined, now: number, at: (ms: number) => string): string {
   if (limited && limited > now) return `out of quota until ${at(limited)}`;
   const pays = t.pays === 'plan' ? 'included in your subscription' : 'billed by your provider';
-  return t.ms ? `${pays} · about ${Math.max(1, Math.round(t.ms / 1000))} s` : pays;
+  return t.ms ? `${pays}, about ${Math.max(1, Math.round(t.ms / 1000))} s` : pays;
 }
 
 /** What an agent's ring says: how many of its thoughts are being worked on, and its state: not signed in, one of

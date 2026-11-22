@@ -7,7 +7,7 @@ import type { Question, Session, Thought, TurnResult } from '../../../core/proto
 import { useEffect, useRef } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { pending, Status, Told } from '../changes.tsx';
-import { I, Mark, Ring, madeAt, plural, when } from '../ui.tsx';
+import { Glyph, I, Mark, madeAt, plural, when } from '../ui.tsx';
 import { plain, shownPath } from '../system.ts';
 import { briefOf, placed } from '../way.ts';
 import { agentName, cue, dismiss, focusSession, label, open, page, projectOf, records, why } from './model.ts';
@@ -93,7 +93,7 @@ export function SessionSheet({ id }: { id: string }) {
       <div class="sx">
         <div class="list">
         <div class="line">
-          <Ring agent={s.agent} s="" />
+          <Glyph agent={s.agent} />
           <span class="t">{agentName(s.agent)}</span>
           <span class="x"><span class="sx-s"><Mark s={c.s} label="" />{c.words}</span>{c.activity && c.s === 'working' ? ` · ${c.activity}` : ''}</span>
           <span class="x">{plural(s.turn, 'turn', 'turns')}{s.model ? ` · ${s.model}` : ''}</span>

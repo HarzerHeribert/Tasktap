@@ -1,12 +1,12 @@
-// Settings › Agents: the agents this Mac has, however many. The ones that are installed stand first, each one line:
-// its ring, its name, what its own commands said of it and when, what of it the notch cannot do, and the one thing a
-// person does with it here (sign in, make it the default, change one of their own). What an agent does only when let
-// is a switch under its line, off until turned on, with what it allows. The ones that are not installed are folded
-// into one line at the end, and with them the person's own that they removed: such an agent is kept, so that what it
-// ran still says who ran it, until it is added back or forgotten. Last, an agent of the person's own: a name and a
-// command line. Under each agent Tasktap brings, the command that starts it, where the person starts it their own way
-// (a program of theirs around it, arguments of theirs): empty, Tasktap starts it as always. One whose command does not
-// start it stays in sight and says why in the core's words, as one of the person's own does.
+// Settings › Agents: the agents this Mac has, however many. First, which of those that can run now starts new tasks. Then
+// the agents that are installed, each one line: its mark, its name and its version, and at the right only what wants the
+// person (signed out, with Sign in; a start command that fails, and why; Change for one of their own). A chevron opens a
+// row, closed to begin with and not remembered: its account, what of it the notch cannot do, the switches for what it
+// does only when let (off until turned on), and the command that starts it where the person starts it their own way (a
+// program of theirs around it, arguments of theirs): empty, Tasktap starts it as always. The ones that are not installed
+// are folded into one line at the end, and with them the person's own that they removed: such an agent is kept, so that
+// what it ran still says who ran it, until it is added back or forgotten. Last, an agent of the person's own: a name and
+// a command line. What a row means is said in the foot of the window while the row has the pointer or the keyboard.
 //
 // No agent's program runs as the app starts. Opening this section has the core ask those it has not asked in its
 // life whether they are signed in, as giving an agent its first thought does (calls.rs `look`); "Check now" asks
@@ -14,22 +14,24 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { AgentHealth, OwnAgent } from '../../../core/proto/protocol.ts';
 import { HERE, mac } from '../system.ts';
-import { I, Ring, ago } from '../ui.tsx';
+import { Glyph, I, ago } from '../ui.tsx';
 import { agentState, ownAgentLacks } from '../way.ts';
-import { Row, Switch, setPref } from './form.tsx';
+import { Choice, Row, Switch, setPref } from './form.tsx';
 import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
 
 /** What is typed into a terminal to sign an agent in. */
 const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
-/** What a row adds about its agent: whose models it runs, where its name does not say, and what of it the notch
- *  cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`, `questions`): of
- *  one that reports nothing Tasktap hears only when it ends, and what one asks where nothing outside its terminal
- *  can answer is answered there. Nothing is said of what the notch does answer. */
+/** What an opened row says about its agent, a line each: whose models it runs, where its name does not say, and what of it
+ *  the notch cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`,
+ *  `questions`): of one that reports nothing Tasktap hears only when it ends, and what one asks where nothing outside
+ *  its terminal can answer is answered there. Nothing is said of what the notch does answer. */
 const family: Record<string, string> = { agy: 'Gemini' };
-const about = (a: AgentHealth) => {
+const about = (a: AgentHealth): [string, string][] => {
   const [p, q] = [a.permissions === 'terminal', a.questions === 'terminal'];
-  return [family[a.id], !a.events ? 'Tasktap hears only when it ends' : p && q ? 'asks in its terminal' : p ? 'approvals in its terminal' : q && 'questions in its terminal'];
+  return [family[a.id] && ['Models', family[a.id]!], !a.events && ['Progress', 'Tasktap hears only when it ends'], (p || q) && [p && q ? 'Asks' : p ? 'Approvals' : 'Questions', 'In its terminal']]
+    .filter((x): x is [string, string] => !!x);
 };
+const up = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const looking = { on: false };
 function look(again = false) {
@@ -55,9 +57,9 @@ function keepCommand(a: AgentHealth, typed: string): Promise<string> {
   return call('put', { c: 'prefs', id: 'agent_commands', patch: command ? [...rest, { agent: a.id, command }] : rest })
     .then(() => '', (e: Error) => sentence(e.message));
 }
-/** The row under an agent Tasktap brings: the command that starts it, with its program in the empty field, and in one
- *  sentence an example of a start of the person's own (on Windows an argument of Claude Code's; none for Codex, which
- *  has no such harmless one to show). A refusal belongs to what the field holds: it goes with the next command kept,
+/** The line in an agent Tasktap brings: the command that starts it, with its program in the empty field, and an example of
+ *  a start of the person's own in the foot while the field has the keyboard (on Windows an argument of Claude Code's;
+ *  none for Codex, which has no such harmless one to show). A refusal belongs to what the field holds: it goes with the next command kept,
  *  and when the field shows the one kept again, as the section is left. */
 function Start({ a }: { a: AgentHealth }) {
   const [why, say] = useState('');
@@ -65,7 +67,7 @@ function Start({ a }: { a: AgentHealth }) {
   const example = mac ? `caffeinate -i ${p}` : a.id === 'claude' ? `${p} --verbose` : '';
   const hint = <>Write how you start {a.name}{example && <>, such as <code>{example}</code></>}, without shell aliases; leave the field empty for Tasktap's own start.</>;
   return (
-    <Row name={name} hint={why ? undefined : hint}>
+    <Row name="Start command" hint={why ? undefined : hint}>
       <input class="text wide" aria-label={name} placeholder={p} spellcheck={false} autocomplete="off" maxLength={2000} defaultValue={commandOf(a.id)}
         onChange={(e) => void keepCommand(a, e.currentTarget.value).then(say)} />
       {why && <p class="hint err" role="alert">{why}</p>}
@@ -108,8 +110,9 @@ function Own({ at, done }: { at: OwnAgent | null; done: () => void }) {
 
 export function AgentsPane() {
   useEffect(() => look(), []);
-  // The form: closed, open for a new agent (''), or for one of the person's own by its id.
-  const [form, setForm] = useState<string | null>(null), [folded, fold] = useState(true);
+  // The form: closed, open for a new agent (''), or for one of the person's own by its id. The rows opened by their
+  // chevron: none to begin with, and none remembered.
+  const [form, setForm] = useState<string | null>(null), [folded, fold] = useState(true), [opened, openRows] = useState<string[]>([]);
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Finding your agents…</p>;
   const usual = agent()?.id, allowed = pref('agent_options'), own = pref('own_agents');
@@ -120,78 +123,87 @@ export function AgentsPane() {
   // The person's own that they removed: no agents any more, and kept by name for what they ran.
   const gone = own.filter((o) => o.removed);
   const line = (a: AgentHealth) => {
-    const off = runs(a) && a.signed_in === false, on = runs(a) && !off;
+    const off = runs(a) && a.signed_in === false, on = runs(a) && !off, open = opened.includes(a.id);
     // Of one of the person's own that is here there is nothing to check: only what Tasktap hears of it is said. Of one
     // started the person's way whose command does not start it, why, in the core's words.
     const fails = a.supported && a.command_fails ? sentence(a.command_fails) : '';
-    const state = a.own && runs(a) ? '' : fails || agentState(a, looking.on, ago(a.checked));
-    const says = [a.version, state, ...about(a), a.identity].filter(Boolean).join(' · ');
-    // What wants the person: one that is signed out, one of their own whose program is missing. One that is simply
-    // not here is said quietly.
-    const s = on ? undefined : off || mine(a) ? 'off' : 'none';
+    const state = a.own && runs(a) ? '' : agentState(a, looking.on, ago(a.checked));
+    // What wants the person: one that is signed out, one whose command fails, one of their own whose program is missing.
+    // One that is simply not here is quiet.
+    const wants = fails || (!on && !off && mine(a) ? up(state) : '');
+    const command = a.own ? '' : commandOf(a.id);
     return (
       <>
-        <div class="line ag" data-s={s} data-agent={a.id}>
-          <Ring agent={a.id} s={on ? '' : 'off'} />
+        <div class="line ag" data-s={on || off || mine(a) ? undefined : 'none'} data-agent={a.id}>
+          <Glyph agent={a.id} tone={on ? undefined : 'quiet'} />
           <span class="t">{a.name}</span>
-          <span class="x" title={says}>{says}</span>
+          {command ? <span class="x mono" title={command}>{command}</span> : <span class="x">{a.version}</span>}
           <span class="acts">
+            {off && <span class="x warn">Signed out</span>}
             {off && signIn[a.id] && (
               <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }))}>Sign in</button>
             )}
+            {wants && <span class="x warn" title={wants}>{wants}</span>}
             {a.own && <button type="button" class="btn" onClick={() => setForm(a.id)}>Change</button>}
-            {a.id === usual ? <span class="x def">Runs new tasks</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Use for new tasks</button>}
           </span>
+          <button type="button" class="ib chev" aria-expanded={open} aria-label={`${a.name}, details`} onClick={() => openRows(open ? opened.filter((x) => x !== a.id) : [...opened, a.id])}><I n="chev" /></button>
         </div>
         {form === a.id && <Own key={a.id} at={own.find((o) => o.id === a.id) ?? null} done={() => setForm(null)} />}
-        {on && a.note && <p class="line-n">{a.note}</p>}
-        {on && a.options.map((o) => {
-          const id = `${a.id}.${o.id}`;
-          return (
-            <div class="line opt">
-              <span />
-              <span class="t">{o.name}</span>
-              <span class="x">{o.allows}</span>
-              <Switch on={allowed.includes(id)} name={`${a.name}: ${o.name}`} set={(to) => setPref({ id: 'agent_options', patch: to ? [...allowed, id] : allowed.filter((x) => x !== id) })} />
-            </div>
-          );
-        })}
-        {!a.own && a.supported && <Start key={a.id} a={a} />}
+        {open && (
+          <div class="ag-d">
+            {a.identity && <Row name="Account"><span class="v">{a.identity}</span></Row>}
+            {state && <Row name="Status"><span class="v">{up(state)}</span></Row>}
+            {about(a).map(([k, v]) => <Row name={k}><span class="v">{v}</span></Row>)}
+            {on && a.options.map((o) => {
+              const id = `${a.id}.${o.id}`;
+              return (
+                <Row name={o.name} hint={o.allows}>
+                  <Switch on={allowed.includes(id)} name={`${a.name}: ${o.name}`} set={(to) => setPref({ id: 'agent_options', patch: to ? [...allowed, id] : allowed.filter((x) => x !== id) })} />
+                </Row>
+              );
+            })}
+            {on && a.note && <Row name="Note"><span class="v">{a.note}</span></Row>}
+            {!a.own && a.supported && <Start key={a.id} a={a} />}
+          </div>
+        )}
       </>
     );
   };
+  const can = agents.filter((a) => runs(a) && a.signed_in !== false);
   return (
     <>
+      <Row name="New tasks start with" hint="For a single task, choose a different agent where you write the task.">
+        <Choice name="New tasks start with" value={usual ?? ''} all={can.map((a): [string, string] => [a.id, a.name])} set={(id) => setPref({ id: 'agent', patch: id })} />
+      </Row>
       <div class="list">
         {here.map(line)}
         {rest.length + gone.length > 0 && (
           <button type="button" class="line fold-l" aria-expanded={!folded} onClick={() => fold(!folded)}>
             <I n="chev" />
             <span class="t">{rest.length ? `Not on ${HERE}` : 'Removed'}</span>
-            <span class="x">{[...rest.map((a) => a.name), ...gone.map((o) => `${o.name} (removed)`)].join(', ')}</span>
+            <span class="x">{rest.length + gone.length}</span>
           </button>
         )}
         {!folded && rest.map(line)}
         {!folded && gone.map((o) => (
           <div class="line ag" data-s="none" data-agent={o.id}>
-            <Ring agent={o.id} s="off" />
+            <Glyph agent={o.id} tone="quiet" />
             <span class="t">{o.name}</span>
-            <span class="x">Removed: its name stays on its past work</span>
+            <span class="x">Removed</span>
             <span class="acts">
               <button type="button" class="btn" onClick={() => void keepOwn(own.map((x) => (x.id === o.id ? { ...x, removed: false } : x))).catch(fail)}>Add back</button>
               <button type="button" class="btn" onClick={() => void keepOwn(own.filter((x) => x.id !== o.id)).catch(fail)}>Forget</button>
             </span>
+            <span />
           </div>
         ))}
         {form === '' ? <Own key="new" at={null} done={() => setForm(null)} /> : (
           <button type="button" class="line fold-l" onClick={() => setForm('')}>
             <I n="plus" />
             <span class="t">Add your own agent</span>
-            <span class="x">Any command-line program that ends when the work is done</span>
           </button>
         )}
       </div>
-      <p class="note">New tasks go to the agent that says “Runs new tasks”; for a single task, choose a different agent where you write the task.</p>
       <Row name="Check which agents are signed in" hint="Each agent is asked once after Tasktap starts, when you first open Agents or give an agent a task; Check now asks all again.">
         <button type="button" class="btn" disabled={looking.on} onClick={() => look(true)}>{looking.on ? 'Checking…' : 'Check now'}</button>
       </Row>

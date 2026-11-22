@@ -13,7 +13,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
-import { I, Ring } from '../ui.tsx';
+import { Glyph, I } from '../ui.tsx';
 import { AGAIN, type Rank, agreement, chatgptOffer, chatgptRow, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
 import { CHATGPT, agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
@@ -79,9 +79,10 @@ function Ranks({ rows, set, lead }: { rows: Rank[]; set: (rows: Rank[]) => void;
             aria-label={`${n[i] ? `${n[i]}, ` : ''}${agentName(r.agent)}, ${r.on ? 'on' : 'off'}, ${why}`}
             onKeyDown={keys(i)} onPointerDown={press(i)} onPointerMove={drag} onPointerUp={drop} onPointerCancel={drop}>
             <span class="n">{n[i] ?? ''}</span>
-            <Ring agent={r.agent} s="" />
+            <Glyph agent={r.agent} tone={r.on ? undefined : 'quiet'} />
             <span class="t">{agentName(r.agent)}</span>
-            <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={`${model} · ${why}`}>{model} · {why}</span>
+            <span class="x m" title={model}>{model}</span>
+            <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={why}>{why}</span>
             <button type="button" role="switch" class="switch" tabIndex={-1} aria-checked={r.on} aria-label={`${agentName(r.agent)} helps find the project`} onClick={() => toggle(i)}><span /></button>
           </div>
         );
@@ -103,8 +104,9 @@ function SignIn({ sign, says }: { sign: () => void; says?: boolean }) {
   return (
     <div class="line rank sign off" role="listitem" aria-label={`ChatGPT, not signed in${c.says ? `. ${c.says}` : ''}`}>
       <span class="n" />
-      <Ring agent={CHATGPT} s="" />
+      <Glyph agent={CHATGPT} tone="quiet" />
       <span class="t">ChatGPT</span>
+      <span />
       <span class={`x${c.state === 'out' ? ' warn' : ''}`}>{says ? c.says : ''}</span>
       {c.state === 'waiting' ? <button type="button" class="btn" onClick={signOut}>Cancel</button>
         : <button type="button" class="btn" onClick={sign}>Sign in with ChatGPT</button>}
@@ -144,20 +146,19 @@ export function Finding() {
   const on = rows.filter((r) => r.on).map((r) => agentName(r.agent)), c = chatgptRow(pref('chatgpt'));
   if (agreed && tools.length)
     return (
-      <Row name={FINDING} hint={on.length ? `Tasks you do not place go where they belong: ${on.length > 1 ? 'the first of these to answer' : on[0]} decides from earlier tasks and what your agents last answered.`
-        : 'Every agent here is switched off, so only tasks that name their project are placed; Tasktap asks you about the rest.'}>
+      <Row name={FINDING} hint={`${on.length ? `Tasks you do not place go where they belong: ${on.length > 1 ? 'the first of these to answer' : on[0]} decides from earlier tasks and what your agents last answered.`
+        : 'Every agent here is switched off, so only tasks that name their project are placed; Tasktap asks you about the rest.'} ${MOVES}`}>
         <Ranks rows={rows} set={set} lead={<SignIn sign={sheet} says />} />
         <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
         <button type="button" class="btn" onClick={sheet}>What is sent…</button>
         {c.state === 'in' && <button type="button" class="btn" onClick={signOut}>Sign out</button>}
-        <span class="v dim">{MOVES}</span>
       </Row>
     );
   return (
     <Row name={FINDING} hint={c.says ?? (state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
       : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ', until you sign in with ChatGPT, or an agent under Agents' : ''}.`)}>
       {state === 'again' ? <span class="v warn">{AGAIN}</span> : <span class="v">Off: only tasks that name their project</span>}
-      <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : tools.length > 0 ? 'Let your agents help…' : 'Sign in with ChatGPT…'}</button>
+      <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : c.state === 'in' && tools.length > 0 ? 'Let your agents help…' : 'Sign in with ChatGPT…'}</button>
     </Row>
   );
 }
@@ -269,10 +270,10 @@ function OnThisMac({ l, used }: { l: Local | null; used: boolean }) {
   const part = l.have > 0 && l.have < l.of;
   return (
     <>
-      {l.model === 'ready' && <><span class="v">{used ? 'Ready' : 'Ready, not in use'} · {MODEL} · {mb(l.of)} on {HERE}</span><button type="button" class="btn" onClick={() => act('remove')}>Remove</button></>}
+      {l.model === 'ready' && <><span class="v">{used ? 'Ready' : 'Ready, not in use'}, {MODEL}, {mb(l.of)} on {HERE}</span><button type="button" class="btn" onClick={() => act('remove')}>Remove</button></>}
       {l.model === 'fetching' && (
         <>
-          <span class="v" role="status">Downloading · {Math.floor((100 * l.have) / l.of)} % of {mb(l.of)}</span>
+          <span class="v" role="status">Downloading {Math.floor((100 * l.have) / l.of)} % of {mb(l.of)}</span>
           <button type="button" class="btn" onClick={() => act('stop')}>Stop</button>
           <progress class="got" max={l.of} value={l.have} aria-label="Download" />
         </>
@@ -329,7 +330,7 @@ export function Speech() {
           <button type="button" role="radio" aria-checked={here} onClick={() => choose('local')}>On {HERE}</button>
           <button type="button" role="radio" aria-checked={!here} onClick={() => choose('service')}>At a speech service</button>
         </div>
-        {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {svc} · {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}
+        {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {svc}, {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}
       </Row>
       {by && !here && <Row name={`Key for ${svc}`} hint={`Sent only to ${svc}, with each recording, and never shown again.`}><Key server={by.server} /></Row>}
       <Row name={SPOKEN} hint={!languages.length ? 'Any language is listened for; choosing yours, up to four, helps Tasktap write down the right words.'

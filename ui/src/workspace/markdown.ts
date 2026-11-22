@@ -95,3 +95,8 @@ export function parse(text: string, depth = 0): Block[] {
   }
   return out;
 }
+
+const words = (a: Inline[]): string => a.map((x) => (typeof x === 'string' ? x : x.t === 'code' ? x.s : words(x.s))).join('');
+/** The first line of a Markdown text as plain words: its list or heading mark gone, and the marks of emphasis, code and
+ *  links reduced to what they hold. */
+export const firstLine = (text: string) => words(inline((text.split('\n').find((l) => l.trim()) ?? '').trim().replace(/^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/, '')));

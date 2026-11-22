@@ -46,7 +46,7 @@ function keys() {
 function fonts() {
   const found = {};
   for (const el of document.querySelectorAll('body *')) {
-    if (el.closest('.xterm') || (el.closest('svg') && !el.closest('.ring-o'))) continue;
+    if (el.closest('.xterm') || (el.closest('svg') && !el.closest('.ring-o, .amark'))) continue;
     const field = el.matches('input, textarea');
     if (!field && ![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
     if (!el.getClientRects().length) continue;
@@ -112,7 +112,7 @@ async function main() {
         if (!r) failures.add(`${at}: "${key.split(' ').slice(0, 4).join(' ')}" is no role's face, size, weight and spacing (${w})`);
         else used[r.name].add(w);
         // A key is in the key role and nothing else is, but the letters that stand for an agent with no mark.
-        if (r && isKey !== (r.name === 'key') && !/ring-o text/.test(w)) failures.add(`${at}: ${isKey ? `a key is set in the ${r.name} role` : 'something that is no key is set in the key role'} (${w})`);
+        if (r && isKey !== (r.name === 'key') && !/(ring-o|amark) text/.test(w)) failures.add(`${at}: ${isKey ? `a key is set in the ${r.name} role` : 'something that is no key is set in the key role'} (${w})`);
       }
     }
   };

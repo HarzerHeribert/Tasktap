@@ -24,6 +24,7 @@ import {
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
 import { SetupSheet } from './setup.tsx';
 import { SessionSheet } from './session.tsx';
+import { footing } from './form.tsx';
 import { Settings } from './settings.tsx';
 
 /** A sheet replaced by another (Review, then Discard) is not dropped again. */
@@ -40,10 +41,11 @@ export type Act = { k: string; label: string; do: () => void; kind?: 'primary' |
  *  (Setup's first step at the first start), so a key answers it only after 600 ms in which no key was pressed anywhere,
  *  and never one held down (page.ts quiet), so nothing the person was typing, and no Return pressed twice, lands on
  *  its answer; one it holds back is said in its foot, and a key it does not take at all is the Composer's, given to it
- *  by `typed`, never swallowed (NOTES §13). Escape, which only puts it away, and a click are the person's at once. */
-export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, guard = false, typed }: {
+ *  by `typed`, never swallowed (NOTES §13). `hint`: the foot has a place of a fixed height at its left for a line that
+ *  comes and goes (null: empty), which Settings fills with the hint of the row pointed at or focused (form.tsx `foot`). Escape, which only puts it away, and a click are the person's at once. */
+export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, guard = false, typed, hint }: {
   title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean; guard?: boolean;
-  typed?: () => void;
+  typed?: () => void; hint?: ComponentChildren;
 }) {
   const [held, hold] = useState('');
   // A sheet that came by itself is guarded whoever draws it, from the moment it came.
@@ -130,6 +132,7 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
       </div>
       {!bare && (
         <footer class="sh-f">
+          {hint !== undefined && <p class="sh-hint"><span>{hint}</span></p>}
           {rest.filter((x) => x !== main).map(answer)}
           {held && <span class="sh-held" role="status">{held}</span>}
           <span class="sh-r">
@@ -343,7 +346,7 @@ function Body() {
         </Frame>
       );
     case 'settings':
-      return <Frame size="lg" title="Settings"><Settings at={d.at ?? 'thoughts'} /></Frame>;
+      return <Frame size="lg" title="Settings" hint={footing()}><Settings at={d.at ?? 'thoughts'} /></Frame>;
     case 'placing':
       return <PlacingSheet back={d.back} />;
     case 'speech':

@@ -51,7 +51,7 @@ function useSteps(): Step[] {
   });
   steps.push({
     id: 'speech', label: 'Talk instead of typing',
-    says: service ? `By ${serviceName(service.server)}` : l?.model === 'ready' ? `On ${HERE}` : l?.model === 'fetching' ? `Downloading · ${share(l.have, l.of)}` : l?.supported ? `On ${HERE}, ${size(l.of)} to download once` : 'With a speech service',
+    says: service ? `By ${serviceName(service.server)}` : l?.model === 'ready' ? `On ${HERE}` : l?.model === 'fetching' ? `Downloading ${share(l.have, l.of)}` : l?.supported ? `On ${HERE}, ${size(l.of)} to download once` : 'With a speech service',
     done: speaks, act: speaks ? 'See' : l?.model === 'fetching' ? 'See' : 'Set up',
     go: () => open({ kind: 'setup', step: 'speech' }),
   });
@@ -174,7 +174,7 @@ function SpeechSetup() {
     <Frame size="md" title="Talk instead of typing" acts={acts}>
       <ul class="facts">{facts.map((f) => <li>{f}</li>)}</ul>
       {l?.model === 'fetching' && (
-        <p class="got-l" role="status"><Mark s="working" label="" /><span>Downloading · {share(l.have, l.of)} of {size(l.of)}</span><button type="button" class="btn" onClick={() => act('stop')}>Stop</button><progress class="got" max={l.of} value={l.have} aria-label="Download" /></p>
+        <p class="got-l" role="status"><Mark s="working" label="" /><span>Downloading {share(l.have, l.of)} of {size(l.of)}</span><button type="button" class="btn" onClick={() => act('stop')}>Stop</button><progress class="got" max={l.of} value={l.have} aria-label="Download" /></p>
       )}
       {l?.model === 'ready' && !service && <p class="got-l" role="status"><I n="check" /><span>Ready on {HERE}</span></p>}
       {l?.model === 'failed' && <p class="warn" role="alert">{l.error}</p>}

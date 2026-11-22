@@ -56,6 +56,14 @@ async function click(page, locator) {
   await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   await page.waitForTimeout(200);
 }
+/** What the foot of the window says of a row: the row's hint, which it says while the pointer is on the row. */
+async function hintOf(page, row) {
+  await row.scrollIntoViewIfNeeded();
+  const b = await row.boundingBox();
+  await page.mouse.move(b.x + 6, b.y + b.height / 2);
+  await page.waitForTimeout(150);
+  return ((await page.locator('.sheet .sh-hint').textContent()) ?? '').trim();
+}
 async function key(page, k) {
   await page.keyboard.press(k);
   await page.waitForTimeout(200);
@@ -109,7 +117,7 @@ async function login(browser, url, system) {
   const toggle = row.locator('[role=switch]');
   const asked = () => page.evaluate(() => JSON.stringify(window.__fake.logins.splice(0)));
   expect(await toggle.getAttribute('aria-checked') === 'false' && await asked() === '[{}]', `${at}: off, as the host read it from the system when Thoughts was shown`);
-  const hint = await row.locator('.hint').textContent();
+  const hint = await hintOf(page, row);
   expect(mac ? /^When you log in, Tasktap opens without a window, only the notch, .*System Settings lists it under Login Items\.$/.test(hint)
     : /^When you sign in, Tasktap opens without a window, only its tab and icon, .*Windows lists it under Startup apps\.$/.test(hint), `${at}: it says what changes: "${hint}"`);
   await click(page, toggle);
@@ -137,7 +145,7 @@ async function login(browser, url, system) {
   for (const why of mac ? ['unsigned', 'review'] : ['uninstalled', 'review']) {
     const not = await start({ login: { state: 'unavailable', why } });
     const r = not.locator(`.set-pane .set:has(> .t:text-is("${NAME}"))`);
-    expect(await r.locator('[role=switch]').count() === 0 && await r.locator('.v').textContent() === 'Not for this copy', `${at}: a copy that cannot (${why}) has no switch and says so: "${await r.locator('.hint').textContent()}"`);
+    expect(await r.locator('[role=switch]').count() === 0 && await r.locator('.v').textContent() === 'Not for this copy', `${at}: a copy that cannot (${why}) has no switch and says so: "${await hintOf(not, r)}}"`);
     if (why !== 'review') await picture(not, 'thoughts-login-not-here', system);
     await not.context().close();
   }
@@ -332,7 +340,7 @@ async function noKeys(browser, url, system) {
   const NO = 'This copy is Tasktap Review, which takes no keys from other apps, so they stay your own Tasktap’s.';
   for (const name of ['Key to start a task, from any app', 'Key to go to an agent’s question, from any app', 'Key to answer Yes, from any app', 'Key to answer No, from any app']) {
     const row = page.locator(`.set-pane .set:has(> .t:text-is("${name}"))`);
-    const v = await row.locator('.v').textContent().catch(() => ''), hint = await row.locator('.hint').textContent().catch(() => '');
+    const v = await row.locator('.v').textContent().catch(() => ''), hint = await hintOf(page, row).catch(() => '');
     expect(await row.locator('.rec').count() === 0 && v === 'None for this copy' && hint === NO, `${at}: "${name}" has no recorder and says so: "${v}" / "${hint}"`);
   }
   await picture(page, 'thoughts-no-keys', system);
@@ -369,7 +377,7 @@ async function versions(browser, url, system) {
   await click(page, toggle);
   expect(await pref() === '[false]' && await toggle.getAttribute('aria-checked') === 'false', `${at}: the pointer on the switch writes update_checks false`);
   expect(await value('Anything else') === 'Nothing', `${at}: off, Anything else says Nothing`);
-  expect(/only when you check now\.$/.test(await row.locator('.hint').textContent()), `${at}: off, the sentence says it asks only at Check now`);
+  expect(/only when you check now\.$/.test(await hintOf(page, row)), `${at}: off, the sentence says it asks only at Check now`);
   await section(page, 'thoughts');
   await section(page, 'about');
   expect(await asked() === JSON.stringify([{}]), `${at}: off, About shown again asks the host nothing`);
@@ -381,7 +389,7 @@ async function versions(browser, url, system) {
   expect(await focused(page) === 'Check now', `${at}: Tab from the switch reaches Check now`);
   await key(page, 'Enter');
   expect(await asked() === JSON.stringify([{ look: true, now: true }]), `${at}: Return on Check now asks the host once, as the person's word`);
-  expect(/^Version 1\.3\.1 is the newest/.test(await row.locator('.hint').textContent()), `${at}: what the check found is shown`);
+  expect(/^Version 1\.3\.1 is the newest/.test(await hintOf(page, row)), `${at}: what the check found is shown`);
 
   // On again by the keyboard: Space on the switch, which asks at once.
   await toggle.focus();
@@ -395,7 +403,7 @@ async function versions(browser, url, system) {
   await section(here, 'about');
   const mine = here.locator('.set-pane .set:has(> .t:text-is("Check for new versions"))');
   expect(await mine.locator('[role=switch]').count() === 0 && await mine.locator('.v').textContent() === 'Not for this copy', `${at}: a build made here has no switch and says so`);
-  expect(await mine.locator('button').count() === 0 && /built on this computer, so it never checks for new versions\.$/.test(await mine.locator('.hint').textContent()), `${at}: nor a Check now, as the host never asks GitHub in such a build (update.rs \`asks\`)`);
+  expect(await mine.locator('button').count() === 0 && /built on this computer, so it never checks for new versions\.$/.test(await hintOf(here, mine)), `${at}: nor a Check now, as the host never asks GitHub in such a build (update.rs \`asks\`)`);
   await here.context().close();
 }
 
@@ -404,16 +412,30 @@ async function starts(browser, url, system) {
   const at = `${system}, the command that starts an agent`;
   const page = await open(browser, { label: 'workspace', records: scene('busy'), url, dpr: 2, system });
   await section(page, 'agents');
-  const row = (name) => page.locator(`.set-pane .set:has(> .t:text-is("Command that starts ${name}"))`);
+  const IDS = { 'Claude Code': 'claude', Codex: 'codex' };
+  // A row of Agents is opened by its chevron (closed to begin with, not remembered): the command that starts the agent is in it.
+  const opened = async () => { for (const id of Object.values(IDS)) await click(page, page.locator(`.set-pane .line.ag[data-agent=${id}] .chev`)); };
+  await opened();
+  const row = (name) => page.locator(`.set-pane .line.ag[data-agent=${IDS[name]}] + .ag-d .set:has(> .t:text-is("Start command"))`);
   const stored = () => page.evaluate(() => JSON.stringify((window.__fake.records.prefs || []).find((p) => p.id === 'agent_commands')?.value ?? null));
   for (const [name, program, example] of [['Claude Code', 'claude', system === 'mac' ? 'caffeinate -i claude' : 'claude --verbose'], ['Codex', 'codex', system === 'mac' ? 'caffeinate -i codex' : '']]) {
     const field = row(name).locator('input');
     expect(await row(name).count() === 1 && await field.inputValue() === '' && await field.getAttribute('placeholder') === program, `${at}: ${name} has its row, empty, with ${program} in its field`);
-    const hint = await row(name).locator('.hint').textContent();
+    const hint = await hintOf(page, row(name));
     const says = `Write how you start ${name}${example ? `, such as ${example}` : ''}, without shell aliases; leave the field empty for Tasktap's own start.`;
     expect(hint === says, `${at}: ${name}'s row says in one sentence how to write a start${example ? `, with ${example} for an example` : ', with no example'}: "${hint}"`);
   }
   await picture(page, 'agents', system);
+  // The first row chooses who starts new tasks, among the agents that can run now: Codex by the pointer is `put prefs agent`.
+  const chooser = page.getByRole('radiogroup', { name: 'New tasks start with' });
+  const names = await chooser.getByRole('radio').allTextContents();
+  expect(await page.locator('.set-pane > .set > .t').first().textContent() === 'New tasks start with' && names.includes('Claude Code') && names.includes('Codex'), `${at}: the first row of Agents chooses who starts new tasks (${names.join(', ')})`);
+  expect(await chooser.getByRole('radio', { name: 'Claude Code' }).getAttribute('aria-checked') === 'true', `${at}: the agent that starts them now is chosen`);
+  await click(page, chooser.getByRole('radio', { name: 'Codex' }));
+  const put = JSON.parse(await lastPut(page));
+  expect(put?.id === 'agent' && put?.patch === 'codex' && await chooser.getByRole('radio', { name: 'Codex' }).getAttribute('aria-checked') === 'true', `${at}: Codex by the pointer sets the agent for new tasks, \`put prefs agent\` (${JSON.stringify(put)})`);
+  const shown = await page.locator('.set-pane').innerText();
+  expect(!/Use for new tasks|Runs new tasks|·/.test(shown) && await page.locator('.set-pane .ring-o').count() === 0, `${at}: no button on any row for it, no "·", no ring`);
   // A click in the field, the command, Tab: kept.
   const field = row('Claude Code').locator('input');
   await click(page, field);
@@ -432,6 +454,7 @@ async function starts(browser, url, system) {
   // The refusal belongs to what the field holds: the section left and shown again, the field holds the one kept.
   await section(page, 'thoughts');
   await section(page, 'agents');
+  await opened();
   const again = await row('Claude Code').locator('input').inputValue();
   expect(again === 'caffeinate -i claude --verbose' && await row('Claude Code').locator('.hint.err').count() === 0, `${at}: Agents shown again, the field holds the command kept and no refusal: "${again}"`);
   // Emptied, the command goes, and with it the refusal.
@@ -450,9 +473,11 @@ async function starts(browser, url, system) {
   const lost = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
   await section(lost, 'agents');
   const line = lost.locator('.set-pane .line.ag[data-agent=codex]');
-  const said = (await line.count()) ? await line.locator('.x').first().textContent() : '';
-  expect(await line.isVisible() && await line.getAttribute('data-s') === 'off' && said.startsWith('Tasktap finds no program named op for the command of Codex.'), `${at}: Codex, whose command starts with op, which is not found, stays in sight and says so: "${said}"`);
-  expect(await lost.locator('.set-pane .set:has(> .t:text-is("Command that starts Codex")) input').inputValue() === 'op run -- codex', `${at}: its field holds its command`);
+  const said = (await line.count()) ? await line.locator('.acts .x.warn').first().textContent() : '';
+  expect(await line.isVisible() && said.startsWith('Tasktap finds no program named op for the command of Codex.'), `${at}: Codex, whose command starts with op, which is not found, stays in sight and says so: "${said}"`);
+  expect(await line.locator('.x.mono').textContent() === 'op run -- codex', `${at}: its closed row shows its command in place of its version`);
+  await click(lost, line.locator('.chev'));
+  expect(await lost.locator('.set-pane .line.ag[data-agent=codex] + .ag-d .set:has(> .t:text-is("Start command")) input').inputValue() === 'op run -- codex', `${at}: its field holds its command`);
   await picture(lost, 'agents-lost', system);
   for (const e of lost.errors) failures.push(`${at}: page: ${e}`);
   await lost.context().close();

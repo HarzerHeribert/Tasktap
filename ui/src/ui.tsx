@@ -47,6 +47,7 @@ export const said = (s: State, bg = false) => `${WORDS[s]}${bg ? ', in backgroun
 /** The state mark. While something works it is Tasktap's mark with its light passing (Brand `live`); otherwise a
  *  seat with no agent in it (Seat), its ring in the same colours holding a pip of the state's colour. Its tooltip and
  *  accessible name say the state in words. */
+const TONES: Partial<Record<State, RingTone>> = { asks: 'asks', ready: 'lit', failed: 'fail' };
 export function Mark({ s, bg = false, label }: { s: State; bg?: boolean; label?: string }) {
   const words = label ?? said(s, bg);
   const named = words ? { role: 'img' as const, 'aria-label': words, title: words } : { 'aria-hidden': true };
@@ -64,16 +65,15 @@ export function Mark({ s, bg = false, label }: { s: State; bg?: boolean; label?:
   );
 }
 
-/** A session's seat: its agent's ring carrying the state it is in, wherever a session is shown (a row on Home, in the
- *  sidebar, a tab), so that a session looks like itself everywhere. The ring turns while it works, is the attention
- *  colour while it asks, lit while its result is new, the failure colour when it failed, and quiet once seen (parts.css
- *  .st.of). A terminal with no agent, and a thought no agent has run, keep the mark. */
-const TONES: Partial<Record<State, RingTone>> = { asks: 'asks', ready: 'lit', failed: 'fail' };
+/** A session's seat: its agent's plain mark carrying the state it is in, wherever a session is shown (a row on Home, in
+ *  the sidebar, a tab), so that a session looks like itself everywhere. The mark moves gently while it works, is the
+ *  attention colour while it asks, white while its result is new, the failure colour when it failed, and quiet once seen
+ *  (parts.css .st.of). A terminal with no agent, and a thought no agent has run, keep the mark. */
 export function Seat({ agent, s, bg = false, label, size = 16 }: { agent?: string | null; s: State; bg?: boolean; label?: string; size?: number }) {
   if (!agent || s === 'shell' || s === 'later') return <Mark s={s} bg={bg} label={label} />;
   const words = label ?? said(s, bg);
   const named = words ? { role: 'img' as const, 'aria-label': words, title: words } : { 'aria-hidden': true };
-  return <i class={`st of${bg ? ' bgd' : ''}`} data-s={s} style={{ '--seat': size }} {...named}><Ring agent={agent} s={s === 'working' ? 'working' : ''} size={size} tone={TONES[s]} /></i>;
+  return <i class={`st of${bg ? ' bgd' : ''}`} data-s={s} style={{ '--seat': size }} {...named}><Glyph agent={agent} size={size} working={s === 'working'} /></i>;
 }
 
 /** Tasktap's mark: a slab of the chrome set (motion/mark.ts) in the app's own metal and light, as pictures drawn once
@@ -131,20 +131,33 @@ const lit = () => (
     <stop offset="0" stop-color="#b98a5e" /><stop offset=".3" stop-color="#edcda6" /><stop offset=".5" stop-color="#f7f8fa" /><stop offset=".72" stop-color="#a9c0df" /><stop offset="1" stop-color="#7b92c4" />
   </linearGradient>
 );
+/** An agent's mark as the ring and the plain mark both draw it: its glyph, or the two letters its name gives (one in a
+ *  box too small for two), in the colour of whatever it stands in. One the person added is lettered by the name they
+ *  gave it: its id is Tasktap's and says nothing. */
+function glyph(agent: string, one: boolean) {
+  const word = (id: string) => ownName(id) ?? id;
+  const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]).map(word);
+  return MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text class={one ? 'one' : undefined} x="12" y={one ? 17 : 15.6} text-anchor="middle">{lettersOf(lettered, one).get(word(agent)) ?? letters(word(agent)).slice(0, one ? 1 : 2)}</text>;
+}
 export function Ring({ agent, s, turns = s === 'working', size, tone, one = (size ?? 22) < 20 }: {
   agent: string; s: RingState; turns?: boolean; size?: number; tone?: RingTone; one?: boolean;
 }) {
-  // One the person added is lettered by the name they gave it: its id is Tasktap's and says nothing.
-  const word = (id: string) => ownName(id) ?? id;
-  const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]).map(word);
   return (
     <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={tone} style={size ? { '--ring-px': size } : undefined}>
       {lit()}
       <circle cx="12" cy="12" r="11" pathLength="100" />
       {turns && <circle class="turn" cx="12" cy="12" r="11" pathLength="100" />}
-      {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text class={one ? 'one' : undefined} x="12" y={one ? 17 : 15.6} text-anchor="middle">{lettersOf(lettered, one).get(word(agent)) ?? letters(word(agent)).slice(0, one ? 1 : 2)}</text>}
+      {glyph(agent, one)}
     </svg>
   );
+}
+/** What the plain mark says of its agent, in tone: it failed or was stopped (`fail`), it asks (`asks`), it is signed out
+ *  or not here (`quiet`); `working` moves it gently (parts.css). */
+export type GlyphTone = 'asks' | 'fail' | 'quiet';
+/** An agent's plain mark: its glyph with no circle, `size` px wide. The ring (Ring) is for where its arc shows the
+ *  agent's remaining usage; everywhere else an agent is this. */
+export function Glyph({ agent, size = 18, tone, working = false }: { agent: string; size?: number; tone?: GlyphTone; working?: boolean }) {
+  return <svg class="amark" viewBox="4 4 16 16" aria-hidden="true" data-tone={tone} data-working={working || undefined} style={{ '--g': size }}>{glyph(agent, size < 16)}</svg>;
 }
 
 /** An answer: its key cap and its label; `lead` is the mark of what it is, `more` a few quiet words about it. */

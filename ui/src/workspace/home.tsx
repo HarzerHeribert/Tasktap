@@ -13,6 +13,7 @@ import { Ask } from '../question.tsx';
 import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
 import { fallback, laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
+import { firstLine } from './markdown.ts';
 import { popup } from './menu.ts';
 import { Setup } from './setup.tsx';
 import { older, past } from './past.ts';
@@ -80,13 +81,16 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
   );
 }
 
-/** One thought, as an object that keeps its shape at every width: its agent's seat in the state it is in, the thought
- *  in the person's words, and the time; under that where it is, who works on it and the one fact. The row opens its
- *  terminal. */
+/** One thought, as an object that keeps its shape at every width: its agent's mark in the state it is in, the thought
+ *  in the person's words, the project at its right (one column for every row) and the time; under that, only where
+ *  there is something to say, how it failed or the first line of the answer. Who works on it is in the mark's name. The
+ *  row opens its terminal. */
 function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const r = resultOf(t);
-  const fact = kind === 'run' ? (s?.activity.at(-1) ?? 'Starting') : t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : unheard(t) ? endedSays(t) : r?.summary;
+  const failed = kind === 'res' && t.status === 'failed';
+  // The second line, only when there is something to say: how it failed, else the first line of what the agent answered.
+  const fact = kind === 'run' ? (s?.activity.at(-1) ?? 'Starting') : failed ? `${why(t)}${r?.summary ? `: ${firstLine(r.summary)}` : ''}` : unheard(t) ? endedSays(t) : r?.summary ? firstLine(r.summary) : '';
   const changes = pending(t) ? t : null;
   const go = () => {
     if (t.session_id && focusSession(t.session_id) && (t.status === 'done' || t.status === 'failed') && !t.read)
@@ -96,7 +100,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
     <div class="hr-a">
       <ChangeActs t={changes} />
     </div>
-  ) : kind === 'res' && t.status === 'failed' && !t.read ? (
+  ) : failed && !t.read ? (
     <div class="hr-a">
       {t.session_id && <button type="button" class="btn" onClick={go}>Open terminal</button>}
       <button type="button" class="btn" onClick={() => void call('thought.retry', { id: t.id }).catch(fail)}>Try again</button>
@@ -105,7 +109,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
   const k = kind === 'run' ? 'working' : stateOf(t);
   const agent = s?.agent ?? t.agent, who = agentName(agent ?? undefined);
   return (
-    <div class={`hr ${kind}${bg ? ' bgd' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
+    <div class={`hr task ${kind}${bg ? ' bgd' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
       title={[t.text, fact, placed(t, agentName)].filter(Boolean).join('\n')}
       onClick={(e) => !(e.target as HTMLElement).closest('.hr-a') && go()}
       onContextMenu={(e) => t.session_id && popup(e, [{ text: 'Open Terminal', do: go }, { text: 'Session Details…', do: () => void details(t.session_id ?? undefined) }])}
@@ -122,8 +126,9 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
       }}>
       <Seat agent={agent} s={k} bg={bg} size={20} label={`${who}: ${said(k, bg)}`} />
       <span class="hr-t">{title(t)}</span>
+      <span class="hr-p">{projectName(t.project_id)}</span>
       <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
-      <Meta where={projectName(t.project_id)} who={who} fact={fact} />
+      {fact && <span class={`hr-x${failed ? ' fail' : ''}`}>{fact}</span>}
       {kind === 'res' && t.workdir && <span class="hr-d"><Status t={{ ...t, workdir: t.workdir }} /></span>}
       {changes && <Told t={changes} />}
       {fallback(t) && <p class="hr-n">{placed(t, agentName)}</p>}

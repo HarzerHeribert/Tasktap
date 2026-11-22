@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { type Block, type Inline, inline, parse } from './markdown.ts';
+import { type Block, type Inline, firstLine, inline, parse } from './markdown.ts';
 
 /** A line's parts back as one string, with what each is: `b(…)`, `i(…)`, `code(…)`, `a(text→target)`. */
 const flat = (s: Inline[]): string => s.map((x) => (typeof x === 'string' ? x : x.t === 'code' ? `code(${x.s})` : x.t === 'a' ? `a(${flat(x.s)}→${x.to})` : `${x.t}(${flat(x.s)})`)).join('');
@@ -61,4 +61,11 @@ test('a large file is read in a time that does not grow with its square', () => 
   const began = performance.now();
   const blocks = parse(big);
   assert.ok(blocks.length >= 1 && performance.now() - began < 2000, `${Math.round(performance.now() - began)} ms`);
+});
+
+test('the first line of an answer as plain words', () => {
+  assert.equal(firstLine('**Test Witness** passed, see `npm test`.\nMore.'), 'Test Witness passed, see npm test.');
+  assert.equal(firstLine('\n## Done: [the report](out/report.html)'), 'Done: the report');
+  assert.equal(firstLine('- *two* files changed'), 'two files changed');
+  assert.equal(firstLine(''), '');
 });

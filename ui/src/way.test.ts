@@ -171,14 +171,14 @@ test('how it came by its place is told from the core\'s word for it, never from 
   // No name was said for certain and one project clearly led: the line says what only it has.
   assert.equal(says('name', route({ ...local, lead: 'its name and “widgetpack”' })), 'its name and “widgetpack”');
   assert.equal(says('name', route({ ...local, lead: 'its name and “widgetpack”', fallback: slow })), `its name and “widgetpack”. ${slow}`);
-  assert.equal(says('model', route()), 'Placed by Claude Code · haiku');
-  assert.equal(says('model', route({ quote: 'the header again' })), 'Placed by Claude Code · haiku, because you said “the header again”');
+  assert.equal(says('model', route()), 'Placed by Claude Code, haiku');
+  assert.equal(says('model', route({ quote: 'the header again' })), 'Placed by Claude Code, haiku, because you said “the header again”');
   // The person decided: a pick, a follow-up to the session they were in, an answer to where it should go. A model
   // wrote the brief at most, and the same route never reads as "Placed by".
   for (const p of ['picked', 'follow_up', 'answer'] as const) {
     assert.equal(says(p, null), null);
     assert.equal(says(p, local), null);
-    assert.equal(says(p, route({ quote: 'the header again' })), 'Brief by Claude Code · haiku');
+    assert.equal(says(p, route({ quote: 'the header again' })), 'Brief by Claude Code, haiku');
     assert.equal(says(p, route({ fallback: slow })), `Sent in your words. ${slow}`);
   }
   // No word yet, or the asking was cut short: nothing, or the core's sentence alone.
@@ -246,13 +246,13 @@ test('the placing group lists the agreement in its order, then the others in Tas
 
 test('each agent says why it stands where it does, or until when it is passed over', () => {
   const at = (ms: number) => new Date(ms).toISOString().slice(11, 16);
-  assert.equal(placeWhy(TOOLS[0]!, null, 0, at), 'included in your subscription · about 4 s');
-  assert.equal(placeWhy(tool('codex', 'gpt-6-luna', 'billed', 4700), null, 0, at), 'billed by your provider · about 5 s');
+  assert.equal(placeWhy(TOOLS[0]!, null, 0, at), 'included in your subscription, about 4 s');
+  assert.equal(placeWhy(tool('codex', 'gpt-6-luna', 'billed', 4700), null, 0, at), 'billed by your provider, about 5 s');
   assert.equal(placeWhy(tool('own', 'm', 'billed', null), null, 0, at), 'billed by your provider');
   const four = Date.UTC(2026, 10, 19, 16);
   assert.equal(placeWhy(TOOLS[0]!, four, four - 60_000, at), 'out of quota until 16:00');
   // Once the time has come it stands as before.
-  assert.equal(placeWhy(TOOLS[0]!, four, four, at), 'included in your subscription · about 4 s');
+  assert.equal(placeWhy(TOOLS[0]!, four, four, at), 'included in your subscription, about 4 s');
 });
 
 test('a ring counts what its agent works on, and asking is its state, not part of the count', () => {

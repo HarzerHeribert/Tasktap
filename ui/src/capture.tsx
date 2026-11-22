@@ -125,8 +125,11 @@ export function hinted(): Route | undefined {
  *  question when they name several or only sound like one; else the folder of the workspace this Composer was opened
  *  in; else Auto, by a model, where placing by one is agreed to; else the one folder the person opened, when it is the
  *  only place there is; else Auto by its words, which asks where a thought goes that names none, also with no project
- *  known ("Where should the agent work?"). The Scratchpad is never a default: a thought goes there only when the person
- *  chooses it or says it (the core's route). What the chip says of it is place.ts's. */
+ *  known ("Where should the agent work?"). In Tasktap's window that is the chip as released before a model decided
+ *  every task: the core's hint names the session or the project only where the names are sure. Auto chosen there lets
+ *  the model decide, also over the session or the workspace in view, which it is told (the coordinator's round 3).
+ *  The Scratchpad is never a default: a thought goes there only when the person chooses it or says it (the core's
+ *  route). What the chip says of it is place.ts's. */
 export function where(pick = picked(), route = hinted(), usualId = cap.usual): { to: string; by: 'router' | 'pick' | 'later'; why: Why } {
   // The core has not answered yet: nothing is known, and nothing is said; a task started now is placed once it has.
   if (!core.in) return { to: '', by: 'router', why: 'starting' };
@@ -134,12 +137,13 @@ export function where(pick = picked(), route = hinted(), usualId = cap.usual): {
   const usual = pick === undefined && usualId ? records.projects.get(usualId) : undefined;
   if (pick === 'later') return { to: pick, by: 'later', why: 'chosen' };
   if (pick) return { to: pick, by: 'pick', why: 'chosen' };
+  // Auto chosen: a model decides, also where the names or the session in view would say the place.
+  if (pick === '' && all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
   if (route?.confidence === 'clear' && 'session' in route.to) return { to: '', by: 'router', why: 'follows' };
   if (route?.confidence === 'clear') return { to: routedProject(route) ?? '', by: 'router', why: route.said ? 'said' : 'named' };
   if (route) return { to: '', by: 'router', why: 'asked' };
-  // With a model the person lets place tasks, it decides also in a workspace: it is told which one is in view.
-  if (all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
   if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
+  if (all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
   // The one place there is, when it is a folder the person opened: a project Tasktap only knows of is never a default.
   if (pick === undefined && all.length === 1 && records.projects.get(all[0]!)?.kind === 'folder') return { to: all[0]!, by: 'pick', why: 'only' };
   return { to: '', by: 'router', why: cap.draft.trim() ? 'ask' : 'words' };
@@ -155,9 +159,11 @@ function chipSays(w: ReturnType<typeof where>, route: Route | undefined, back: b
   });
 }
 /** What a capture says of its place: the session and the workspace in view for the router (none in the notch, which
- *  sets neither), a pick's place, or a note. */
+ *  sets neither), and whether the chip says Auto there, so a model decides and is told them; a pick's place; or a
+ *  note. */
 const named = (w: ReturnType<typeof where>, current = cap.current, view = cap.usual): Partial<CaptureArgs> =>
-  w.by === 'router' ? { current, ...(view ? { view } : {}) } : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' };
+  w.by === 'router' ? { current, ...(view ? { view } : {}), ...(w.why === 'model' && (current || view) ? { auto: true } : {}) }
+    : w.by === 'pick' ? placeArgs(w.to) : { mode: 'note' };
 
 /** The thoughts on their way, newest first: being placed, or placed and held. Undo still takes each back. */
 export const going = () => [...records.thoughts.values()].filter((t) => onWay(t)).sort((a, b) => b.created - a.created);
@@ -310,7 +316,7 @@ function askRoute() {
     return redraw();
   }
   hintTimer = window.setTimeout(() => {
-    void call('route.hint', { text, current: cap.current }).then((route) => {
+    void call('route.hint', { text, current: cap.current, ...(cap.usual ? { view: cap.usual } : {}) }).then((route) => {
       cap.hint = { text, route };
       redraw();
     }, () => {});
@@ -518,7 +524,8 @@ function More({ t }: { t: Thought }) {
   const brief = briefOf(t), note = placed(t, agentName);
   if (!brief && t.source !== 'voice' && !note) return null;
   const on = unfolded.has(t.id);
-  return <button type="button" class="way-more" aria-expanded={on} onClick={() => (on ? unfolded.delete(t.id) : unfolded.add(t.id), redraw())}><I n="chev" /><span>{brief ? 'Brief' : 'Details'}</span></button>;
+  const word = brief ? 'Brief' : 'Details';
+  return <button type="button" class="way-more" aria-expanded={on} title={word} aria-label={word} onClick={() => (on ? unfolded.delete(t.id) : unfolded.add(t.id), redraw())}><I n="chev" /><span>{word}</span></button>;
 }
 function Told({ t }: { t: Thought }) {
   const brief = briefOf(t), note = placed(t, agentName);
@@ -533,7 +540,7 @@ function Told({ t }: { t: Thought }) {
 }
 
 /** What the decision line knows of the places it names. */
-const names: Names = { project: projectName, session: sessionName, of: (id) => records.sessions.get(id)?.project_id, cut: (s) => keyName16(s) };
+const names: Names = { project: projectName, session: sessionName, of: (id) => records.sessions.get(id)?.project_id };
 /** The decision's other places (way.ts `offers`): the newest thought on its way, its keys 2 and 3 while the field is
  *  empty, as the question at the Composer has its digits. */
 const offersNow = () => {
@@ -560,19 +567,55 @@ function offerKey(e: KeyboardEvent): boolean {
   return true;
 }
 
+/** The words beside a decision that give way where its line is short of room, in their order (the coordinator's
+ *  round 3): the disclosure's, Undo's, the other place's. */
+const GIVES = [':scope > .way-more', ':scope > .act[data-undo]', ':scope > .act[data-offer]'];
+/** Fits a decision line to its room with no word cut: each word that gives way goes whole, leaving its chevron or its
+ *  key cap, its word the tooltip and the name (`data-bare`, way.css). A button whose cap is not shown now (the field
+ *  holds words, or has not the keyboard) keeps its word: it would have nothing left. A decision still longer than its
+ *  room then takes a second line (`data-wrap`), never an ellipsis. */
+function give(h: HTMLElement) {
+  const parts = GIVES.flatMap((s) => [...h.querySelectorAll<HTMLElement>(s)]), to = h.querySelector<HTMLElement>(':scope > .way-to');
+  for (const p of parts) p.removeAttribute('data-bare');
+  h.removeAttribute('data-wrap');
+  const short = () => h.scrollWidth > h.clientWidth + 0.5 || (!!to && to.scrollWidth > to.clientWidth + 0.5);
+  for (const p of parts) {
+    if (!short()) return;
+    const handle = p.querySelector<HTMLElement>(':scope > .i, :scope > kbd.keycap');
+    if (handle && handle.getBoundingClientRect().width > 0) p.setAttribute('data-bare', '');
+  }
+  if (short()) h.setAttribute('data-wrap', '');
+}
+
 /** A thought on its way, with the way to take it back. The newest is `open`: one line (NOTES §13, the review's R12),
  *  its decision (design §8): the project's name and, in the muted tone, how the task goes there ("continuing" or "new
- *  run"), never cut while anything else on the line can give way; the other places on their keys (the other way of
- *  going, or the places a model was torn between); the rest behind one quiet disclosure; and Undo. The session a
- *  follow-up continues has a line of its own under it, two lines at most. One that waits for a key (`waits`: no time
- *  runs) says Return's key first. Any other is its first line. */
+ *  run"), never cut; the other places on their keys (the other way of going, or the places a model was torn between);
+ *  the rest behind one quiet disclosure; and Undo. Where the line is short the words beside the decision go whole
+ *  (`give`). The session a follow-up continues has a line of its own under it, two lines at most. One that waits for a
+ *  key (`waits`: no time runs) says Return's key first. Any other is its first line. */
 function Going({ t, open }: { t: Thought; open: boolean }) {
   const at = step(t), d = decided(t, names), keys = open && at === 'held' ? offers(t, names) : [], rows = keys.length > 1;
   if (keys.length) readyAt(t);
+  // Fitted when what the line says changes, as its width does, as its keys' caps come and go (the field gains or
+  // loses the keyboard, or words), and once the fonts are in; on no other render.
+  const line = useRef<HTMLParagraphElement>(null);
+  const says = [at, open, d.name, d.how, waits(t), t.card_id, briefOf(t) ? 1 : 0, !cap.draft, ...keys.map((o) => o.label)].join('\n');
+  useLayoutEffect(() => {
+    const h = line.current;
+    if (!h) return undefined;
+    const room = () => give(h);
+    room();
+    const sized = new ResizeObserver(room), held = new MutationObserver(room);
+    sized.observe(h);
+    const keyed = h.closest('[data-keys]');
+    if (keyed) held.observe(keyed, { attributes: true, attributeFilter: ['data-held'] });
+    void document.fonts?.ready.then(room);
+    return () => (sized.disconnect(), held.disconnect());
+  }, [says]);
   return (
     <section class="way" data-step={at} data-thought={t.id} aria-label="On its way">
       <Hold t={t} />
-      <p class="way-h">
+      <p class="way-h" ref={line}>
         {at === 'placing' ? <><Mark s="working" label="" /><b>Placing…</b></> : (
           <>{open && waits(t) ? <Key k="↩" cap /> : <I n={t.session_id ? 'term' : 'arrow'} />}
             <span class="way-to"><b>{d.name}</b> <em>{d.how}</em></span>
@@ -580,9 +623,9 @@ function Going({ t, open }: { t: Thought; open: boolean }) {
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
         {open && at !== 'placing' && <More t={t} />}
-        {!rows && keys.map((o) => <button type="button" class="act" key={o.key} data-offer={o.key} title={o.title} onClick={() => placeAnew(t, o.to)}>{!cap.draft && <Key k={o.key} cap />}<span>{o.label}</span></button>)}
+        {!rows && keys.map((o) => <button type="button" class="act" key={o.key} data-offer={o.key} title={o.title} aria-label={o.label} onClick={() => placeAnew(t, o.to)}>{!cap.draft && <Key k={o.key} cap />}<span>{o.label}</span></button>)}
         {/* ⌘Z is the field's own undo while it holds words: then the cap is not shown. */}
-        <button type="button" class="act" data-undo title="Undo" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
+        <button type="button" class="act" data-undo title="Undo" aria-label="Undo" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
       </p>
       {at !== 'placing' && d.session && <p class="way-s" data-waits={(open && waits(t)) || undefined}>{d.session}</p>}
       {/* Two other places: as the question's rows, each on its key, in the decision's words. */}

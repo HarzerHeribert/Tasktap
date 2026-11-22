@@ -12,7 +12,8 @@ use tauri::AppHandle;
 static POSTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// `host.notify {question | thought, title, body, session}` from the core: shown where the rule says, and otherwise
-/// nothing. A waiting task's notification is named `thought:<id>`; only a question's is taken back by `settle`.
+/// nothing. A waiting task's notification is named `thought:<id>`, and taken back when the core says it waits no more
+/// (`withdrawn`); a question's by `settle`.
 pub fn asked(args: &Value) {
     let id = match (args["question"].as_str(), args["thought"].as_str()) {
         (Some(question), _) => question.to_owned(),
@@ -20,6 +21,13 @@ pub fn asked(args: &Value) {
         (None, None) => return,
     };
     let question = id.as_str();
+    // A task that waited for the person's key and waits no more: what was shown of it is taken back, as a question's
+    // is once it is answered (`settle`).
+    if args["withdrawn"] == true {
+        take_back(question);
+        crate::log(json!({"event": "notify", "withdrawn": question}));
+        return;
+    }
     let (Some(title), Some(body)) = (args["title"].as_str(), args["body"].as_str()) else {
         return;
     };

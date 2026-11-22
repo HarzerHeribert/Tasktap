@@ -295,18 +295,45 @@ async function main(out, dist) {
     };
     const cases = [
       ['decision-continue', decision('followup-model', (t, ids) => (t.route = { ...t.route, others: [{ project: ids.projects.cuegrid }] })),
-        /^cuegrid continuing\b.*\b2 New run ⌘Z Undo$/, true, (ids) => ({ project_id: ids.projects.cuegrid }), '2', 'Make the rehearsal timer readable on mobile'],
+        /^cuegrid continuing\b.*\b2\b/, true, (ids) => ({ project_id: ids.projects.cuegrid }), '2', 'Make the rehearsal timer readable on mobile'],
       // A long project's name and a long session's task: the decision stays whole, the others give way.
       ['decision-long', decision('followup-model', (t, ids, r) => {
         t.route = { ...t.route, others: [{ project: ids.projects.cuegrid }] };
         r.projects.find((p) => p.id === ids.projects.cuegrid).name = 'customer-portal-frontend';
         r.sessions.find((x) => x.id === ids.timer.session).name = 'Make the rehearsal timer readable on mobile, also in landscape on small phones where the digits wrap today';
-      }), /^customer-portal-frontend continuing\b.*⌘Z Undo$/, true, (ids) => ({ project_id: ids.projects.cuegrid }), '2', 'Make the rehearsal timer readable on mobile, also in landscape on small phones where the digits wrap today'],
+      }), /^customer-portal-frontend continuing\b.*\b2\b/, true, (ids) => ({ project_id: ids.projects.cuegrid }), '2', 'Make the rehearsal timer readable on mobile, also in landscape on small phones where the digits wrap today'],
       ['decision-new-run', decision('held', (t, ids) => (t.route = { ...t.route, others: [{ session: ids.timer.session }] })),
-        /^cuegrid new run\b.*\b2 Continue ⌘Z Undo$/, true, (ids) => ({ session_id: ids.timer.session })],
+        /^cuegrid new run\b.*\b2\b/, true, (ids) => ({ session_id: ids.timer.session })],
       ['decision-torn', decision('held', (t, ids) => ((t.hold_until = null), (t.route = { ...t.route, others: [{ project: ids.projects.fieldnotes }, { session: ids.timer.session }] }))),
-        /^cuegrid new run\b.*\bBrief ⌘Z Undo$/, false, (ids) => ({ session_id: ids.timer.session }), '3'],
+        /^cuegrid new run\b/, false, (ids) => ({ session_id: ids.timer.session }), '3'],
     ];
+    // What the line shows: its words, each word beside the decision that went (`bare`, in the order they may go: the
+    // disclosure's, Undo's, the other place's), and every word on it cut, by an ellipsis or by its box; the session's
+    // task alone may end in one, after its second line.
+    const look = () => page.evaluate(() => {
+      const w = document.querySelector('.way'), h = w?.querySelector('.way-h');
+      const said = (el) => el.innerText.replace(/\s+/g, ' ').trim();
+      const order = [h?.querySelector(':scope > .way-more'), h?.querySelector(':scope > .act[data-undo]'), h?.querySelector(':scope > .act[data-offer]')].filter(Boolean);
+      const words = [...(w?.querySelectorAll('.way-h > .way-to, .way-h > em, .way-h > * > span, .qa.rows > .ans > span, .qa.rows > .ans > i') ?? [])];
+      const cut = words.filter((x) => getComputedStyle(x).display !== 'none' && (x.scrollWidth > x.clientWidth + 0.5 || /…/.test(x.textContent))).map(said);
+      const bare = order.map((x) => x.hasAttribute('data-bare'));
+      const handles = order.filter((x) => x.hasAttribute('data-bare')).map((x) => ({ word: x.querySelector(':scope > span').textContent, name: x.getAttribute('aria-label'), tip: x.title,
+        seen: [...x.querySelectorAll(':scope > .i, :scope > kbd.keycap')].some((k) => k.getBoundingClientRect().width > 0) }));
+      const s = w?.querySelector('.way-s');
+      return { line: h ? said(h) : '', still: w?.querySelector('.way-hold')?.hasAttribute('data-open') ?? null, ret: !!h?.querySelector(':scope > kbd'),
+        over: h ? h.scrollWidth - h.clientWidth : -1, rows: [...(w?.querySelectorAll('.qa.rows > .ans') ?? [])].map(said), cut, bare, handles,
+        // In the order they go: none gone before the one ahead of it.
+        ordered: bare.every((b, i) => !b || bare.slice(0, i).every(Boolean)), wraps: !!h?.hasAttribute('data-wrap'),
+        // The session's task stands under the decision, never over its words.
+        clear: !s || !h || ((a, b) => b.top >= a.bottom - 1)(...[h.querySelector(':scope > .way-to'), s].map((x) => { const g = document.createRange(); g.selectNodeContents(x); return g.getBoundingClientRect(); })),
+        task: s?.textContent ?? '', lines: s ? Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight)) : 0 };
+    });
+    const whole = (where, seen) => {
+      expect(!seen.cut.length && seen.over <= 0, `${where}: no word on the line is cut, it fits (${seen.over} px over) ${JSON.stringify(seen.cut)}`);
+      expect(seen.ordered, `${where}: the words go in their order, the disclosure's, Undo's, the other place's ${JSON.stringify(seen.bare)}`);
+      expect(seen.clear, `${where}: the session's task stands clear under the decision`);
+      expect(seen.handles.every((x) => x.seen && x.name === x.word && x.tip.startsWith(x.word)), `${where}: each word gone leaves its chevron or key, the word its name and tooltip ${JSON.stringify(seen.handles)}`);
+    };
     for (const [name, r, said, runs, wants, key = '2', task = ''] of cases) {
       page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 2, viewport: { width: 560, height: 420 } });
       await page.evaluate(() => (document.documentElement.style.background = 'radial-gradient(110% 85% at 12% 0%,#41607c 0%,transparent 58%),#172433'));
@@ -315,28 +342,57 @@ async function main(out, dist) {
       await page.waitForTimeout(800);
       await page.focus('#capture-input');
       await page.waitForTimeout(150);
-      const seen = await page.evaluate(() => {
-        const w = document.querySelector('.way'), h = w?.querySelector('.way-h');
-        return { line: h?.innerText.replace(/\s+/g, ' ').trim() ?? '', still: w?.querySelector('.way-hold')?.hasAttribute('data-open') ?? null, ret: !!h?.querySelector(':scope > kbd'),
-          over: h ? h.scrollWidth - h.clientWidth : -1, rows: [...(w?.querySelectorAll('.qa.rows > .ans') ?? [])].map((a) => a.innerText.replace(/\s+/g, ' ').trim()),
-          cut: ((to) => !to || to.scrollWidth > to.clientWidth + 0.5)(h?.querySelector('.way-to')),
-          gave: [...(h?.querySelectorAll(':scope > .way-more > span, :scope > .act > span') ?? [])].every((x) => x.scrollWidth > x.clientWidth + 0.5),
-          task: w?.querySelector('.way-s')?.textContent ?? '',
-          lines: ((s) => (s ? Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight)) : 0))(w?.querySelector('.way-s')) };
-      });
+      await page.evaluate(() => document.fonts.ready);
+      const seen = await look();
       expect(said.test(seen.line) && !seen.line.includes('·'), `${name}: the decision line says "${seen.line}"`);
       expect(seen.still === !runs && seen.ret === !runs, `${name}: its hold ${runs ? 'runs' : 'stands still, Return\'s key first'} (still ${seen.still}, Return's key ${seen.ret})`);
-      expect(seen.over <= 0, `${name}: the line fits the notch (${seen.over} px over)`);
-      expect(!seen.cut || seen.gave, `${name}: the project and how the task goes there are whole, or all else gave way first`);
+      whole(name, seen);
       expect(seen.task === task && seen.lines <= 2, `${name}: the session it continues on a line of its own, ${seen.lines} lines: "${seen.task}"`);
       const rowsWanted = name === 'decision-torn' ? ['2 fieldnotes new run', '3 cuegrid continuing Make the rehearsal timer readable on mobile'] : [];
       expect(JSON.stringify(seen.rows) === JSON.stringify(rowsWanted), `${name}: the other places as rows ${JSON.stringify(seen.rows)}`);
-      await page.evaluate(() => document.fonts.ready);
       await page.locator('.capture').screenshot({ path: path.join(out, `${name}.png`) });
+      // Words in the field: the keys' caps go, and no word is cut either.
+      await page.keyboard.type('x');
+      await page.waitForTimeout(150);
+      whole(`${name}, words in the field`, await look());
+      await page.keyboard.press('Backspace');
+      await page.waitForTimeout(700);
       await page.keyboard.press(key);
       await page.waitForTimeout(200);
       const moved = await page.evaluate(() => window.__fake.updated ?? null), want = wants(r.ids);
       expect(!!moved && Object.entries(want).every(([k, v]) => moved[k] === v), `${name}: ${key} places it anew there: ${JSON.stringify(moved)}`);
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+    // At Home's width, under Home's Composer: the same line, more of its words in their room.
+    for (const [name, r, said] of cases.filter(([n]) => n !== 'decision-long')) {
+      page = await open(browser, { label: 'workspace', records: structuredClone(r), url: server.url, dpr: 2, viewport: { width: 1180, height: 800 } });
+      await page.waitForSelector('.home .way');
+      await page.focus('#capture-input');
+      await page.waitForTimeout(300);
+      await page.evaluate(() => document.fonts.ready);
+      const seen = await look();
+      expect(said.test(seen.line), `${name}, at Home: the decision line says "${seen.line}"`);
+      whole(`${name}, at Home`, seen);
+      const c = await page.locator('.home .capture').boundingBox(), w = await page.locator('.home .way').boundingBox();
+      await page.screenshot({ path: path.join(out, `${name}-home.png`), clip: { x: c.x - 8, y: c.y - 8, width: c.width + 16, height: w.y + w.height - c.y + 16 } });
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+    // Narrower than any notch: every word beside the decision goes, and the decision takes a second line, uncut.
+    {
+      const [, r] = cases[1];
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 2, viewport: { width: 560, height: 420 } });
+      await page.evaluate((g) => window.__fake.emit(g), { ...GEO, surfaceWidth: 300 });
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(800);
+      await page.focus('#capture-input');
+      await page.waitForTimeout(150);
+      await page.evaluate(() => document.fonts.ready);
+      const seen = await look();
+      whole('a line narrower than the notch', seen);
+      expect(seen.bare.every(Boolean) && seen.wraps, `a line narrower than the notch: every word beside the decision went, and the decision took a second line ${JSON.stringify(seen.bare)} ${seen.wraps}`);
+      await page.locator('.capture').screenshot({ path: path.join(out, 'decision-narrow.png') });
       for (const e of page.errors) failures.push(`page: ${e}`);
       await page.context().close();
     }

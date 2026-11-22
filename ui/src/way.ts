@@ -65,8 +65,8 @@ export const wholeHold = (t: Pick<Thought, 'placed' | 'route'>, hold: number) =>
  *  state.rs `TORN_STARTS`, or Tasktap started again meanwhile). Return starts it where it is. */
 export const waits = (t: T) => step(t) === 'held' && !t.hold_until;
 
-/** What a page knows of the places a decision names, and how a name is cut short on a key. */
-export type Names = { project: (id: string) => string; session: (id: string) => string; of: (session: string) => string | undefined; cut: (name: string) => string };
+/** What a page knows of the places a decision names. */
+export type Names = { project: (id: string) => string; session: (id: string) => string; of: (session: string) => string | undefined };
 /** A thought's place in words, the one way a decision is written (design §8, "The decision"): the project's name, then
  *  how the task goes there, "continuing" or "new run", in the muted tone and apart by spacing only; and for a follow-up
  *  the session it continues ("cuegrid  continuing" over "Fix the flaky export test"). */
@@ -76,18 +76,20 @@ export function decided(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id'
 }
 /** The other places a decision offers, each on its own key from 2, at most two (with Return's, three): the other way of
  *  going beside a model's decision (a new run for a follow-up, and back), or the others it was torn between, the
- *  likelier first. One alone stands in the line, as its key says it (`label`): in the same project only the way, "New
- *  run" or "Continue" (`title`: which session), elsewhere the project's or the session's name, cut short. Two stand
- *  as rows under it, each in the decision's own words (`words`). */
+ *  likelier first. One alone stands in the line, as its key says it (`label`, whole: where the line is short it goes
+ *  whole and its key stays): in the same project only the way, "New run" or "Continue" (`title`: the way, then where),
+ *  elsewhere the project's or the session's name. Two stand as rows under it, each in the decision's own words
+ *  (`words`). */
 export function offers(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id' | 'route'>, names: Names): { key: string; to: Place; label: string; title: string; words: { name: string; how: string } }[] {
   const here = t.project_id ?? t.card_id;
   return (t.route?.others ?? []).slice(0, 2).map((to, i) => {
     const session = 'session' in to ? to.session : undefined, project = 'project' in to ? to.project : 'card' in to ? to.card : session && names.of(session);
     const name = session ? names.session(session) : names.project(project ?? '');
-    const label = project !== here ? names.cut(name) : session ? 'Continue' : 'New run';
+    const label = project !== here ? name : session ? 'Continue' : 'New run';
     const d = decided({ session_id: session ?? null, project_id: project ?? null, card_id: null }, names);
     const words = { name: d.name, how: d.session ? `${d.how} ${d.session}` : d.how };
-    return { key: String(i + 2), to, label, title: session ? `Continue ${name}` : `A new run in ${words.name}`, words };
+    const title = project !== here ? label : session ? `Continue ${name}` : `New run in ${words.name}`;
+    return { key: String(i + 2), to, label, title, words };
   });
 }
 /** How `thought.update` names a place. */

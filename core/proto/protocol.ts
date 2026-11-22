@@ -326,10 +326,17 @@ model?: string | null,
 current?: SessionId | null,
 /**
  * The workspace in view when the thought was said in Tasktap's window
- * (the one its capture sheet was opened in), which a model is told
- * of. Not a pick either.
+ * (the one its capture sheet was opened in). There, with `current`, the
+ * names decide where they are sure, as before a model decided every
+ * task (the chip says the session or the project); a model decides
+ * where the chip says Auto, and is told the view. Not a pick either.
  */
-view?: ProjectId | null, };
+view?: ProjectId | null,
+/**
+ * The chip says Auto in Tasktap's window (chosen, or nothing else
+ * says a place): a model decides, also where the names are sure.
+ */
+auto?: boolean, };
 
 /**
  * What Tasktap knows of one folder that is, or holds a copy of, a
@@ -889,7 +896,11 @@ export type Hint = { text: string,
 /**
  * As `thought.capture`'s `current`.
  */
-current?: SessionId | null, };
+current?: SessionId | null,
+/**
+ * As `thought.capture`'s `view`: said in Tasktap's window.
+ */
+view?: ProjectId | null, };
 
 /**
  * `history`: finished thoughts older than `before`, newest first; with
@@ -918,7 +929,11 @@ after?: string, };
  * terminal shows the question (a click brings the window there), none for
  * the router's question and a waiting thought, which Home shows.
  */
-export type HostNotify = { question: QuestionId | null, thought: ThoughtId | null, title: string, body: string, session: SessionId | null, };
+export type HostNotify = { question: QuestionId | null, thought: ThoughtId | null, title: string, body: string, session: SessionId | null,
+/**
+ * The thought waits no more: what was shown of it is taken back.
+ */
+withdrawn?: boolean, };
 
 /**
  * Who the core took the connection to be.

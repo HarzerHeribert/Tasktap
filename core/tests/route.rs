@@ -371,7 +371,11 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
     });
     let hint = |w: &mut Watch, text: &str, current| {
         let text = text.into();
-        w.ok::<call::RouteHint>(&Hint { text, current })
+        w.ok::<call::RouteHint>(&Hint {
+            text,
+            current,
+            view: None,
+        })
     };
     let capture = |w: &mut Watch, text: &str, current| {
         let id = ThoughtId::mint();
@@ -812,7 +816,11 @@ fn a_normal_build_places_by_the_longest_name_and_never_in_scratch_unless_picked(
     });
     let hint = |w: &mut Watch, text: &str, current| {
         let text = text.into();
-        w.ok::<call::RouteHint>(&Hint { text, current })
+        w.ok::<call::RouteHint>(&Hint {
+            text,
+            current,
+            view: None,
+        })
     };
     let capture = |w: &mut Watch, capture: Capture| {
         w.ok::<call::ThoughtCapture>(&Capture {
@@ -1341,6 +1349,7 @@ fn a_name_that_may_not_be_meant_goes_to_the_model_agreed_to_first_among_its_proj
     let hint = Hint {
         text: "make the app icon bigger".into(),
         current: None,
+        view: None,
     };
     let said = a.w.ok::<call::RouteHint>(&hint);
     assert_eq!(said, tasktap_proto::Route::Unknown);
@@ -1544,6 +1553,7 @@ fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
     let hint = Hint {
         text: "fix the header in folio".into(),
         current: None,
+        view: None,
     };
     assert!(matches!(
         a.w.ok::<call::RouteHint>(&hint),
@@ -1992,6 +2002,40 @@ fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
     assert!(th.hold_until.is_some());
     assert_eq!(th.route.unwrap().others, [place(a.app)]);
     assert_eq!(a.asked(), None);
+    // Decided by the key, it waits no more: what the host was told of it is
+    // taken back.
+    let taken = loop {
+        match host.recv().unwrap() {
+            tasktap_proto::Frame::Control(tasktap_proto::Control::Call(r)) => break r,
+            _ => continue,
+        }
+    };
+    let taken = <call::HostNotify as tasktap_proto::call::Call>::args(taken.args).unwrap();
+    assert_eq!((taken.thought, taken.withdrawn), (Some(t), true));
+    // Started from the line, or undone, it waits no more either.
+    let mut told = || loop {
+        match host.recv().unwrap() {
+            tasktap_proto::Frame::Control(tasktap_proto::Control::Call(r))
+                if r.name == "host.notify" =>
+            {
+                break <call::HostNotify as tasktap_proto::call::Call>::args(r.args).unwrap();
+            }
+            _ => continue,
+        }
+    };
+    for how in ["started", "undone"] {
+        a.answers(&said);
+        let t = a.capture(SPOKEN, None);
+        a.settled(t);
+        let waits = told();
+        assert_eq!((waits.thought, waits.withdrawn), (Some(t), false), "{how}");
+        match how {
+            "started" => a.start(t),
+            _ => a.w.ok::<call::ThoughtStop>(&tasktap_proto::Ref { id: t }),
+        }
+        let taken = told();
+        assert_eq!((taken.thought, taken.withdrawn), (Some(t), true), "{how}");
+    }
 }
 
 #[test]
@@ -3031,14 +3075,24 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
     // (said, as a model is sent it)
     let out = [
         ("my password is hunter2", "my password is [left out]"),
-        ("Passwort: Sommer2024", "Passwort: [left out]"),
+        ("password hunter2", "password [left out]"),
+        ("password to hunter2", "password to [left out]"),
+        ("Passwort: Sommer", "Passwort: [left out]"),
         (
-            "the passphrase correct horse",
-            "the passphrase [left out] horse",
+            "das Passwort lautet Sommer",
+            "das Passwort lautet [left out]",
+        ),
+        ("Passwort ist Sommer2024", "Passwort ist [left out]"),
+        ("password=hunter", "[left out]"),
+        (
+            "the passphrase is correct horse",
+            "the passphrase is [left out] horse",
         ),
         ("token=abc123", "[left out]"),
-        ("set the secret to xyz", "set the secret to [left out]"),
-        ("the api key AbCdEf", "the api key [left out]"),
+        ("set the secret to xyz789", "set the secret to [left out]"),
+        ("the api key Ab1CdEf", "the api key [left out]"),
+        ("the token ghx-0a9f", "the token [left out]"),
+        ("the DB_PASS is hunter", "the DB_PASS is [left out]"),
         ("export DB_PASS=s3cr3t now", "export [left out] now"),
         ("MYSQL_PWD=foo", "[left out]"),
         ("API_TOKEN: abc", "API_TOKEN: [left out]"),
@@ -3082,6 +3136,18 @@ fn what_looks_like_a_secret_is_left_out_a_word_at_a_time() {
         "the passwordless login is broken",
         "check the keyboard shortcuts",
         "in folio, the login from before",
+        // Key, token and secret are words of everyday tasks.
+        "fix the key handler",
+        "the token count is wrong",
+        "rename secret santa list",
+        "primary key column",
+        "the auth-token is expired",
+        "fix the key handler's bug",
+        "set the secret to xyz",
+        "the key is wrong",
+        // A password's field, not a password.
+        "make the password field wider",
+        "the password reset mail is late",
     ];
     for said in kept {
         assert_eq!(redact(said), said);
@@ -3191,4 +3257,101 @@ fn a_projects_top_is_its_folders_and_well_known_files_read_in_bounded_time() {
         ("CLAUDE.md", false),
     ];
     assert_eq!(top_of(listed.map(|(n, f)| (n.to_owned(), f))), want);
+}
+
+/// Said in Tasktap's window, the chip's default stays as released: a
+/// workspace in view is the place, a session in view the follow-up, with
+/// nothing sent and the hold from the capture, as at e1443fd. Auto chosen
+/// there asks the model and tells it the view.
+#[test]
+fn in_tasktaps_window_the_place_in_view_goes_at_once_and_auto_asks_the_model() {
+    let mut a = Asking::new("in-window");
+    a.consent("fixture");
+    let hold = |th: &Thought| th.hold_until.map(|h| h.get() - th.created.get());
+    // A workspace in view: the chip names it, a pick.
+    let t = a.capture("fix the header", Some(a.app));
+    let th = a.w.model.thought(t).clone();
+    assert_eq!(
+        (th.status, th.project_id, th.placed),
+        (Status::Routed, Some(a.app), Some(Placed::Picked))
+    );
+    assert_eq!(hold(&th), Some(5000));
+    assert_eq!(a.asked(), None);
+    // The chip names the workspace because the names say nothing sure: the
+    // hint says nothing, as at e1443fd, though a model is agreed to.
+    let app = a.app;
+    let hint = |text: &str, current| Hint {
+        text: text.into(),
+        current,
+        view: Some(app),
+    };
+    let unknown = tasktap_proto::Route::Unknown;
+    assert_eq!(
+        a.w.ok::<call::RouteHint>(&hint("fix the header", None)),
+        unknown
+    );
+    // Words that name another project are the chip's place there, and the
+    // names place the task, nothing sent.
+    let named =
+        a.w.ok::<call::RouteHint>(&hint("in folio, fix the login", None));
+    assert!(
+        matches!(named, tasktap_proto::Route::Clear { .. }),
+        "{named:?}"
+    );
+    let id = ThoughtId::mint();
+    let capture = Capture {
+        agent: Some("fixture".into()),
+        view: Some(a.app),
+        ..typed(id, "in folio, fix the login")
+    };
+    a.w.ok::<call::ThoughtCapture>(&capture);
+    let th = a.settled(id);
+    assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
+    assert_eq!(hold(&th), Some(5000));
+    assert_eq!(th.route.unwrap().by, "local");
+    assert_eq!(a.asked(), None);
+    // A session in view: the chip says the follow-up; the session gets it,
+    // no words needed to lean on it.
+    let s = a.run(a.app, "fix the flaky export test");
+    let hint = hint("make the empty case pass", Some(s));
+    let follows = tasktap_proto::Route::Clear {
+        to: tasktap_proto::Place::Session(s),
+        brief: "make the empty case pass".into(),
+        said: None,
+    };
+    assert_eq!(a.w.ok::<call::RouteHint>(&hint), follows);
+    let id = ThoughtId::mint();
+    let capture = Capture {
+        agent: Some("fixture".into()),
+        current: Some(s),
+        view: Some(a.app),
+        ..typed(id, "make the empty case pass")
+    };
+    a.w.ok::<call::ThoughtCapture>(&capture);
+    let th = a.settled(id);
+    assert_eq!(
+        (th.status, th.session_id, th.placed),
+        (Status::Routed, Some(s), Some(Placed::FollowUp))
+    );
+    assert_eq!(hold(&th), Some(5000));
+    assert_eq!(a.asked(), None);
+    // Auto chosen there: the model decides, told the session and the
+    // workspace in view.
+    a.answers(&answer("clear", "p1", "Make the empty case pass."));
+    let id = ThoughtId::mint();
+    let capture = Capture {
+        agent: Some("fixture".into()),
+        current: Some(s),
+        view: Some(a.app),
+        auto: true,
+        ..typed(id, "make the empty case pass")
+    };
+    a.w.ok::<call::ThoughtCapture>(&capture);
+    let th = a.settled(id);
+    assert_eq!(th.route.unwrap().by, "fixture");
+    let asked = a.asked().unwrap();
+    assert_eq!(
+        (&asked["current"], &asked["view"]),
+        (&json!("s1"), &json!("p1"))
+    );
 }

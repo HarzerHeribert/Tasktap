@@ -205,6 +205,16 @@ impl Seams {
         crate::route::Local.route(request)
     }
 
+    /// Whether the names a thought says decide where it goes, in Tasktap's
+    /// window ([`crate::route::sure`]), or the fixture router answered.
+    fn sure(&self, request: &crate::route::Request) -> bool {
+        #[cfg(feature = "fixtures")]
+        if self.fixture.is_some() {
+            return true;
+        }
+        crate::route::sure(request)
+    }
+
     /// The fixture launcher, where it stands in for the real one.
     #[cfg(feature = "fixtures")]
     fn launcher(&mut self) -> Option<&mut dyn Launcher> {
@@ -323,10 +333,11 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 thought,
                 current,
                 view,
+                auto,
                 by,
                 picked,
             } => {
-                route(core, thought, (current, view), by, picked);
+                route(core, thought, (current, view, auto), by, picked);
                 None
             }
             Effect::Unroute(thought) => {
@@ -375,6 +386,10 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
             }
             Effect::Waits(thought) => {
                 notify(core, Told::Waits(thought));
+                None
+            }
+            Effect::Unwaits(thought) => {
+                notify(core, Told::Waited(thought));
                 None
             }
             Effect::Unmake(project) => {
@@ -437,7 +452,7 @@ pub(crate) fn stop(why: impl std::fmt::Display) -> ! {
 fn route(
     core: &mut Core,
     id: ThoughtId,
-    (current, view): (Option<SessionId>, Option<ProjectId>),
+    (current, view, auto): (Option<SessionId>, Option<ProjectId>, bool),
     by: Option<RouteBy>,
     picked: Option<Destination>,
 ) {
@@ -451,11 +466,20 @@ fn route(
         return;
     };
     (asked.picked, asked.view) = (picked, view);
+    // Said in Tasktap's window (a session or a workspace in view) where the
+    // chip says the place the names say: the session in view, the project
+    // the words name. They decide, as before a model decided every task;
+    // the chip says Auto where they are not sure, or the person chose it.
+    let window = (current.is_some() || view.is_some()) && !auto;
     // The Scratchpad said as a place is the person's own place, as a pick
     // is: no model is shown it. Picked, a model writes only the brief of a
     // thought too long to go as it is.
     let sure = match picked {
         Some(_) => short(&asked.text),
+        None if window => {
+            let local = core.seams.route(&asked);
+            !matches!(local, Route::Unknown) && core.seams.sure(&asked)
+        }
         None => on_pad(&asked),
     };
     // With no project known, a model is shown nothing to choose from (no
@@ -1328,6 +1352,8 @@ fn unmake(core: &mut Core, project: ProjectId) {
 enum Told {
     Question(QuestionId),
     Waits(ThoughtId),
+    /// It waits no more: its notification is taken back.
+    Waited(ThoughtId),
 }
 
 /// Tells the person a question opened, or a thought waits for their key:
@@ -1341,6 +1367,7 @@ fn notify(core: &mut Core, told: Told) {
         match told {
             Told::Question(question) => f.notified.push(question),
             Told::Waits(thought) => f.waited.push(thought),
+            Told::Waited(_) => {}
         }
     }
     if !core
@@ -1353,6 +1380,14 @@ fn notify(core: &mut Core, told: Told) {
     let args = match told {
         Told::Question(question) => words(core, question),
         Told::Waits(thought) => waits(core, thought),
+        Told::Waited(thought) => Some(tasktap_proto::HostNotify {
+            question: None,
+            thought: Some(thought),
+            title: String::new(),
+            body: String::new(),
+            session: None,
+            withdrawn: true,
+        }),
     };
     let Some(args) = args else {
         return;
@@ -1401,6 +1436,7 @@ fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNot
         title,
         body,
         session: q.session_id,
+        withdrawn: false,
     })
 }
 
@@ -1414,6 +1450,7 @@ fn waits(core: &mut Core, thought: ThoughtId) -> Option<tasktap_proto::HostNotif
         title: crate::route::WHERE.into(),
         body: cut(&t.text),
         session: None,
+        withdrawn: false,
     })
 }
 

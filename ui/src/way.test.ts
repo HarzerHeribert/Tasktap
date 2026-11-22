@@ -139,12 +139,12 @@ test('the hold is a share of its whole length from the decision, and follows the
 });
 
 test('the decision line names the project and how the task goes there, and offers the other places on 2 and 3', () => {
-  const names = { project: (id: string) => ({ p1: 'cuegrid', p2: 'folio' })[id] ?? '?', session: (id: string) => ({ s1: 'Fix the flaky export test', s2: 'Login' })[id] ?? '?', of: (id: string) => ({ s1: 'p1', s2: 'p2' })[id], cut: (s: string) => (s.length > 17 ? `${s.slice(0, 16)}…` : s) };
+  const names = { project: (id: string) => ({ p1: 'cuegrid', p2: 'folio' })[id] ?? '?', session: (id: string) => ({ s1: 'Fix the flaky export test', s2: 'Login' })[id] ?? '?', of: (id: string) => ({ s1: 'p1', s2: 'p2' })[id] };
   const held = (o: Partial<Thought>) => ({ ...thought({ phase: 'routed', status: 'routed', hold_until: 6000, ...o }), session_id: null, card_id: null, ...o }) as Thought;
   const follow = held({ project_id: 'p1', session_id: 's1', route: route({ others: [{ project: 'p1' }] }) });
   assert.deepEqual(decided(follow, names), { name: 'cuegrid', how: 'continuing', session: 'Fix the flaky export test' });
   // The other way of going, in the same project, says only the way; and back.
-  assert.deepEqual(offers(follow, names), [{ key: '2', to: { project: 'p1' }, label: 'New run', title: 'A new run in cuegrid', words: { name: 'cuegrid', how: 'new run' } }]);
+  assert.deepEqual(offers(follow, names), [{ key: '2', to: { project: 'p1' }, label: 'New run', title: 'New run in cuegrid', words: { name: 'cuegrid', how: 'new run' } }]);
   const run = held({ project_id: 'p1', route: route({ others: [{ session: 's1' }] }) });
   assert.deepEqual(decided(run, names), { name: 'cuegrid', how: 'new run', session: '' });
   assert.deepEqual(offers(run, names).map((o) => [o.label, o.title]), [['Continue', 'Continue Fix the flaky export test']]);
@@ -153,6 +153,10 @@ test('the decision line names the project and how the task goes there, and offer
   assert.equal(waits(torn), true);
   assert.equal(waits(run), false);
   assert.deepEqual(offers(torn, names).map((o) => [o.key, o.label, `${o.words.name}, ${o.words.how}`]), [['2', 'folio', 'folio, new run'], ['3', 'Login', 'folio, continuing Login']]);
+  // A long name elsewhere is whole on its key: where the line is short the word goes whole, never cut.
+  const far = held({ project_id: 'p1', route: route({ others: [{ project: 'p4' }] }) });
+  const long = { ...names, project: (id: string) => (id === 'p4' ? 'customer-portal-frontend' : names.project(id)) };
+  assert.deepEqual(offers(far, long).map((o) => [o.label, o.title]), [['customer-portal-frontend', 'customer-portal-frontend']]);
   assert.deepEqual([placeOf({ project: 'p2' }), placeOf({ session: 's2' }), placeOf({ card: 'c1' })], [{ project_id: 'p2' }, { session_id: 's2' }, { card_id: 'c1' }]);
 });
 

@@ -211,7 +211,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
                 <span class="hint">{MOVES}</span>
               </div>
             )}
-            <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long one is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
+            <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long task is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <p class="hint">{t.cuts}</p>}
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}

@@ -210,6 +210,7 @@ fn every_call_round_trips() {
         model: Some("sonnet".into()),
         current: Some(id(4)),
         view: None,
+        auto: false,
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -362,6 +363,7 @@ fn every_call_round_trips() {
     let hint = Hint {
         text: "fix the header in folio".into(),
         current: Some(id(3)),
+        view: None,
     };
     let route = Route::Clear {
         to: Place::Project(id(2)),
@@ -562,6 +564,7 @@ fn every_call_round_trips() {
         model: None,
         current: None,
         view: None,
+        auto: false,
     };
     for (target, stream) in [
         (
@@ -640,6 +643,7 @@ fn every_call_round_trips() {
             title: "Fixture agent asks".into(),
             body: "Go on?".into(),
             session,
+            withdrawn: false,
         };
         round_trip::<call::HostNotify>(notify, (), seen);
     }
@@ -650,8 +654,15 @@ fn every_call_round_trips() {
         title: "Which project is this task for?".into(),
         body: "make the header bigger".into(),
         session: None,
+        withdrawn: false,
     };
-    round_trip::<call::HostNotify>(waits, (), seen);
+    round_trip::<call::HostNotify>(waits.clone(), (), seen);
+    // And taken back once it waits no more.
+    let waited = HostNotify {
+        withdrawn: true,
+        ..waits
+    };
+    round_trip::<call::HostNotify>(waited, (), seen);
     let fixture = FixtureStream {
         credit: 7,
         send: Offset::new(1 << 40).unwrap(),

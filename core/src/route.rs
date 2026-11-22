@@ -702,6 +702,28 @@ pub fn local(r: &Request) -> Route {
     by_names(r).unwrap_or_else(|| unsure(r))
 }
 
+/// Whether the names the capture says, or the session it was made in,
+/// decide where it goes: in Tasktap's window the chip says that place, as
+/// before a model decided every task ([`hint`]). A question the names
+/// alone would ask (two projects named alike) is sure too; one they ask
+/// only because a name may not be meant is not.
+pub fn sure(r: &Request) -> bool {
+    match by_names(r) {
+        Some(Route::Ambiguous { .. }) => {
+            let named = hits(r);
+            let sessions = r.sessions.iter().any(|s| follows(&r.text, s));
+            sessions || named.iter().any(decides)
+        }
+        // One project only leads: not said for certain.
+        Some(Route::Clear {
+            said: Some(state::Said::Leads { .. }),
+            ..
+        }) => false,
+        Some(_) => true,
+        None => false,
+    }
+}
+
 /// The route the names the capture says decide, or the session it was
 /// made in; none when neither says anything.
 pub fn by_names(r: &Request) -> Option<Route> {
@@ -1905,11 +1927,15 @@ pub const LEFT_OUT: &str = "[left out]";
 /// A text as a model is sent it: each word that looks like a secret (a
 /// key, a token, a password) replaced by [`LEFT_OUT`], the rest as it is,
 /// so a task or a session keeps the words that place it. A wrong match
-/// costs one word, so it leans towards leaving out:
+/// costs one word, so it leans towards leaving out, but never an everyday
+/// word of a coding task ("the key handler", "the token count"):
 ///
-/// - the word after one that says a secret follows (password, Passwort,
-///   passphrase, secret, token, key, Bearer and the like), with or without
-///   ":" or "=", over "is" and the like;
+/// - after password, Passwort, passphrase and the like, joined by "is",
+///   "to", "ist", "lautet", ":" or "=", the next word; right after it, a
+///   next word with a digit or a sign in it ("password hunter2", never
+///   "the password field");
+/// - after key, token or secret, only a next word that looks like a secret
+///   by itself; after Bearer, also a long one;
 /// - a value given to a name that says so (`DB_PASS=…`, `API_TOKEN: …`);
 /// - a web address with a password in it (`https://me:pw@host`), and a
 ///   webhook's address;
@@ -1918,8 +1944,9 @@ pub const LEFT_OUT: &str = "[left out]";
 /// - a long run of letters and digits, or of letters in mixed case.
 pub fn redact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    // Words still to pass before the value a word said follows, or none.
-    let mut after: Option<usize> = None;
+    // A word just said a secret follows: how surely, and whether a
+    // connecting word ("is", "to", ":") came after it.
+    let mut after: Option<(Says, bool)> = None;
     let mut rest = text;
     while !rest.is_empty() {
         let space = rest
@@ -1935,64 +1962,99 @@ pub fn redact(text: &str) -> String {
         rest = &rest[end..];
         let bare = word.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c));
         let lower = bare.to_lowercase();
-        let (name, value) = match lower.split_once(['=', ':']) {
-            Some((n, v)) if !v.starts_with("//") => (n.to_owned(), v.to_owned()),
-            _ => (lower.clone(), String::new()),
+        let (name, value, joined) = match lower.split_once(['=', ':']) {
+            Some((n, v)) if !v.starts_with("//") => (n.to_owned(), v.to_owned(), true),
+            _ => (lower.clone(), String::new(), false),
         };
-        let between = after.is_some() && BETWEEN.contains(&lower.as_str());
-        let secret =
-            (after.is_some() && !between) || (!value.is_empty() && tells(&name)) || shaped(bare);
+        let connects = CONNECT.contains(&lower.as_str());
+        let secret = match after {
+            _ if shaped(bare) => true,
+            // "password is …", "Passwort: …": the value, whatever it is.
+            Some((Says::Surely, true)) => !connects,
+            // Right after it, or after "key is": only what looks like one;
+            // after "Bearer", anything long too.
+            Some((Says::Bearer, _)) => !connects && (looks(bare) || bare.chars().count() >= 16),
+            Some((Says::Surely | Says::Maybe, _)) => !connects && looks(bare),
+            None => {
+                !value.is_empty()
+                    && tells(&name, true).is_some_and(|s| s == Says::Surely || looks(&value))
+            }
+        };
         if secret {
             out.push_str(LEFT_OUT);
             after = None;
             continue;
         }
         out.push_str(word);
-        after = match after {
-            Some(left) if between && left > 1 => Some(left - 1),
-            Some(_) => None,
-            None if value.is_empty() && tells(&name) => Some(3),
-            None => None,
+        after = match (after, connects) {
+            (Some((how, _)), true) => Some((how, true)),
+            _ if value.is_empty() => tells(&name, joined).map(|how| (how, joined)),
+            _ => None,
         };
     }
     out
 }
 
-/// Words that say a secret follows them, and the parts of a name that do
-/// (`DB_PASS`, `api-token`) ([`redact`]).
-const SAYS: &[&str] = &[
+/// How surely a word says a secret follows it ([`redact`]).
+#[derive(Clone, Copy, PartialEq)]
+enum Says {
+    /// A password: after "is", "to", ":" or "=", the next word is one.
+    Surely,
+    /// A key, a token, a secret: words of every task, so only a next word
+    /// that looks like one by itself is.
+    Maybe,
+    /// "Bearer": a long next word too.
+    Bearer,
+}
+
+/// Words that say a password follows them, and those that may say a key
+/// or a token does; the parts of a name given a value that say so
+/// (`DB_PASS`, `api-token`).
+const SURELY: &[&str] = &[
     "password",
     "passwords",
     "passwort",
     "passphrase",
     "passwd",
     "kennwort",
-    "secret",
-    "secrets",
-    "token",
-    "tokens",
-    "key",
-    "keys",
-    "apikey",
-    "bearer",
     "credentials",
 ];
-const PARTS: &[&str] = &[
-    "pass", "passwd", "password", "pwd", "secret", "token", "key", "apikey", "auth",
+const MAYBE: &[&str] = &[
+    "secret", "secrets", "token", "tokens", "key", "keys", "apikey",
 ];
+const PARTS: &[&str] = &["pass", "passwd", "password", "pwd"];
+const PARTS_MAYBE: &[&str] = &["secret", "token", "key", "apikey", "auth"];
 /// Words between the one that says a secret follows and the secret.
-const BETWEEN: &[&str] = &[
-    "is", "was", "ist", "lautet", "=", ":", "-", "of", "for", "für", "to", "the", "my", "our", "a",
-    "an",
-];
+const CONNECT: &[&str] = &["is", "to", "ist", "lautet", "=", ":"];
 
-/// Whether a word, or a name a value is given to, says a secret follows.
-fn tells(name: &str) -> bool {
-    let parts: Vec<&str> = name
-        .split(['_', '-', '.'])
+/// How surely a word, or a name given a value, says a secret follows. A
+/// name of parts says as its parts do (`DB_PASS` as a password, `auth-token`
+/// as a token), and as surely as a password where it is given a value
+/// (`joined`: `API_TOKEN=`, `api_token:`).
+fn tells(name: &str, joined: bool) -> Option<Says> {
+    let name = name.trim_end_matches([':', '=']);
+    let parts: Vec<&str> = (name.split(['_', '-', '.']))
         .filter(|p| !p.is_empty())
         .collect();
-    SAYS.contains(&name) || (parts.len() > 1 && parts.iter().any(|p| PARTS.contains(p)))
+    let of = |list: &[&str]| parts.len() > 1 && parts.iter().any(|p| list.contains(p));
+    if SURELY.contains(&name) || of(PARTS) || (joined && of(PARTS_MAYBE)) {
+        Some(Says::Surely)
+    } else if MAYBE.contains(&name) || of(PARTS_MAYBE) {
+        Some(Says::Maybe)
+    } else if name == "bearer" {
+        Some(Says::Bearer)
+    } else {
+        None
+    }
+}
+
+/// Whether a word looks like a secret by itself, beside a word that says
+/// one may follow: a digit or a sign in it (an apostrophe is none:
+/// "handler's"), or the shape of one.
+fn looks(word: &str) -> bool {
+    word.chars()
+        .any(|c| !c.is_alphabetic() && !matches!(c, '\'' | '\u{2019}'))
+        || shaped(word)
 }
 
 /// Whether a word looks like a secret by its shape alone ([`redact`]).
@@ -2652,8 +2714,11 @@ fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
 /// chip says: where the names it says send it, or `unknown` while they say
 /// nothing (the capture then asks). `unknown` too wherever `effects::route`
 /// asks a model: one the person agreed to that this core can still ask,
-/// with a project known, and the Scratchpad not said as the place. It
-/// stores nothing and starts nothing.
+/// with a project known, and the Scratchpad not said as the place. Said in
+/// Tasktap's window (a workspace or a session in view) the chip says what
+/// it said before a model decided every task: where the names send it when
+/// they are sure ([`sure`]), else `unknown`, and the page names the place
+/// in view. It stores nothing and starts nothing.
 pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
     let (request, by, chatgpt) = effects::read(cx.core, |tx| {
         let by = match tx.pref(tasktap_proto::PrefKey::RouteBy)?.map(|p| p.value) {
@@ -2665,6 +2730,15 @@ pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
     })?;
     let names = by_names(&request);
     let pad = matches!(&names, Some(Route::Clear { to: Destination::New(p), .. }) if Some(*p) == request.scratch);
+    // In Tasktap's window, as released: the names when sure.
+    if args.current.is_some() || args.view.is_some() {
+        let agreed = |by: RouteBy| agreed(&by, chatgpt.as_deref()).is_ok();
+        let model = by.is_some_and(agreed) && !sure(&request);
+        return Ok(match model {
+            true => tasktap_proto::Route::Unknown,
+            false => wire(names.unwrap_or(Route::Unknown)),
+        });
+    }
     let tools = by.filter(|_| !pad && !request.projects.is_empty());
     let tools = tools.and_then(|by| agreed(&by, chatgpt.as_deref()).ok());
     let model = tools.is_some_and(|tools| tools.iter().any(|t| !cx.core.seams.gone(t.id())));

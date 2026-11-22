@@ -385,10 +385,17 @@ pub struct Capture {
     #[serde(default)]
     pub current: Option<SessionId>,
     /// The workspace in view when the thought was said in Tasktap's window
-    /// (the one its capture sheet was opened in), which a model is told
-    /// of. Not a pick either.
+    /// (the one its capture sheet was opened in). There, with `current`, the
+    /// names decide where they are sure, as before a model decided every
+    /// task (the chip says the session or the project); a model decides
+    /// where the chip says Auto, and is told the view. Not a pick either.
     #[serde(default)]
     pub view: Option<ProjectId>,
+    /// The chip says Auto in Tasktap's window (chosen, or nothing else
+    /// says a place): a model decides, also where the names are sure.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub auto: bool,
 }
 
 /// `route.hint`: where a capture would go, asked while it is typed (the
@@ -401,6 +408,9 @@ pub struct Hint {
     /// As `thought.capture`'s `current`.
     #[serde(default)]
     pub current: Option<SessionId>,
+    /// As `thought.capture`'s `view`: said in Tasktap's window.
+    #[serde(default)]
+    pub view: Option<ProjectId>,
 }
 
 /// `thought.update`: sends a thought to a project, or on to a session: a
@@ -606,6 +616,10 @@ pub struct HostNotify {
     pub title: String,
     pub body: String,
     pub session: Option<SessionId>,
+    /// The thought waits no more: what was shown of it is taken back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub withdrawn: bool,
 }
 
 /// `question.withdraw` and `question.received`: the asker names its question

@@ -284,6 +284,7 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                     model: None,
                     current: None,
                     view: None,
+                    auto: false,
                 },
             )),
         ),

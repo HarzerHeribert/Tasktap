@@ -270,6 +270,8 @@ pub enum Effect {
         current: Option<SessionId>,
         /// The workspace in view when the thought was said (`Capture::view`).
         view: Option<ProjectId>,
+        /// The chip said Auto there (`Capture::auto`).
+        auto: bool,
         by: Option<RouteBy>,
         picked: Option<Destination>,
     },
@@ -314,6 +316,9 @@ pub enum Effect {
     /// A thought a model was torn about waits for the person's key: tell
     /// the person, as of a question.
     Waits(ThoughtId),
+    /// It waits no more (placed by a key, started, undone): what the person
+    /// was told of it is taken back.
+    Unwaits(ThoughtId),
     /// A thought was taken back from a project whose folder may have been
     /// made for it: that folder goes while empty (`effects::unmake`).
     Unmake(ProjectId),
@@ -669,6 +674,7 @@ impl Machine<'_, '_> {
             // line offered stay offered, the one it was in among them.
             (E::Pick { to, .. }, _, Some(P::Routed), ..) => {
                 let mut t = some(thought)?;
+                self.unwait(&t);
                 if t.hold_until.take().is_some() {
                     self.effects.push(Effect::Unhold(t.id));
                 }
@@ -1166,7 +1172,7 @@ impl Machine<'_, '_> {
             None => {
                 let mut t = t;
                 let by = self.consent()?;
-                self.ask(&mut t, (c.current, c.view), by, None);
+                self.ask(&mut t, (c.current, c.view, c.auto), by, None);
                 self.save(t)
             }
         }
@@ -1187,7 +1193,7 @@ impl Machine<'_, '_> {
     fn ask(
         &mut self,
         t: &mut Thought,
-        (current, view): (Option<SessionId>, Option<ProjectId>),
+        (current, view, auto): (Option<SessionId>, Option<ProjectId>, bool),
         by: Option<RouteBy>,
         picked: Option<Destination>,
     ) {
@@ -1203,6 +1209,7 @@ impl Machine<'_, '_> {
             thought: t.id,
             current,
             view,
+            auto,
             by,
             picked,
         });
@@ -1442,7 +1449,7 @@ impl Machine<'_, '_> {
         let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
         let wordy = brief.is_none() && t.brief.is_none() && !crate::route::short(&t.text);
         if let (true, false, Some(by)) = (wordy, failed, self.consent()?) {
-            self.ask(&mut t, (None, None), Some(by), Some(to));
+            self.ask(&mut t, (None, None, false), Some(by), Some(to));
         }
         // Picked while the router's question was still open: that question is moot.
         let id = t.id;
@@ -1550,6 +1557,7 @@ impl Machine<'_, '_> {
     /// anything else starts a new session, which continues the conversation
     /// of a nudge's ended session.
     fn launch(&mut self, mut t: Thought, attempt: AttemptId, by_hand: bool) -> Result<()> {
+        self.unwait(&t);
         // Checked again as it starts: what was decided may be gone by now.
         match self.unfit(&t)? {
             Some(Unfit::Ask(why)) => return self.ask_again(t, why),
@@ -1790,7 +1798,20 @@ impl Machine<'_, '_> {
         self.save(t)
     }
 
+    /// A thought that waited for the person's key (a model was torn) waits
+    /// no more: what they were told of it is taken back.
+    fn unwait(&mut self, t: &Thought) {
+        let torn = t
+            .route
+            .as_ref()
+            .is_some_and(|r| r.decided.is_some() && !r.others.is_empty());
+        if t.phase == P::Routed && t.hold_until.is_none() && torn {
+            self.effects.push(Effect::Unwaits(t.id));
+        }
+    }
+
     fn undo(&mut self, mut t: Thought) -> Result<()> {
+        self.unwait(&t);
         self.unask(&mut t, "it was undone");
         if t.hold_until.take().is_some() {
             self.effects.push(Effect::Unhold(t.id));

@@ -823,6 +823,7 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         model: None,
         current: None,
         view: None,
+        auto: false,
     }
 }
 

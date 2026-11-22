@@ -432,9 +432,9 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .cd-g{display:inline-flex;flex:none}
 .cd-p{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .cd-f time,.cd-f .diff{font:var(--f-num);flex:none}
-.peek{position:absolute;z-index:4;padding:var(--sp3) var(--sp4);border-radius:var(--r4);background:var(--surface-lit);box-shadow:var(--surface-edge);pointer-events:none}
+.cd-peek{position:absolute;z-index:4;padding:var(--sp3) var(--sp4);border-radius:var(--r4);background:var(--surface-lit);box-shadow:var(--surface-edge);pointer-events:none}
 @media(prefers-reduced-motion:no-preference){
-  .peek{animation:arrive var(--t-fast) linear both}
+  .cd-peek{animation:arrive var(--t-fast) linear both}
 }
 .folds{margin-top:34px}
 .fold-h{display:grid;grid-template-columns:var(--lead) round(72px * var(--ts),1px) auto minmax(0,1fr) 48px;align-items:baseline;align-content:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);

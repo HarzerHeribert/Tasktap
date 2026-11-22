@@ -116,7 +116,7 @@ export function Peek() {
   if (!now) return null;
   const lead = 32, w = Math.min(width - lead, 560), under = room - bottom >= Math.min(260, top);
   return (
-    <div class="peek" role="tooltip" style={{ left: `${left + lead}px`, width: `${w}px`, ...(under ? { top: `${bottom + 6}px` } : { bottom: `${room - top + 6}px` }) }}>
+    <div class="cd-peek" role="tooltip" style={{ left: `${left + lead}px`, width: `${w}px`, ...(under ? { top: `${bottom + 6}px` } : { bottom: `${room - top + 6}px` }) }}>
       <Body t={now} kind={kind} />
     </div>
   );

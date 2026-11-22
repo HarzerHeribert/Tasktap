@@ -66,7 +66,7 @@ const results = (page) => page.locator('.fold-b').first();
 const titled = (page) => page.evaluate(() => [...document.querySelectorAll('.hr, .srow .row')].flatMap((row) => [row, ...row.querySelectorAll('[title]:not(.st):not(.bgi)')]).filter((e) => e.hasAttribute('title')).map((e) => `${e.className}=${e.title}`));
 const rects = (page) => page.evaluate(() => [...document.querySelectorAll('.hr')].map((e) => { const b = e.getBoundingClientRect(); return [e.dataset.thought, Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)].join(':'); }).join('|') + `|${document.querySelector('.home').scrollHeight}`);
 const peekOf = (page) => page.evaluate(() => {
-  const p = document.querySelector('.peek');
+  const p = document.querySelector('.cd-peek');
   if (!p) return null;
   const b = p.getBoundingClientRect();
   return { top: b.top, bottom: b.bottom, left: b.left, right: b.right, text: p.innerText, events: getComputedStyle(p).pointerEvents };
@@ -191,22 +191,22 @@ async function main() {
     await page.locator(sel).scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
     const still = await rects(page);
-    expect(await page.locator('.peek').count() === 0, 'no peek at rest');
+    expect(await page.locator('.cd-peek').count() === 0, 'no peek at rest');
     const at = await rowRect(page, sel);
     await page.mouse.move(at.x, at.y);
     await page.waitForTimeout(200);
-    expect(await page.locator('.peek').count() === 0, 'no peek before the pointer has rested 350 ms');
+    expect(await page.locator('.cd-peek').count() === 0, 'no peek before the pointer has rested 350 ms');
     await page.waitForTimeout(400);
     let p = await peekOf(page);
     expect(!!p && p.text.includes('Rate-limit the import endpoint') && p.text.includes('60 requests a minute') && p.text.includes('ledger-api') && p.text.includes('3 files'), `the peek shows after the pointer rests: "${(p?.text ?? '').replace(/\n/g, ' ')}"`);
     expect(!!p && apart(p, await rowRect(page, sel)), 'the peek covers no part of its row');
     expect(await rects(page) === still, 'the peek shifts nothing in the page');
-    expect(p?.events === 'none' && await page.evaluate(() => !document.querySelector('.peek').contains(document.activeElement) && document.activeElement?.closest('.peek') === null), 'the peek takes no pointer and no keyboard focus');
+    expect(p?.events === 'none' && await page.evaluate(() => !document.querySelector('.cd-peek').contains(document.activeElement) && document.activeElement?.closest('.cd-peek') === null), 'the peek takes no pointer and no keyboard focus');
     expect(!(p?.text ?? '').includes('·') && !/Placed by|Brief by/.test(p?.text ?? ''), 'no "·" in the peek, and no word of who placed the task');
     await shot(page, 'peek-in-results', '.room');
     await page.mouse.move(2, 2);
     await page.waitForTimeout(100);
-    expect(await page.locator('.peek').count() === 0, 'the peek goes when the pointer leaves');
+    expect(await page.locator('.cd-peek').count() === 0, 'the peek goes when the pointer leaves');
     await page.evaluate((s) => document.querySelector(s).focus({ focusVisible: true }), sel);
     await page.waitForTimeout(100);
     p = await peekOf(page);
@@ -214,7 +214,7 @@ async function main() {
     expect(await rects(page) === still, 'and shifts nothing');
     await page.evaluate(() => document.activeElement.blur());
     await page.waitForTimeout(100);
-    expect(await page.locator('.peek').count() === 0, 'the peek goes when the focus leaves');
+    expect(await page.locator('.cd-peek').count() === 0, 'the peek goes when the focus leaves');
     // A row under the pointer says that a click opens it.
     await page.mouse.move(at.x, at.y);
     await page.waitForTimeout(150);

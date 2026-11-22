@@ -4,7 +4,7 @@
 // by a model is on, what a ring says of its agent,
 // the time a recording shows, where heard words go in a field, and what a field holds while its thought is sent. The
 // pages draw these and decide nothing themselves.
-import type { ChatGpt, Place, PlaceTool, RouteBy, Thought } from '../../core/proto/protocol.ts';
+import { type ChatGpt, DECIDED_HOLD, type Place, type PlaceTool, type RouteBy, type Thought } from '../../core/proto/protocol.ts';
 
 /** The two letters of an agent the app has no mark for, from its id, which is what a person types to start it: the
  *  initials of its first two words, or the first two letters of its one. */
@@ -56,17 +56,23 @@ export function hold(t: T, now: number, whole: number): { share: number; ms: num
   return { share: Math.min(1, ms / all), ms };
 }
 
+/** The whole of a thought's hold, in milliseconds, for a person whose hold is `hold` seconds: a model's sure decision
+ *  is held `DECIDED_HOLD` at most from when it is there (core state.rs `routed`), anything else the person's hold. */
+export const wholeHold = (t: Pick<Thought, 'placed' | 'route'>, hold: number) =>
+  (t.route && t.route.by !== 'local' && (t.placed === 'model' || t.placed === 'follow_up') ? Math.min(hold, DECIDED_HOLD) : hold) * 1000;
+
 /** A decision that waits for a key: placed and held with no time running (a model was torn between places, core
  *  state.rs `TORN_STARTS`, or Tasktap started again meanwhile). Return starts it where it is. */
 export const waits = (t: T) => step(t) === 'held' && !t.hold_until;
 
 /** What a page knows of the places a decision names, and how a name is cut short on a key. */
 export type Names = { project: (id: string) => string; session: (id: string) => string; of: (session: string) => string | undefined; cut: (name: string) => string };
-/** A thought's place on its decision line, in words (design §8, "The decision"): the project's name, and how the task
- *  goes there, "continuing" the session it follows up or "new run" ("cuegrid, continuing Fix the flaky export test"). */
-export function decided(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id'>, names: Names): { name: string; how: string } {
+/** A thought's place in words, the one way a decision is written (design §8, "The decision"): the project's name, then
+ *  how the task goes there, "continuing" or "new run", in the muted tone and apart by spacing only; and for a follow-up
+ *  the session it continues ("cuegrid  continuing" over "Fix the flaky export test"). */
+export function decided(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id'>, names: Names): { name: string; how: string; session: string } {
   const name = names.project(t.project_id ?? t.card_id ?? '');
-  return { name, how: t.session_id ? `continuing ${names.session(t.session_id)}` : 'new run' };
+  return t.session_id ? { name, how: 'continuing', session: names.session(t.session_id) } : { name, how: 'new run', session: '' };
 }
 /** The other places a decision offers, each on its own key from 2, at most two (with Return's, three): the other way of
  *  going beside a model's decision (a new run for a follow-up, and back), or the others it was torn between, the
@@ -79,7 +85,8 @@ export function offers(t: Pick<Thought, 'session_id' | 'project_id' | 'card_id' 
     const session = 'session' in to ? to.session : undefined, project = 'project' in to ? to.project : 'card' in to ? to.card : session && names.of(session);
     const name = session ? names.session(session) : names.project(project ?? '');
     const label = project !== here ? names.cut(name) : session ? 'Continue' : 'New run';
-    const words = decided({ session_id: session ?? null, project_id: project ?? null, card_id: null }, names);
+    const d = decided({ session_id: session ?? null, project_id: project ?? null, card_id: null }, names);
+    const words = { name: d.name, how: d.session ? `${d.how} ${d.session}` : d.how };
     return { key: String(i + 2), to, label, title: session ? `Continue ${name}` : `A new run in ${words.name}`, words };
   });
 }
@@ -224,7 +231,7 @@ export const chatgptOffer = (model: string) =>
 /** What Setup's placing step says: by whom tasks are placed (`asks`, then `more`), that the terms changed, that nobody
  *  who could place is signed in (`anyone`: ChatGPT or an agent), that the person skipped it, or what it is for. */
 /** What Setup and Settings say while an agreement is to what was sent before (`placing`: `again`). */
-export const AGAIN = 'Placing now sends more. Agree again to keep it on.';
+export const AGAIN = 'Placing now sends more. Agree again to keep placing on.';
 export function placingSays(state: 'off' | 'on' | 'again', asks: string | null, more: number, answered: boolean, anyone: boolean): string {
   if (state === 'on' && asks) return `By ${asks}${more > 0 ? `, then ${more} more` : ''}`;
   if (state === 'again') return AGAIN;

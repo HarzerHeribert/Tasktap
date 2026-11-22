@@ -1200,7 +1200,7 @@ key="$(route_key project)"
 js workspace "([...document.querySelectorAll('.cap-ask .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5 "true" && line="$(ask workspace "text .home .way-h")" \
   && js workspace "(document.querySelector('.home .way-more').click(), 1)" >/dev/null \
-  && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "project, new run" && ! echo "$line" | grep -q "·" \
+  && until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && echo "$line" | grep -q "project new run" && ! echo "$line" | grep -q "[·,]" \
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Brief by Fixture agent · fixture-small" && ! echo "$going" | grep -q "Placed by" \
   && [ "$(js workspace "(b => b ? b.textContent + ' ' + b.disabled : 'no key')(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
   && pass "answered, it is on its way to that folder in one line, the folder and how it goes there, and Undo; behind its disclosure the brief in full, the person's own words, who wrote the brief and not that anything placed it; the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
@@ -1222,7 +1222,7 @@ until_has notch "eval String(!!document.querySelector('#sheet .way-more') && !/P
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "Shorter footer" && echo "$going" | grep -q "okay the footer, it is way too tall" \
   && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 1000)(document.querySelector('.way-hold')))")" = true ] \
   && pass "placed by the model, it shows where it goes in one line for the length of its hold, which is a line that runs out; behind its disclosure what the work is called and the brief" || fail "the placed thought in the notch" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
-until_has workspace "text .home .way" 3 "project, " && pass "Home shows the same thought on its way, whoever captured it" || fail "Home shows a thought the notch captured"
+until_has workspace "text .home .way" 3 "project " && pass "Home shows the same thought on its way, whoever captured it" || fail "Home shows a thought the notch captured"
 shot held-brief-notch
 ask notch "click #sheet .way .act:not([data-offer])" >/dev/null
 until_has notch "eval document.querySelector('#capture-input').value" 3 "okay the footer" && clear_field notch \

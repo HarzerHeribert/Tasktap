@@ -1185,6 +1185,11 @@ pub const DEFAULT_HOLD: u32 = 5;
 /// itself after it where the person set a shorter one.
 pub const READ_HOLD: u32 = 2;
 
+/// Seconds a model's sure decision is held from the moment it is there, at
+/// most (a shorter `hold` preference holds it as long as that): Return
+/// starts it at once, a key places it anew (design §8, "Smart placing").
+pub const DECIDED_HOLD: u32 = 3;
+
 impl PrefKey {
     /// The value of a preference while none is stored: deleting it restores this.
     pub const fn default(self) -> PrefValue {

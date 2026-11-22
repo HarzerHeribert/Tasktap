@@ -591,14 +591,18 @@ pub struct ShimHold {
     pub stop: bool,
 }
 
-/// A question opened. `title` and `body` are the words a system
-/// notification says; `session` is the session whose terminal shows the
-/// question (a click brings the window there), none for the router's
-/// question, which Home shows.
+/// A question opened, or (`thought` in its place) a thought a model was
+/// torn about waits for the person's key. `title` and `body` are the
+/// words a system notification says; `session` is the session whose
+/// terminal shows the question (a click brings the window there), none for
+/// the router's question and a waiting thought, which Home shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HostNotify {
-    pub question: QuestionId,
+    #[serde(default)]
+    pub question: Option<QuestionId>,
+    #[serde(default)]
+    pub thought: Option<ThoughtId>,
     pub title: String,
     pub body: String,
     pub session: Option<SessionId>,
@@ -790,6 +794,8 @@ pub struct RouteTerms {
     pub instructions: String,
     /// What is sent with them, one line for each kind of field.
     pub sends: Vec<String>,
+    /// How much of each text is sent, in one sentence.
+    pub cuts: String,
     /// The version of these terms, which an agreement names: one to an
     /// older version covers nothing.
     pub terms: u32,
@@ -876,6 +882,9 @@ pub struct FixtureLog {
     pub settled: Vec<ThoughtId>,
     /// The questions the host would have been told about.
     pub notified: Vec<QuestionId>,
+    /// The thoughts it would have been told wait for the person's key.
+    #[serde(default)]
+    pub waited: Vec<ThoughtId>,
 }
 
 /// One launch: the terminal it started takes the session's id, and carries

@@ -1,7 +1,8 @@
-//! The one notification Tasktap sends (plan, "Where Tasktap shows itself", rule 6): a question, while a full-screen
-//! app or a presentation is in front and nothing of Tasktap's can be seen. The core says that a question opened
-//! (`host.notify`, design §12); the rule (presence.rs) says whether it is shown; a click on it brings the window
-//! forward at that question. On the Mac the system is asked for permission when the first such question comes,
+//! The one notification Tasktap sends (plan, "Where Tasktap shows itself", rule 6): a question, or a task a model
+//! was torn about that waits for the person's key, while a full-screen app or a presentation is in front and nothing
+//! of Tasktap's can be seen. The core says that a question opened or a task waits (`host.notify`, design §12); the
+//! rule (presence.rs) says whether it is shown; a click on it brings the window forward at that question, or at Home,
+//! where the waiting task's decision is. On the Mac the system is asked for permission when the first such question comes,
 //! never at start; on Windows it is a notification of the icon in the notification area, which needs no installer.
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -10,11 +11,16 @@ use tauri::AppHandle;
 /// The questions a notification was posted for and not taken back yet.
 static POSTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// `host.notify {question, title, body, session}` from the core: shown where the rule says, and otherwise nothing.
+/// `host.notify {question | thought, title, body, session}` from the core: shown where the rule says, and otherwise
+/// nothing. A waiting task's notification is named `thought:<id>`; only a question's is taken back by `settle`.
 pub fn asked(args: &Value) {
-    let (Some(question), Some(title), Some(body)) =
-        (args["question"].as_str(), args["title"].as_str(), args["body"].as_str())
-    else {
+    let id = match (args["question"].as_str(), args["thought"].as_str()) {
+        (Some(question), _) => question.to_owned(),
+        (None, Some(thought)) => format!("thought:{thought}"),
+        (None, None) => return,
+    };
+    let question = id.as_str();
+    let (Some(title), Some(body)) = (args["title"].as_str(), args["body"].as_str()) else {
         return;
     };
     let shown = crate::presence::situation().notifies();
@@ -22,17 +28,22 @@ pub fn asked(args: &Value) {
     // what would have been shown.
     let passive = crate::notch::NOTCH.lock().unwrap().passive;
     let posted = shown && !passive && post(question, title, body);
-    if posted {
+    if posted && !question.starts_with("thought:") {
         POSTED.lock().unwrap().push(question.to_owned());
     }
     crate::log(json!({"event": "notify", "question": question, "title": title, "body": body, "shown": shown,
         "posted": posted}));
 }
 
-/// A notification was clicked: the window comes forward at its question, which Home or its terminal shows.
+/// A notification was clicked: the window comes forward at its question, which Home or its terminal shows, or at
+/// Home for a waiting task (`thought:<id>`).
 pub fn clicked(app: &AppHandle, question: &str) {
     crate::log(json!({"event": "notify", "clicked": question}));
-    let _ = crate::workspace::show(app, Some(&format!("question:{question}")));
+    let at = match question.starts_with("thought:") {
+        true => question.to_owned(),
+        false => format!("question:{question}"),
+    };
+    let _ = crate::workspace::show(app, Some(&at));
 }
 
 /// The questions open now: a notification of one that no longer waits is taken out of the system's list.

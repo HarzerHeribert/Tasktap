@@ -1376,13 +1376,14 @@ fn a_model_routes_a_thought_and_writes_its_brief() {
         (Status::Routed, Some(a.folio), Mode::Ask)
     );
     assert_eq!(th.placed, Some(Placed::Model));
-    // The brief, as the model wrote it, to read during the hold, which
-    // counts from the capture.
+    // The brief, as the model wrote it, to read during the hold, which is
+    // 3 s from the decision (the clock stands still: the capture's time).
     assert_eq!(
         th.brief.as_deref(),
         Some("Keep the header on one line on small screens.")
     );
-    assert_eq!(th.hold_until, Some(time(th.created.get() + 5000)));
+    let decided = u64::from(tasktap_proto::DECIDED_HOLD) * 1000;
+    assert_eq!(th.hold_until, Some(time(th.created.get() + decided)));
     let route = th.route.unwrap();
     assert_eq!(
         (
@@ -1883,6 +1884,22 @@ fn a_said_project_name_alone_starts_nothing_while_a_model_is_there() {
 fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
     let mut a = Asking::new("torn");
     a.consent("fixture");
+    // A host that shows system notifications, as the app's is.
+    let stream = tasktap_core::client::connect(&a.data.0).unwrap();
+    #[cfg(unix)]
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(20)))
+        .unwrap();
+    let hello = tasktap_proto::Hello {
+        v: tasktap_proto::Versions(tasktap_proto::VERSION, tasktap_proto::VERSION),
+        role: tasktap_proto::Role::Host,
+        client: "test host".into(),
+        auth: None,
+        abilities: vec!["host.notify".into()],
+    };
+    let mut host = tasktap_core::client::Client::hello(stream, hello)
+        .unwrap()
+        .unwrap();
     let mut said = answer("ambiguous", "", "Keep the header on one line.");
     said["candidates"] = json!(["p2", "p1"]);
     a.answers(&said);
@@ -1899,6 +1916,25 @@ fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
     assert_eq!(th.route.as_ref().unwrap().others, [place(a.folio)]);
     assert!(a.w.model.glance().question.is_none());
     assert!(a.asked().is_some());
+    // It calls the person as the question did: the host is told it waits.
+    let told = loop {
+        match host.recv().unwrap() {
+            tasktap_proto::Frame::Control(tasktap_proto::Control::Call(r)) => break r,
+            _ => continue,
+        }
+    };
+    assert_eq!(told.name, "host.notify");
+    let told = <call::HostNotify as tasktap_proto::call::Call>::args(told.args).unwrap();
+    assert_eq!(
+        (
+            told.question,
+            told.thought,
+            told.title.as_str(),
+            told.session
+        ),
+        (None, Some(t), "Which project is this task for?", None)
+    );
+    assert!(SPOKEN.starts_with(told.body.trim_end_matches('…')));
     // Nothing starts by itself.
     std::thread::sleep(std::time::Duration::from_millis(300));
     assert_eq!(a.w.model.thought(t).status, Status::Routed);
@@ -2027,7 +2063,7 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
     // projects, and nothing is "routed".
     assert_eq!(
         terms.sends[1],
-        "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, up to 5 earlier tasks (80 characters each) and up to 15 file names at its top"
+        "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the file names at the project's top"
     );
     let said = terms.sends.join(" ").to_lowercase();
     for word in ["folder", "repositor", "rout"] {

@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
   agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
-  offers, placed, placeOf, places, placing, placingSays, proposed, ranked, ring, step, waits,
+  offers, placed, placeOf, places, placing, placingSays, proposed, ranked, ring, step, waits, wholeHold,
 } from './way.ts';
 
 test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
@@ -34,7 +34,7 @@ test('Setup\'s placing step is always there, and with nobody signed in it says h
   assert.equal(placingSays('off', null, 0, true, true), 'Skipped');
   assert.equal(placingSays('on', 'ChatGPT', 0, true, true), 'By ChatGPT');
   assert.equal(placingSays('on', 'ChatGPT', 2, true, true), 'By ChatGPT, then 2 more');
-  assert.equal(placingSays('again', null, 0, true, true), 'Placing now sends more. Agree again to keep it on.');
+  assert.equal(placingSays('again', null, 0, true, true), 'Placing now sends more. Agree again to keep placing on.');
 });
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
@@ -129,6 +129,10 @@ test('the hold is a share of its whole length from the decision, and follows the
   assert.deepEqual(hold({ ...t, hold_until: 9000 }, 4000, 5000), { share: 1, ms: 5000 });
   // A brief arrived late: the core moved the end to 2 s from then, of the 5 s hold.
   assert.deepEqual(hold({ ...t, hold_until: 8000 }, 6000, 5000), { share: 2000 / 5000, ms: 2000 });
+  // A model's sure decision is held 3 s at most, a shorter hold as long as that; a pick, an answer and the names
+  // the person's hold.
+  assert.deepEqual([wholeHold({ placed: 'model', route: route() }, 5), wholeHold({ placed: 'model', route: route() }, 1), wholeHold({ placed: 'picked', route: route() }, 5),
+    wholeHold({ placed: 'name', route: route({ by: 'local' }) }, 5)], [3000, 1000, 5000, 5000]);
   // While the brief is still written the end is open; nothing depletes.
   assert.equal(hold({ ...t, route: route({ pending: true }) }, 3500, 5000), null);
   assert.equal(hold(thought(), 3500, 5000), null);
@@ -138,11 +142,11 @@ test('the decision line names the project and how the task goes there, and offer
   const names = { project: (id: string) => ({ p1: 'cuegrid', p2: 'folio' })[id] ?? '?', session: (id: string) => ({ s1: 'Fix the flaky export test', s2: 'Login' })[id] ?? '?', of: (id: string) => ({ s1: 'p1', s2: 'p2' })[id], cut: (s: string) => (s.length > 17 ? `${s.slice(0, 16)}…` : s) };
   const held = (o: Partial<Thought>) => ({ ...thought({ phase: 'routed', status: 'routed', hold_until: 6000, ...o }), session_id: null, card_id: null, ...o }) as Thought;
   const follow = held({ project_id: 'p1', session_id: 's1', route: route({ others: [{ project: 'p1' }] }) });
-  assert.deepEqual(decided(follow, names), { name: 'cuegrid', how: 'continuing Fix the flaky export test' });
+  assert.deepEqual(decided(follow, names), { name: 'cuegrid', how: 'continuing', session: 'Fix the flaky export test' });
   // The other way of going, in the same project, says only the way; and back.
   assert.deepEqual(offers(follow, names), [{ key: '2', to: { project: 'p1' }, label: 'New run', title: 'A new run in cuegrid', words: { name: 'cuegrid', how: 'new run' } }]);
   const run = held({ project_id: 'p1', route: route({ others: [{ session: 's1' }] }) });
-  assert.deepEqual(decided(run, names), { name: 'cuegrid', how: 'new run' });
+  assert.deepEqual(decided(run, names), { name: 'cuegrid', how: 'new run', session: '' });
   assert.deepEqual(offers(run, names).map((o) => [o.label, o.title]), [['Continue', 'Continue Fix the flaky export test']]);
   // Torn: no time runs, it waits for a key; the places elsewhere say their names, two at most.
   const torn = held({ project_id: 'p1', hold_until: null, route: route({ others: [{ project: 'p2' }, { session: 's2' }, { project: 'p3' }] }) });

@@ -57,7 +57,7 @@ async function main(out, dist) {
     expect(why[0] === 'haiku · included in your subscription · about 4 s', `why the first stands first: "${why[0]}"`);
     expect(why[2] === 'gemini-3.8-flash-low · included in your subscription · about 6 s', `and the last: "${why[2]}"`);
     const said = await page.evaluate(() => document.querySelector('.sheet .terms').textContent);
-    expect(said.includes('goes to the first agent below that answers, one at a time') && said.includes('those this Mac ranks likeliest'), 'the sentence says who is asked and what is sent');
+    expect(said.includes('goes to the first agent below that answers, one task at a time') && said.includes('up to 8 likely projects'), 'the sentence says who is asked and what is sent');
     expect(said.includes('Antigravity keeps each task it is asked about as a conversation in its history'), 'and that Antigravity keeps each');
     // ChatGPT, not signed in, is the first row, a button; above it, after what is sent, what signing in does.
     const sign = await page.evaluate(() => {
@@ -153,7 +153,7 @@ async function main(out, dist) {
     await page.evaluate(() => window.__ws.open({ kind: 'placing' }));
     await page.waitForTimeout(500);
     const again = await page.evaluate(() => document.querySelector('.sheet .terms > p.warn')?.textContent ?? '');
-    expect(again.startsWith('You agreed before to what was sent then. Placing now sends more'), `an agreement to the terms before is asked again: "${again}"`);
+    expect(again === 'Placing now sends more than you agreed to. Until you agree again, only tasks that name their project are placed.', `an agreement to the terms before is asked again: "${again}"`);
     expect((await page.evaluate(() => document.querySelector('.sheet .sh-f .key')?.textContent)) === 'Agree again', 'Return agrees again');
     expect(await rows(page) === '1Claude Code, 2Codex, 3Antigravity', `with Tasktap's order proposed: ${await rows(page)}`);
     await fits(page, 'the sheet asked again');
@@ -275,7 +275,7 @@ async function main(out, dist) {
     page = await open(browser, { label: 'workspace', records: held, url: server.url, dpr: 2 });
     await page.waitForTimeout(500);
     const decisionSaid = await page.evaluate(() => document.querySelector('.way .way-to')?.textContent);
-    expect(decisionSaid === 'cuegrid, new run', `its line says the decision: "${decisionSaid}"`);
+    expect(decisionSaid === 'cuegrid new run', `its line says the decision: "${decisionSaid}"`);
     await page.evaluate(() => document.querySelector('.way .way-more')?.click());
     await page.waitForTimeout(150);
     const by = await page.evaluate(() => document.querySelector('.way .way-n')?.textContent ?? '');
@@ -290,18 +290,24 @@ async function main(out, dist) {
     const GEO = { do: 'geometry', width: 185, height: 32, cutout: true, compact: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 2, corner: 10, offset: 0, available: 700, collapsed: false };
     const decision = (kind, edit) => {
       const r = flow(scene('normal'), kind);
-      edit(r.thoughts[r.thoughts.length - 1], r.ids);
+      edit(r.thoughts[r.thoughts.length - 1], r.ids, r);
       return r;
     };
     const cases = [
       ['decision-continue', decision('followup-model', (t, ids) => (t.route = { ...t.route, others: [{ project: ids.projects.cuegrid }] })),
-        /^cuegrid, continuing Make the rehearsal timer readable on mobile\b.*\b2 New run ⌘Z Undo$/, true, (ids) => ({ project_id: ids.projects.cuegrid })],
+        /^cuegrid continuing\b.*\b2 New run ⌘Z Undo$/, true, (ids) => ({ project_id: ids.projects.cuegrid }), '2', 'Make the rehearsal timer readable on mobile'],
+      // A long project's name and a long session's task: the decision stays whole, the others give way.
+      ['decision-long', decision('followup-model', (t, ids, r) => {
+        t.route = { ...t.route, others: [{ project: ids.projects.cuegrid }] };
+        r.projects.find((p) => p.id === ids.projects.cuegrid).name = 'customer-portal-frontend';
+        r.sessions.find((x) => x.id === ids.timer.session).name = 'Make the rehearsal timer readable on mobile, also in landscape on small phones where the digits wrap today';
+      }), /^customer-portal-frontend continuing\b.*⌘Z Undo$/, true, (ids) => ({ project_id: ids.projects.cuegrid }), '2', 'Make the rehearsal timer readable on mobile, also in landscape on small phones where the digits wrap today'],
       ['decision-new-run', decision('held', (t, ids) => (t.route = { ...t.route, others: [{ session: ids.timer.session }] })),
-        /^cuegrid, new run\b.*\b2 Continue ⌘Z Undo$/, true, (ids) => ({ session_id: ids.timer.session })],
+        /^cuegrid new run\b.*\b2 Continue ⌘Z Undo$/, true, (ids) => ({ session_id: ids.timer.session })],
       ['decision-torn', decision('held', (t, ids) => ((t.hold_until = null), (t.route = { ...t.route, others: [{ project: ids.projects.fieldnotes }, { session: ids.timer.session }] }))),
-        /^cuegrid, new run\b.*\bBrief ⌘Z Undo$/, false, (ids) => ({ session_id: ids.timer.session }), '3'],
+        /^cuegrid new run\b.*\bBrief ⌘Z Undo$/, false, (ids) => ({ session_id: ids.timer.session }), '3'],
     ];
-    for (const [name, r, said, runs, wants, key = '2'] of cases) {
+    for (const [name, r, said, runs, wants, key = '2', task = ''] of cases) {
       page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 2, viewport: { width: 560, height: 420 } });
       await page.evaluate(() => (document.documentElement.style.background = 'radial-gradient(110% 85% at 12% 0%,#41607c 0%,transparent 58%),#172433'));
       await page.evaluate((g) => window.__fake.emit(g), GEO);
@@ -312,11 +318,17 @@ async function main(out, dist) {
       const seen = await page.evaluate(() => {
         const w = document.querySelector('.way'), h = w?.querySelector('.way-h');
         return { line: h?.innerText.replace(/\s+/g, ' ').trim() ?? '', still: w?.querySelector('.way-hold')?.hasAttribute('data-open') ?? null, ret: !!h?.querySelector(':scope > kbd'),
-          over: h ? h.scrollWidth - h.clientWidth : -1, rows: [...(w?.querySelectorAll('.qa.rows > .ans') ?? [])].map((a) => a.innerText.replace(/\s+/g, ' ').trim()) };
+          over: h ? h.scrollWidth - h.clientWidth : -1, rows: [...(w?.querySelectorAll('.qa.rows > .ans') ?? [])].map((a) => a.innerText.replace(/\s+/g, ' ').trim()),
+          cut: ((to) => !to || to.scrollWidth > to.clientWidth + 0.5)(h?.querySelector('.way-to')),
+          gave: [...(h?.querySelectorAll(':scope > .way-more > span, :scope > .act > span') ?? [])].every((x) => x.scrollWidth > x.clientWidth + 0.5),
+          task: w?.querySelector('.way-s')?.textContent ?? '',
+          lines: ((s) => (s ? Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight)) : 0))(w?.querySelector('.way-s')) };
       });
       expect(said.test(seen.line) && !seen.line.includes('·'), `${name}: the decision line says "${seen.line}"`);
       expect(seen.still === !runs && seen.ret === !runs, `${name}: its hold ${runs ? 'runs' : 'stands still, Return\'s key first'} (still ${seen.still}, Return's key ${seen.ret})`);
       expect(seen.over <= 0, `${name}: the line fits the notch (${seen.over} px over)`);
+      expect(!seen.cut || seen.gave, `${name}: the project and how the task goes there are whole, or all else gave way first`);
+      expect(seen.task === task && seen.lines <= 2, `${name}: the session it continues on a line of its own, ${seen.lines} lines: "${seen.task}"`);
       const rowsWanted = name === 'decision-torn' ? ['2 fieldnotes new run', '3 cuegrid continuing Make the rehearsal timer readable on mobile'] : [];
       expect(JSON.stringify(seen.rows) === JSON.stringify(rowsWanted), `${name}: the other places as rows ${JSON.stringify(seen.rows)}`);
       await page.evaluate(() => document.fonts.ready);
@@ -325,6 +337,48 @@ async function main(out, dist) {
       await page.waitForTimeout(200);
       const moved = await page.evaluate(() => window.__fake.updated ?? null), want = wants(r.ids);
       expect(!!moved && Object.entries(want).every(([k, v]) => moved[k] === v), `${name}: ${key} places it anew there: ${JSON.stringify(moved)}`);
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+
+    // The decision's keys count 600 ms after it came and after the last key before it, as the question's: a new thought
+    // begun with "2" just as the decision comes is the field's.
+    {
+      const r = decision('held', (t, ids) => (t.route = { ...t.route, others: [{ session: ids.timer.session }] })), t = r.thoughts.pop();
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 1, viewport: { width: 560, height: 420 } });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(800);
+      await page.focus('#capture-input');
+      await page.evaluate((x) => window.__fake.push({ t: 'change', rev: 9000, sets: [{ c: 'thoughts', put: [{ ...x, rev: 9000 }] }] }), t);
+      await page.waitForTimeout(30);
+      await page.keyboard.press('2');
+      await page.waitForTimeout(100);
+      const early = await page.evaluate(() => ({ field: document.querySelector('#capture-input').value, updated: window.__fake.updated ?? null, line: !!document.querySelector('.way [data-offer]') }));
+      expect(early.line && early.field === '2' && !early.updated, `a "2" typed as the decision comes is the field's: ${JSON.stringify(early)}`);
+      await page.keyboard.press('Backspace');
+      await page.waitForTimeout(700);
+      await page.keyboard.press('2');
+      await page.waitForTimeout(150);
+      const later = await page.evaluate(() => window.__fake.updated ?? null);
+      expect(!!later?.session_id, `600 ms on, 2 places it anew: ${JSON.stringify(later)}`);
+      for (const e of page.errors) failures.push(`page: ${e}`);
+      await page.context().close();
+    }
+
+    // A task a model was torn about calls the person as a question does: the notch, closed, opens by itself on its
+    // capture line, where the decision takes Return and the keys; its row on the notch's Home says it waits.
+    {
+      const r = decision('held', (t, ids) => ((t.hold_until = null), (t.route = { ...t.route, others: [{ project: ids.projects.fieldnotes }] }))), t = r.thoughts.pop();
+      page = await open(browser, { label: 'notch', records: r, url: server.url, dpr: 1, viewport: { width: 560, height: 420 } });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.waitForTimeout(600);
+      const before = await page.evaluate(() => !!document.querySelector('#sheet .capture'));
+      await page.evaluate((x) => window.__fake.push({ t: 'change', rev: 9000, sets: [{ c: 'thoughts', put: [{ ...x, rev: 9000 }] }] }), t);
+      await page.waitForTimeout(500);
+      const called = await page.evaluate(() => ({ opened: !!document.querySelector('#sheet .capture'), field: document.activeElement?.id ?? '',
+        line: document.querySelector('.way .way-to')?.textContent ?? '' }));
+      expect(!before && called.opened && called.field === 'capture-input' && called.line === 'cuegrid new run', `a torn task opens the notch on its decision: ${JSON.stringify({ before, ...called })}`);
       for (const e of page.errors) failures.push(`page: ${e}`);
       await page.context().close();
     }

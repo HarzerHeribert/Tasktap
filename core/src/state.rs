@@ -29,13 +29,13 @@ use sha2::{Digest, Sha256};
 // Short names keep each row of the table on one line: E an event, A what an
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
-    Answer, AttemptId, Capture, CardId, Changes, Code, DeviceId, Event as A, Evidence, Isolate,
-    MAX_OPEN_QUESTIONS, MAX_PREVIEWS, MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P,
-    Placed, PrefKey, PrefValue, Preview, PreviewBy, PreviewId, PreviewKind, Project, ProjectId,
-    ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q, READ_HOLD,
-    Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
-    SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
-    ThoughtId, Time, TurnResult, Workdir,
+    Answer, AttemptId, Capture, CardId, Changes, Code, DECIDED_HOLD, DeviceId, Event as A,
+    Evidence, Isolate, MAX_OPEN_QUESTIONS, MAX_PREVIEWS, MAX_SESSION_QUESTIONS, Mode, Offset,
+    Outcome, Phase as P, Placed, PrefKey, PrefValue, Preview, PreviewBy, PreviewId, PreviewKind,
+    Project, ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource,
+    QuestionState as Q, READ_HOLD, Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing,
+    Secret, Session, SessionId, SessionState as S, Source, Status, Terminal, TerminalId,
+    TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -311,6 +311,9 @@ pub enum Effect {
     },
     /// A question opened: tell the person.
     Notify(QuestionId),
+    /// A thought a model was torn about waits for the person's key: tell
+    /// the person, as of a question.
+    Waits(ThoughtId),
     /// A waited question was answered: its stored answer is the waiter's reply.
     Answer(QuestionId),
     /// A line for the session's memory-only activity.
@@ -646,8 +649,8 @@ impl Machine<'_, '_> {
                 self.answer_router(some(thought)?, some(question)?, response, by)
             }
             (E::Pick { to, .. }, _, Some(P::Captured), ..) => {
-                let now = self.now;
-                self.route(some(thought)?, to, None, now, Placed::Picked)
+                let until = self.until(self.now)?;
+                self.route(some(thought)?, to, None, until, Placed::Picked)
             }
             // placed anew while it is held (a key of the decision line, or a
             // place picked): its hold starts again from now. The places the
@@ -670,8 +673,8 @@ impl Machine<'_, '_> {
                         route.others = offered.into_iter().filter(|p| *p != place).collect();
                     }
                 }
-                let now = self.now;
-                self.route(t, to, None, now, Placed::Picked)
+                let until = self.until(self.now)?;
+                self.route(t, to, None, until, Placed::Picked)
             }
             // a model torn between places: to the first, the others beside it.
             (
@@ -1130,8 +1133,8 @@ impl Machine<'_, '_> {
         self.tx.insert_attempt(&record)?;
         match pick {
             Some(to) => {
-                let now = self.now;
-                self.route(t, to, None, now, Placed::Picked)
+                let until = self.until(self.now)?;
+                self.route(t, to, None, until, Placed::Picked)
             }
             None if mode == Mode::Note => Ok(()),
             None => {
@@ -1213,15 +1216,16 @@ impl Machine<'_, '_> {
             true => None,
             false => Some(brief),
         };
-        // A model's decision is shown for the whole hold from the moment
-        // it is there; the match on names decides as the thought is captured.
-        let since = match how.by == LOCAL {
-            true => t.created,
-            false => self.now,
+        // A model's decision is held from the moment it is there, for
+        // `DECIDED_HOLD` at most; the match on names decides as the thought
+        // is captured, and its hold counts from then.
+        let until = match how.by == LOCAL {
+            true => self.until(t.created)?,
+            false => self.held(after(self.now, self.hold()?.min(u64::from(DECIDED_HOLD)))?)?,
         };
         t.route = Some(how);
         match self.target(to) {
-            Ok(_) => self.route(t, to, brief, since, placed),
+            Ok(_) => self.route(t, to, brief, until, placed),
             Err(Error::Gone) => {
                 let route = t.route.as_mut().expect("set above");
                 route.fallback = Some("the folder or session it found is gone".into());
@@ -1243,7 +1247,9 @@ impl Machine<'_, '_> {
             return Ok(());
         };
         if t.phase == P::Routed && t.hold_until.take().is_some() {
+            // It calls the person as a question does: nothing starts by itself.
             self.effects.push(Effect::Unhold(id));
+            self.effects.push(Effect::Waits(id));
             return self.save(t);
         }
         Ok(())
@@ -1368,8 +1374,13 @@ impl Machine<'_, '_> {
         Ok(project)
     }
 
-    /// Routes a thought to `to`; its hold counts from `since` and ends no
-    /// earlier than now. Without a brief, one the person picked the
+    /// When the hold of a thought placed at `since` ends: the person's hold
+    /// from then, and no earlier than the time to read from now.
+    fn until(&self, since: Time) -> Result<Time> {
+        self.held(after(since, self.hold()?)?)
+    }
+
+    /// Routes a thought to `to`; its hold ends at `until`. Without a brief, one the person picked the
     /// destination of, the router is asked for the brief alone when the
     /// person consented to a model, unless the thought is short enough to
     /// go on as it is or a model was asked about it before and failed.
@@ -1378,7 +1389,7 @@ impl Machine<'_, '_> {
         mut t: Thought,
         to: Destination,
         brief: Option<String>,
-        since: Time,
+        until: Time,
         placed: Placed,
     ) -> Result<()> {
         let (project, card, session) = self.target(to)?;
@@ -1392,7 +1403,6 @@ impl Machine<'_, '_> {
             self.tx.update_project(&p)?;
         }
         t.placed = Some(placed);
-        let until = self.held(after(since, self.hold()?)?)?;
         // Picked while the router was still asked where it goes.
         self.unask(&mut t, "you picked where it goes");
         let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
@@ -1488,7 +1498,8 @@ impl Machine<'_, '_> {
         match to {
             Some(to) => {
                 let now = self.now;
-                self.route(t, to, None, now, Placed::Answer)
+                let until = self.until(now)?;
+                self.route(t, to, None, until, Placed::Answer)
             }
             None => self.keep_as_idea(t, None, Placed::KeptAnswer),
         }

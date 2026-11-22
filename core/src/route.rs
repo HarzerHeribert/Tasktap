@@ -102,12 +102,16 @@ pub const SCHEMA: &str = concat!(
 
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
-    "the task, as you said or typed it, and the project or session you were looking at in Tasktap's window",
-    "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by, one line about it, up to 5 earlier tasks (80 characters each) and up to 15 file names at its top",
-    "of up to 8 sessions in them: the name, the first and the last request (180 characters), the agent, whether it works, waits or is finished, how long ago it last ran and its last answer (160 characters)",
-    "of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)",
+    "the task in your words, and the project or session open in Tasktap's window",
+    "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the file names at the project's top",
+    "the sessions in those projects, each with its name, first and last request, its agent, the agent's state, how long ago it last ran and the start of the agent's last answer",
+    "your 3 most recent tasks in those sessions and how each ended",
     "never a text that looks like a key, a token or a password",
 ];
+
+/// How much of each text is sent, in one sentence: `route.terms` says it
+/// with the instructions, where the person reads how it is asked.
+const CUTS: &str = "How much of each text is sent at most: a name 100 characters, a line about a project 160, an earlier task 80, a request 180, an agent's last answer 160, a recent task 320 and how it ended 160.";
 
 /// The version of what is sent and to whom, which an agreement names
 /// (`RouteBy::terms`): 4 since a model is given each project's earlier
@@ -1514,7 +1518,7 @@ pub fn typed(r: &Request, most: usize) -> Vec<(&Named, String)> {
 }
 
 /// What a router question asks.
-const WHERE: &str = "Which project is this task for?";
+pub const WHERE: &str = "Which project is this task for?";
 /// What it asks when no project is known at all.
 const WORK: &str = "Where should the agent work?";
 
@@ -2383,6 +2387,7 @@ pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> 
     Ok(RouteTerms {
         instructions: INSTRUCTIONS.into(),
         sends: SENDS.iter().map(|s| (*s).into()).collect(),
+        cuts: CUTS.into(),
         terms: TERMS,
         tools: proposed(tools.chain([chatgpt]).collect()),
     })

@@ -1589,7 +1589,7 @@ fn a_host_that_offered_it_is_told_when_a_question_opens() {
     let told = call::HostNotify::args(request.args).unwrap();
     assert_eq!(
         (told.question, told.title.as_str(), told.body.as_str()),
-        (q, "Claude Code asks", "Deploy to staging?")
+        (Some(q), "Claude Code asks", "Deploy to staging?")
     );
     assert_eq!(told.session, Some(session));
     // The host answers late or never; neither matters.
@@ -1628,7 +1628,7 @@ fn the_routers_question_tells_the_host_where_it_should_go() {
         panic!("expected host.notify");
     };
     let told = call::HostNotify::args(request.args).unwrap();
-    assert_eq!(told.question, q);
+    assert_eq!((told.question, told.thought), (Some(q), None));
     assert_eq!(told.title, "Which project?");
     assert_eq!(told.body, s.w.model.thought(t).text);
     assert_eq!(told.session, None);

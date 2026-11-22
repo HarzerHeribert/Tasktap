@@ -378,6 +378,8 @@ function arrive(at: string) {
   const section = SECTIONS.find(([id]) => at === `settings:${id}`)?.[0];
   if (section) open({ kind: 'settings', at: section });
   else if (at.startsWith('question:')) toQuestion(at.slice('question:'.length));
+  // A task a model was torn about waits on Home's decision line: its keys are the empty field's.
+  else if (at.startsWith('thought:')) (ui.sheet && dismiss(), show('home'), (page.focus = '#capture-input'), redraw());
   else if (at.startsWith('capture:')) captureKey();
   else focusSession(at);
 }

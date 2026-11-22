@@ -23,7 +23,7 @@ import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from '
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
-import { back, briefOf, clock, decided, first, hold, laterWhy, leave, type Names, offers, onWay, placed, placeOf, placing, step, waits } from './way.ts';
+import { back, briefOf, clock, decided, first, hold, laterWhy, leave, type Names, offers, onWay, placed, placeOf, placing, step, waits, wholeHold } from './way.ts';
 
 /** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
  *  line with the key held to talk where talking is set up, the line about a second task while one runs. A line rolls in
@@ -493,7 +493,7 @@ function Hearing({ d, raised, said }: { d: Dictation | undefined; raised: boolea
 /** The hold as a line that runs out: as long as what is left, from the share that is left, by the clock and not by
  *  frames. It starts again when the core moves the hold's end, and stands whole while that end is still open. */
 function Hold({ t }: { t: Thought }) {
-  const h = useMemo(() => hold(t, Date.now(), pref('hold') * 1000), [t.hold_until, t.route?.pending]);
+  const h = useMemo(() => hold(t, Date.now(), wholeHold(t, pref('hold'))), [t.hold_until, t.route?.pending]);
   return <i class="way-hold" key={t.hold_until ?? 0} data-open={!h || undefined} style={h ? { '--from': String(h.share), '--ms': `${Math.round(h.ms)}ms` } : undefined} />;
 }
 
@@ -529,36 +529,50 @@ const offersNow = () => {
   return t && step(t) === 'held' ? offers(t, names) : [];
 };
 const placeAnew = (t: Thought, to: Parameters<typeof placeOf>[0]) => void call('thought.update', { id: t.id, ...placeOf(to) }).catch(fail);
+/** When a decision's keys count from, by its thought and its place: as the question at the Composer's, 600 ms after it
+ *  came and after the last key pressed before it came (`QUIET`), so a new thought begun with "2" or "3" is the field's.
+ *  A key the person pressed on the decision places it anew at once; the next decision counts again. */
+const decidedAt = new Map<string, number>();
+const readyAt = (t: Thought) => {
+  const id = `${t.id} ${t.session_id ?? t.project_id ?? t.card_id}`;
+  let at = decidedAt.get(id);
+  if (at === undefined) decidedAt.set(id, (at = Math.max(performance.now(), keyTimes.last) + QUIET));
+  return at;
+};
 function offerKey(e: KeyboardEvent): boolean {
   const t = waiting(), o = offersNow().find((x) => x.key === e.key);
-  if (!t || !o || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (!t || !o || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || performance.now() < readyAt(t)) return false;
   e.preventDefault();
+  decidedAt.set(`${t.id} ${placeOf(o.to).project_id ?? placeOf(o.to).session_id ?? placeOf(o.to).card_id}`, 0);
   placeAnew(t, o.to);
   return true;
 }
 
 /** A thought on its way, with the way to take it back. The newest is `open`: one line (NOTES §13, the review's R12),
- *  its decision (design §8): the project and how the task goes there, a session continued or a new run; the other
- *  places on their keys (the other way of going, or the places a model was torn between); the rest behind one quiet
- *  disclosure; and Undo. One that waits for a key (`waits`: no time runs) says Return's key first. Any other is its
- *  first line. */
+ *  its decision (design §8): the project's name and, in the muted tone, how the task goes there ("continuing" or "new
+ *  run"), never cut while anything else on the line can give way; the other places on their keys (the other way of
+ *  going, or the places a model was torn between); the rest behind one quiet disclosure; and Undo. The session a
+ *  follow-up continues has a line of its own under it, two lines at most. One that waits for a key (`waits`: no time
+ *  runs) says Return's key first. Any other is its first line. */
 function Going({ t, open }: { t: Thought; open: boolean }) {
   const at = step(t), d = decided(t, names), keys = open && at === 'held' ? offers(t, names) : [], rows = keys.length > 1;
+  if (keys.length) readyAt(t);
   return (
     <section class="way" data-step={at} data-thought={t.id} aria-label="On its way">
       <Hold t={t} />
       <p class="way-h">
         {at === 'placing' ? <><Mark s="working" label="" /><b>Placing…</b></> : (
           <>{open && waits(t) ? <Key k="↩" cap /> : <I n={t.session_id ? 'term' : 'arrow'} />}
-            <span class="way-to"><b>{d.name}</b>, {d.how}</span>
+            <span class="way-to"><b>{d.name}</b> <em>{d.how}</em></span>
             {t.card_id && <em class="way-new">new here</em>}</>
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
         {open && at !== 'placing' && <More t={t} />}
         {!rows && keys.map((o) => <button type="button" class="act" key={o.key} data-offer={o.key} title={o.title} onClick={() => placeAnew(t, o.to)}>{!cap.draft && <Key k={o.key} cap />}<span>{o.label}</span></button>)}
         {/* ⌘Z is the field's own undo while it holds words: then the cap is not shown. */}
-        <button type="button" class="act" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
+        <button type="button" class="act" data-undo title="Undo" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
       </p>
+      {at !== 'placing' && d.session && <p class="way-s" data-waits={(open && waits(t)) || undefined}>{d.session}</p>}
       {/* Two other places: as the question's rows, each on its key, in the decision's words. */}
       {rows && (
         <div class="qa rows">

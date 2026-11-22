@@ -784,8 +784,8 @@ async function main() {
         const w = document.querySelector('.home .ways');
         return { line: w?.querySelector('.way-h')?.innerText.replace(/\s+/g, ' ').trim(), more: [...(w?.querySelectorAll('.way-b, .way-w, .way-n') ?? [])].filter((x) => x.offsetParent).length, open: w?.querySelector('.way-more')?.getAttribute('aria-expanded') };
       });
-      let u = await until(under, (x) => /^cuegrid, new run\b.*Undo$/.test(x.line ?? ''));
-      expect(/^cuegrid, new run\b.*Undo$/.test(u.line ?? '') && !u.line.includes('·') && u.more === 0 && u.open === 'false', `a thought placed: under the Composer "${u.line}", ${u.more} more lines shown, its disclosure ${u.open}`);
+      let u = await until(under, (x) => /^cuegrid new run\b.*Undo$/.test(x.line ?? ''));
+      expect(/^cuegrid new run\b.*Undo$/.test(u.line ?? '') && !u.line.includes('·') && u.more === 0 && u.open === 'false', `a thought placed: under the Composer "${u.line}", ${u.more} more lines shown, its disclosure ${u.open}`);
       await tap(page, '.home .way-more', 'a thought placed: its disclosure');
       await page.waitForTimeout(150);
       u = await under();
@@ -943,7 +943,7 @@ async function main() {
         // (The terms the core holds now come with its first words; the step says so once they are there.)
         await until(() => page.evaluate(() => document.querySelector('.setup [data-step=placing]')?.textContent ?? ''), (t) => /Placing now sends more/.test(t));
         const step = await page.evaluate(() => { const s = document.querySelector('.setup [data-step=placing]'); return s ? `${s.hasAttribute('data-done')} ${s.textContent}` : ''; });
-        expect(/^false .*Placing now sends more\. Agree again to keep it on\./.test(step), `an agreement to older terms: Setup's placing step says "${step}", not that placing now sends more, undone`);
+        expect(/^false .*Placing now sends more\. Agree again to keep placing on\./.test(step), `an agreement to older terms: Setup's placing step says "${step}", not that placing now sends more, undone`);
         expect(!(await page.evaluate(() => /the agreement/.test(document.querySelector('.home').innerText))), 'an agreement to older terms: a thought on Home carries the sentence about it');
         await page.context().close();
       }
@@ -1395,7 +1395,7 @@ async function main() {
       await page.keyboard.press('1');
       await page.waitForTimeout(600);
       const chose = await page.evaluate(() => document.querySelector('.home .way-h')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
-      expect(/^cuegrid, new run\b/.test(chose) && !chose.includes('·'), `an answered thought on its way says "${chose}", not "cuegrid, new run" with no dot`);
+      expect(/^cuegrid new run\b/.test(chose) && !/[·,]/.test(chose), `an answered thought on its way says "${chose}", not "cuegrid new run" with no dot or comma`);
       await page.context().close();
 
       // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.

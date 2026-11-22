@@ -372,6 +372,7 @@ fn every_call_round_trips() {
     let terms = RouteTerms {
         instructions: "You are the router of Tasktap.".into(),
         sends: vec!["the task, as you said or typed it".into()],
+        cuts: "How much of each text is sent at most: a name 100 characters.".into(),
         terms: 3,
         tools: vec![PlaceTool {
             agent: "claude".into(),
@@ -634,13 +635,23 @@ fn every_call_round_trips() {
     }
     for session in [Some(SessionId::mint()), None] {
         let notify = HostNotify {
-            question: QuestionId::mint(),
+            question: Some(QuestionId::mint()),
+            thought: None,
             title: "Fixture agent asks".into(),
             body: "Go on?".into(),
             session,
         };
         round_trip::<call::HostNotify>(notify, (), seen);
     }
+    // A thought that waits for the person's key, in place of a question.
+    let waits = HostNotify {
+        question: None,
+        thought: Some(ThoughtId::mint()),
+        title: "Which project is this task for?".into(),
+        body: "make the header bigger".into(),
+        session: None,
+    };
+    round_trip::<call::HostNotify>(waits, (), seen);
     let fixture = FixtureStream {
         credit: 7,
         send: Offset::new(1 << 40).unwrap(),

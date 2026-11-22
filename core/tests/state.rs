@@ -3641,10 +3641,10 @@ fn row_route_clear_holds_from_the_decision_and_records_how_it_was_routed() {
     let mut w = World::new("since");
     w.consents();
     let id = w.asked(SPOKEN);
-    // The model took 3 s: the whole hold of 5 s counts from its answer, the
-    // moment its decision is shown.
+    // The model took 3 s: its decision is held for 3 s from its answer, the
+    // moment it is shown (`DECIDED_HOLD`), however long the person's hold.
     w.tick(3000);
-    let until = time(w.now + 5000);
+    let until = time(w.now + 3000);
     let route = w.clear(BRIEF);
     assert_eq!(
         w.answers(id, route.clone()).unwrap(),
@@ -3661,11 +3661,11 @@ fn row_route_clear_holds_from_the_decision_and_records_how_it_was_routed() {
         w.answers(id, route.clone()),
         Err(Error::Ignored(Ignored::State))
     ));
-    // However long the model took, the whole hold is there after it answered.
+    // However long the model took, the decided hold is there after it answered.
     for took in [3001, 4000, 7000] {
         let late = w.asked(SPOKEN);
         w.tick(took);
-        let until = time(w.now + 5000);
+        let until = time(w.now + 3000);
         assert_eq!(
             w.answers(late, route.clone()).unwrap(),
             [Effect::Hold {
@@ -3730,7 +3730,7 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
     let id = w.asked(SPOKEN);
     w.tick(9000);
     w.answers(id, route).unwrap();
-    w.tick(4999);
+    w.tick(2999);
     let early = Event::HoldEnded {
         thought: id,
         attempt: AttemptId::mint(),

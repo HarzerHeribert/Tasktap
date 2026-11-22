@@ -195,11 +195,11 @@ export function PlacingSheet({ back }: { back?: boolean }) {
   return (
     <Frame size="md" title={FINDING} acts={acts}>
       <div class="terms">
-        {state === 'again' && <p class="warn">You agreed before to what was sent then. Placing now sends more, so until you agree again, only tasks that name their project are placed.</p>}
-        <p>Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent at work there goes on. Your own words always go along.</p>
+        {state === 'again' && <p class="warn">Placing now sends more than you agreed to. Until you agree again, only tasks that name their project are placed.</p>}
+        <p>Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent already at work there continues. Your own words always go along.</p>
         {!t ? <p>Asking what is sent…</p> : (
           <>
-            <p>Each such task goes to the first agent below that answers, one at a time, under the sign-in it already has. To place each task well, that agent is now sent more than before:</p>
+            <p>Each such task goes to the first agent below that answers, one task at a time, under that agent's own sign-in. That agent is sent:</p>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
             {c.state !== 'in' && asks && <p>{chatgptOffer(asks)}</p>}
             {c.says && <p class={c.state === 'out' ? 'warn' : undefined} role={c.state === 'out' ? 'alert' : 'status'}>{c.says}</p>}
@@ -213,6 +213,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
             )}
             <p class="hint">A task you send to a place yourself is placed on {HERE} and sent nowhere; a long one is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each task it is asked about as a conversation in its history.'}</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
+            {reads && <p class="hint">{t.cuts}</p>}
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
           </>
         )}

@@ -83,6 +83,18 @@
    Undo at the end. Nothing wraps: the decision's words give way to an ellipsis, the keys never. */
 .way-h>.way-to{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .way-to>b{font:var(--f-label);color:var(--fg)}
+/* The decision is the project's name, then how the task goes there in the muted tone, apart by spacing only. It is cut
+   last: where the line is short, the words beside it give way first, down to their chevron and key caps: the
+   disclosure's word, then Undo's, then the other place's (each a hundred times faster than the next). */
+.way-to>em{margin-left:4px}
+.way-h>.way-more{flex:0 1000000 auto;min-width:24px;overflow:hidden}
+.way-more>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.way-h>.act:is([data-offer],[data-undo]){flex:0 100 auto;min-width:40px;overflow:hidden}
+.way-h>.act[data-undo]{flex-shrink:10000}
+.way-h>.act:is([data-offer],[data-undo])>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* The session a follow-up continues, under the project's name in the muted tone: two lines at most. */
+.way-s{margin:-6px 0 0 calc(16px + var(--sp2));font:var(--f-small);color:var(--fg3);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.way-s[data-waits]{margin-left:calc(var(--key-h) + var(--sp2))}
 .way-more{display:inline-flex;flex:none;align-items:center;gap:4px;height:22px;padding:0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg3)}
 .way-more:hover{background:var(--hover);color:var(--fg)}
 .way-more .i{width:12px;height:12px;transition:transform var(--t-fast)}

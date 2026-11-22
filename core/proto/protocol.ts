@@ -10,6 +10,7 @@ export const MAX_STREAMS = 64;
 export const MAX_TERMINAL_CLIENTS = 8;
 export const MAX_TERMINAL_SIZE = 1000;
 export const READ_HOLD = 2;
+export const DECIDED_HOLD = 3;
 // Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's
 // text, a question's detail, a text answer. MAX_LINE: a question's prompt and its choices, a
 // router's brief, a session's error, a project's name, color, folder and aliases, a device's
@@ -743,7 +744,11 @@ held: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId>,
 /**
  * The questions the host would have been told about.
  */
-notified: Array<QuestionId>, };
+notified: Array<QuestionId>,
+/**
+ * The thoughts it would have been told wait for the person's key.
+ */
+waited: Array<ThoughtId>, };
 
 /**
  * `fixture.records`: writes rows only the state machine writes otherwise, so
@@ -901,12 +906,13 @@ export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>
 after?: string, };
 
 /**
- * A question opened. `title` and `body` are the words a system
- * notification says; `session` is the session whose terminal shows the
- * question (a click brings the window there), none for the router's
- * question, which Home shows.
+ * A question opened, or (`thought` in its place) a thought a model was
+ * torn about waits for the person's key. `title` and `body` are the
+ * words a system notification says; `session` is the session whose
+ * terminal shows the question (a click brings the window there), none for
+ * the router's question and a waiting thought, which Home shows.
  */
-export type HostNotify = { question: QuestionId, title: string, body: string, session: SessionId | null, };
+export type HostNotify = { question: QuestionId | null, thought: ThoughtId | null, title: string, body: string, session: SessionId | null, };
 
 /**
  * Who the core took the connection to be.
@@ -1516,6 +1522,10 @@ instructions: string,
  * What is sent with them, one line for each kind of field.
  */
 sends: Array<string>,
+/**
+ * How much of each text is sent, in one sentence.
+ */
+cuts: string,
 /**
  * The version of these terms, which an agreement names: one to an
  * older version covers nothing.

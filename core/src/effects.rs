@@ -154,6 +154,7 @@ struct Fixture {
     /// Runs start for real, and new captures name this agent.
     agent: Option<String>,
     notified: Vec<QuestionId>,
+    waited: Vec<ThoughtId>,
 }
 
 impl Seams {
@@ -366,7 +367,11 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 None
             }
             Effect::Notify(question) => {
-                notify(core, question);
+                notify(core, Told::Question(question));
+                None
+            }
+            Effect::Waits(thought) => {
+                notify(core, Told::Waits(thought));
                 None
             }
             Effect::Answer(question) => {
@@ -1227,15 +1232,26 @@ fn repeated(first: Option<AttemptOutcome>) -> Outcome {
     }
 }
 
-/// Tells the person a question opened: `host.notify` to every connected
-/// host that offered it in `hello`, which decides whether to show anything.
-/// Fire and forget: nothing waits for the reply, and nothing is sent when no
-/// host offered the ability or the question cannot be read. The fixtures
-/// note it too.
-fn notify(core: &mut Core, question: QuestionId) {
+/// What the person is told of: a question that opened, or a thought a
+/// model was torn about, which waits for their key.
+#[derive(Clone, Copy)]
+enum Told {
+    Question(QuestionId),
+    Waits(ThoughtId),
+}
+
+/// Tells the person a question opened, or a thought waits for their key:
+/// `host.notify` to every connected host that offered it in `hello`, which
+/// decides whether to show anything. Fire and forget: nothing waits for the
+/// reply, and nothing is sent when no host offered the ability or the
+/// question or thought cannot be read. The fixtures note it too.
+fn notify(core: &mut Core, told: Told) {
     #[cfg(feature = "fixtures")]
     if let Some(f) = &mut core.seams.fixture {
-        f.notified.push(question);
+        match told {
+            Told::Question(question) => f.notified.push(question),
+            Told::Waits(thought) => f.waited.push(thought),
+        }
     }
     if !core
         .links
@@ -1244,7 +1260,11 @@ fn notify(core: &mut Core, question: QuestionId) {
     {
         return;
     }
-    let Some(args) = words(core, question) else {
+    let args = match told {
+        Told::Question(question) => words(core, question),
+        Told::Waits(thought) => waits(core, thought),
+    };
+    let Some(args) = args else {
         return;
     };
     for link in &core.links {
@@ -1286,10 +1306,24 @@ fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNot
         (format!("{name} asks"), body)
     };
     Some(tasktap_proto::HostNotify {
-        question,
+        question: Some(question),
+        thought: None,
         title,
         body,
         session: q.session_id,
+    })
+}
+
+/// What a system notification says of a thought that waits for the
+/// person's key: what the router's question says, and the task's words.
+fn waits(core: &mut Core, thought: ThoughtId) -> Option<tasktap_proto::HostNotify> {
+    let t = read(core, |tx| tx.thought(thought)).ok()??;
+    Some(tasktap_proto::HostNotify {
+        question: None,
+        thought: Some(thought),
+        title: crate::route::WHERE.into(),
+        body: cut(&t.text),
+        session: None,
     })
 }
 
@@ -1489,6 +1523,7 @@ pub fn script(
         launcher: FixtureLauncher::default(),
         agent: None,
         notified: Vec::new(),
+        waited: Vec::new(),
     });
     f.router = FixtureRouter(route);
     f.agent = args.agent;
@@ -1513,6 +1548,7 @@ pub fn script(
         killed: l.killed.clone(),
         settled: l.settled.iter().map(|&(thought, _)| thought).collect(),
         notified: f.notified.clone(),
+        waited: f.waited.clone(),
     })
 }
 

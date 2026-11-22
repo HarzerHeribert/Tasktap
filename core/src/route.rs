@@ -58,7 +58,7 @@
 //! | at most 64 KiB, the one JSON object of [`SCHEMA`] with no other field | rejected |
 //! | a destination and every choice is a key the request offered | rejected |
 //! | a follow-up to a session other than the current one quotes at least 3 characters found word for word in the capture | rejected |
-//! | `ambiguous` names at least two different choices | rejected |
+//! | `ambiguous` names at least one choice (one alone waits for the person's key, as several do) | rejected |
 //! | a brief is there, and no longer than twice the capture and 400 characters | rejected |
 //! | a title is one line of at most 60 characters | it has none |
 //! | the person picked the destination | only the brief and the title are taken |
@@ -129,6 +129,9 @@ const OFFERED: usize = 8;
 /// decision of 2026-11-19), beside "Another project…" and "Keep for later".
 pub const CHOICES: usize = 3;
 const RECENT: usize = 3;
+/// Most projects, besides where the last task went, that a model is given
+/// for being the most recently worked on ([`order`]).
+const RECENT_PROJECTS: usize = 2;
 /// Most characters of a title a model gives the work.
 const MAX_TITLE: usize = 60;
 /// Most characters of a thought a model is asked about.
@@ -1596,8 +1599,9 @@ pub fn narrow(tx: &Tx, mut r: Request, now: Time) -> store::Result<Request> {
 /// Which of the request's projects and sessions a model is given, and in
 /// what order: at most 8 of each, never all of them. The projects: those
 /// the capture names, then the current session's, then the workspace in
-/// view, then those whose earlier tasks its words are like, then the
-/// others this machine ranks likeliest ([`ranked`]: by the line about
+/// view, then where the last task went and the [`RECENT_PROJECTS`] worked
+/// on most recently, then those whose earlier tasks its words are like,
+/// then the others this machine ranks likeliest ([`ranked`]: by the line about
 /// each, where the last thought went, how recently each was worked on),
 /// workspaces and known projects alike. The sessions: those it names, then
 /// the current one, then by how recent their last turn is; only those in
@@ -1637,6 +1641,17 @@ pub fn order(mut r: Request) -> Request {
     }
     if let Some(view) = r.view {
         next(Destination::New(view), &mut rest, &mut r.projects);
+    }
+    // Words that only hint never push out where the person worked last.
+    if let Some(last) = r.last {
+        next(last, &mut rest, &mut r.projects);
+    }
+    let mut used: Vec<(Time, Destination)> = (rest.iter())
+        .filter_map(|p| Some((p.used?, p.to)))
+        .collect();
+    used.sort_by_key(|(used, _)| std::cmp::Reverse(*used));
+    for (_, to) in used.into_iter().take(RECENT_PROJECTS) {
+        next(to, &mut rest, &mut r.projects);
     }
     for to in like_earlier(&text, &rest, &r.earlier) {
         next(to, &mut rest, &mut r.projects);
@@ -2538,10 +2553,11 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
                     candidates.push(choice);
                 }
             }
-            if candidates.len() < 2 {
-                return Err("it is unsure and names fewer than two choices".into());
+            if candidates.is_empty() {
+                return Err("it is unsure and names no choice".into());
             }
-            // At most three choices, the likeliest first as it gave them.
+            // One alone is a decision that waits for a key too. At most three
+            // choices, the likeliest first as it gave them.
             candidates.truncate(CHOICES);
             let route = Route::Torn {
                 candidates,

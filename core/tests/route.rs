@@ -9,8 +9,8 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 use tasktap_core::route::{
-    CHOICES, Followed, Lexicon, Named, Request, accept, by_names, local, offered, ranked, request,
-    same, short, unsure,
+    CHOICES, Followed, Lexicon, Named, Request, accept, by_names, local, offered, order, ranked,
+    request, same, short, unsure,
 };
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_core::store::Store;
@@ -1039,7 +1039,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         refused(&request, with("to", to.into()), "was not offered");
     }
 
-    // Unsure: at least two different choices, each offered; the brief is
+    // Unsure: one to three different choices, each offered; the brief is
     // kept for wherever the person sends it.
     let choices = |keys: Value| {
         let mut a = answer("ambiguous", "", brief);
@@ -1088,9 +1088,21 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
             Routing::default()
         ))
     );
-    for keys in [json!([]), json!(["p1"]), json!(["p1", "p1"])] {
-        refused(&request, choices(keys), "fewer than two choices");
+    // One choice alone is still a decision that waits for the person's key:
+    // the one place a model could think of, however often it names it.
+    for keys in [json!(["p3"]), json!(["p3", "p3"])] {
+        assert_eq!(
+            accept(&request, &choices(keys)),
+            Ok((
+                Route::Torn {
+                    candidates: vec![choice("app", Destination::New(app))],
+                    brief: Some(brief.into()),
+                },
+                Routing::default()
+            ))
+        );
     }
+    refused(&request, choices(json!([])), "names no choice");
     refused(&request, choices(json!(["p1", "p9"])), "was not offered");
 
     // Nowhere to send it: an idea, whatever else the answer says.
@@ -2062,6 +2074,30 @@ fn a_torn_model_shows_its_choices_on_the_decision_line_and_waits_for_a_key() {
         let taken = told();
         assert_eq!((taken.thought, taken.withdrawn), (Some(t), true), "{how}");
     }
+}
+
+#[test]
+fn a_model_unsure_of_only_one_place_waits_for_the_persons_key_there() {
+    let mut a = Asking::new("torn-one");
+    a.consent("fixture");
+    let mut said = answer("ambiguous", "", "Keep the header on one line.");
+    said["candidates"] = json!(["p2"]);
+    a.answers(&said);
+    let t = a.capture(SPOKEN, None);
+    // In the one place it named, no other beside it; no hold runs and no
+    // question opens: it waits for the person's key.
+    let th = a.settled(t);
+    assert_eq!(
+        (th.status, th.project_id, th.hold_until, th.placed),
+        (Status::Routed, Some(a.app), None, Some(Placed::Model))
+    );
+    assert_eq!(th.brief.as_deref(), Some("Keep the header on one line."));
+    assert_eq!(th.route.as_ref().unwrap().others, []);
+    assert!(a.w.model.glance().question.is_none());
+    a.asked_about(t);
+    // Return starts it where it is.
+    a.start(t);
+    assert_eq!(a.w.model.thought(t).project_id, Some(a.app));
 }
 
 #[test]
@@ -3807,4 +3843,64 @@ fn after_a_restart_every_task_that_waits_is_told_and_no_other() {
     a.start(held);
     let taken = told();
     assert_eq!((taken.thought, taken.withdrawn), (Some(held), true));
+}
+
+#[test]
+fn a_model_is_always_given_where_the_last_task_went_and_the_two_worked_on_most_recently() {
+    // Twelve projects; the first six have earlier tasks that share words
+    // with the thought, the last three are the ones worked on lately.
+    let names = [
+        "alder", "birch", "cedar", "dogwood", "elm", "fir", "gorse", "hazel", "ivy", "juniper",
+        "kauri", "larch",
+    ];
+    let now: u64 = 1_800_000_000_000;
+    let day = 86_400_000;
+    let projects: Vec<Named> = (names.iter().enumerate())
+        .map(|(i, name)| Named {
+            used: tasktap_proto::Time::new(now - (11 - i as u64) * day),
+            ..Named::open(ProjectId::mint(), name, &[])
+        })
+        .collect();
+    let to = |name: &str| projects.iter().find(|p| p.name == name).unwrap().to;
+    let earlier = projects
+        .iter()
+        .take(6)
+        .map(|p| (p.to, vec!["calibrate zorble flimmer quanta".to_string()]))
+        .collect();
+    let r = Request {
+        text: "calibrate the zorble flimmer quanta again".into(),
+        projects: projects.clone(),
+        last: Some(to("ivy")),
+        earlier,
+        ..Request::default()
+    };
+    let given =
+        |r: &Request| -> Vec<String> { r.projects.iter().map(|p| p.name.clone()).collect() };
+    // Where the last task went, then the two worked on most recently, then
+    // those whose earlier tasks the words are like.
+    let shown = given(&order(r.clone()));
+    assert_eq!(
+        shown,
+        [
+            "ivy", "larch", "kauri", "fir", "elm", "dogwood", "cedar", "birch"
+        ]
+    );
+    // With no record of either, nothing is put first.
+    let none = Request {
+        last: None,
+        projects: projects
+            .iter()
+            .map(|p| Named {
+                used: None,
+                ..p.clone()
+            })
+            .collect(),
+        ..r
+    };
+    assert_eq!(
+        given(&order(none)),
+        [
+            "fir", "elm", "dogwood", "cedar", "birch", "alder", "larch", "kauri"
+        ]
+    );
 }

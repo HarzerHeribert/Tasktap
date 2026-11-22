@@ -34,6 +34,7 @@ pub const APP_KEYS: &[AppKey] = &[
     app("new-task", "⌘N", "New task", true),
     app("new-terminal", "⌘T", "New terminal", true),
     app("open-workspace", "⌘O", "Open workspace", true),
+    app("pop-out", "⇧⌘N", "Open workspace in new window", true),
     app("close-tab", "⌘W", "Close tab", true),
     app("find", "⌘F", "Find in terminal", true),
     app("sidebar", "⌃⌘S", "Toggle sidebar", true),

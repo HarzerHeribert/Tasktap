@@ -91,6 +91,20 @@ pub fn placing(tx: &Tx) -> store::Result<Option<Placing>> {
     }))
 }
 
+/// Who keeps a key at an address: a speech service, and the own model.
+pub struct Keepers {
+    pub speech: bool,
+    pub own: bool,
+}
+
+/// Who keeps `address` and a key there (`keys`): the key stays while either does.
+pub fn keepers(tx: &Tx, address: &str) -> store::Result<Keepers> {
+    let speech = tx.pref(PrefKey::SpeechBy)?.map(|p| p.value);
+    let speech = matches!(speech, Some(PrefValue::SpeechBy(Some(by))) if by.server == address);
+    let own = placing(tx)?.is_some_and(|p| p.address == address);
+    Ok(Keepers { speech, own })
+}
+
 /// What a placing costs the person: nothing more where the model is on this
 /// machine or a private network, what the provider bills where it is not.
 pub fn pays(address: &str) -> tasktap_proto::Pays {
@@ -416,19 +430,24 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
         }
     }
     let known = effects::read(cx.core, |tx| {
-        let speech = tx.pref(PrefKey::SpeechBy)?.map(|p| p.value);
-        Ok((placing(tx)?, speech))
+        let before = placing(tx)?;
+        let speaks = match &before {
+            Some(p) => keepers(tx, &p.address)?.speech,
+            None => false,
+        };
+        Ok((before, speaks))
     });
-    let (before, speech) = match known {
+    let (before, speaks) = match known {
         Ok(known) => known,
         Err(e) => return Some(call::OwnModelSet::reply(id, Err(e))),
     };
+    // A first set-up switches its row on; a change keeps the row as it is.
+    let keeps = before.is_some();
     // The key of the address it was for goes with that address, unless a speech service
     // is at that very address.
-    let spoken = |address: &str| matches!(&speech, Some(PrefValue::SpeechBy(Some(by))) if by.server == address);
     let dropped = before
         .clone()
-        .filter(|p| p.address != address && p.keyed && !spoken(&p.address));
+        .filter(|p| p.address != address && p.keyed && !speaks);
     let (vault, own) = (cx.core.own.vault.clone(), (address.clone(), model));
     let work = {
         let (address, key, dropped) = (address.clone(), key.clone(), dropped.clone());
@@ -451,7 +470,7 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
                         model: model.clone(),
                     }));
                     let put = tx.put_pref(&own);
-                    put.and_then(|()| chatgpt::agree(tx, ID, &model, true))
+                    put.and_then(|()| chatgpt::agree(tx, ID, &model, keeps))
                         .map_err(effects::stored)
                 })
             })
@@ -474,15 +493,18 @@ pub fn save(cx: &mut Cx, args: SetOwnModel) -> Option<Control> {
 pub fn remove(cx: &mut Cx, _: Empty) -> Option<Control> {
     let (link, id) = (cx.link.clone(), cx.id);
     let known = effects::read(cx.core, |tx| {
-        let speech = tx.pref(PrefKey::SpeechBy)?.map(|p| p.value);
-        Ok((placing(tx)?, speech))
+        let before = placing(tx)?;
+        let speaks = match &before {
+            Some(p) => keepers(tx, &p.address)?.speech,
+            None => false,
+        };
+        Ok((before, speaks))
     });
-    let (before, speech) = match known {
+    let (before, speaks) = match known {
         Ok(known) => known,
         Err(e) => return Some(call::OwnModelRemove::reply(id, Err(e))),
     };
-    let spoken = |address: &str| matches!(&speech, Some(PrefValue::SpeechBy(Some(by))) if by.server == address);
-    let keyed = before.filter(|p| p.keyed && !spoken(&p.address));
+    let keyed = before.filter(|p| p.keyed && !speaks);
     let vault = cx.core.own.vault.clone();
     let unkeyed = keyed.clone();
     let work = move || unkeyed.map_or(Ok(()), |p| vault.remove(&p.address));

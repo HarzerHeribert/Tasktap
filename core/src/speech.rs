@@ -901,6 +901,13 @@ pub fn remove_key(cx: &mut Cx, args: Server) -> Option<Control> {
             Err(Error::new(Code::Invalid, why)),
         ));
     }
+    // The key stays while the own model is at that address.
+    let own = effects::read(cx.core, |tx| Ok(crate::own::keepers(tx, &name)?.own));
+    if own.unwrap_or(false) {
+        let why = "your own model uses the key at that address: remove the own model first";
+        let invalid = Error::new(Code::Invalid, why);
+        return Some(call::KeyRemove::reply(cx.id, Err(invalid)));
+    }
     let server = name.clone();
     keyed::<call::KeyRemove>(cx, server, false, move |vault| vault.remove(&name))
 }

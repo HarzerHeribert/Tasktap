@@ -784,6 +784,9 @@ fn a_call_to_this_machine_goes_by_no_proxy_whatever_the_environment_says() {
             ("http_proxy", &url),
             ("HTTP_PROXY", &url),
             ("all_proxy", &url),
+            // Nothing in the machine's own environment may let the test pass.
+            ("no_proxy", ""),
+            ("NO_PROXY", ""),
         ],
     );
     p.set_up(&p.server.address(), "tiny", None);
@@ -908,4 +911,32 @@ fn changing_the_own_model_keeps_its_switch_and_its_place_in_the_order() {
             ("own".into(), "small".into(), false)
         ]
     );
+}
+
+#[test]
+fn speech_cannot_remove_a_key_the_own_model_uses_and_a_first_set_up_switches_its_row_on() {
+    let mut p = Placing::new("own-keepers");
+    let address = p.server.address();
+    // A row of the own model that was left switched off before it was set up.
+    p.agree(&[("fixture", "fixture-small", true), ("own", "tiny", false)]);
+    p.set_up(&address, "tiny", Some(KEY));
+    assert_eq!(
+        rows(&p),
+        [
+            ("own".into(), "tiny".into(), true),
+            ("fixture".into(), "fixture-small".into(), true)
+        ]
+    );
+    // Speech's own removal leaves the key where the own model uses it.
+    let server = tasktap_proto::Server {
+        server: address.clone(),
+    };
+    let refused = p.w.refused::<call::KeyRemove>(&server);
+    assert_eq!(refused.code, Code::Invalid);
+    p.w.sync();
+    assert_eq!(p.keys(), std::slice::from_ref(&address));
+    // Once the own model is gone the key can go.
+    p.w.ok::<call::OwnModelRemove>(&Empty {});
+    p.w.sync();
+    assert_eq!(p.keys(), Vec::<String>::new());
 }

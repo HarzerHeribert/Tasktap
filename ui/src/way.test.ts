@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
   agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
-  offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
+  middle, offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
 } from './way.ts';
 
 test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
@@ -327,4 +327,12 @@ test('an agreement to older terms is said once, in Setup, and on no thought; any
   assert.equal(fallback(route(null)), null);
   assert.equal(placed({ placed: 'name', ...route(again) }, (id) => id), 'Placed by name');
   assert.equal(placed({ placed: 'name', ...route('claude: it did not answer within 12 s') }, (id) => id), 'Placed by name. claude: it did not answer within 12 s');
+});
+
+test('a project name too long for its column is cut in the middle', () => {
+  assert.equal(middle('cuegrid'), 'cuegrid');
+  assert.equal(middle('a'.repeat(24)), 'a'.repeat(24));
+  const cut = middle('harbormaster-tide-tables-backend-v2');
+  assert.equal([...cut].length, 24);
+  assert.equal(cut, 'harbormaster…-backend-v2');
 });

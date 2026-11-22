@@ -104,3 +104,49 @@ const bare = (line: string) => words(inline(line.trim().replace(/^(?:#{1,6}|>|[-
 export const firstLine = (text: string) => bare(text.split('\n').find((l) => l.trim()) ?? '');
 /** A whole Markdown text as plain words in one run, for where all of an answer is shown as text. */
 export const plain = (text: string) => text.split('\n').filter((l) => l.trim()).map(bare).join(' ');
+
+/** A word of a line and how it is set: strong or in a heading (`b`), emphasised (`i`), code, or the mark of a list item
+ *  (`m`); `sp` where a space stands before it. */
+export type Word = { s: string; k?: 'b' | 'i' | 'code' | 'm'; sp?: boolean };
+function flow(a: Inline[], k: Word['k'], out: Word[], space = false) {
+  for (const x of a) {
+    if (typeof x !== 'string' && x.t !== 'code') flow(x.s, x.t === 'b' ? 'b' : x.t === 'i' ? (k ?? 'i') : k, out, space);
+    else
+      for (const tok of (typeof x === 'string' ? x : x.s).split(/(\s+)/)) {
+        if (/^\s/.test(tok)) space = true;
+        else if (tok) (out.push({ s: tok, k: typeof x === 'string' ? k : 'code', ...(space && out.length && { sp: true }) }), (space = false));
+      }
+  }
+}
+/** A text as the words of its lines, for where it is shown in a few lines (the result card): with `md`, a Markdown text
+ *  as its paragraphs, headings and list items (each led by its mark) and the lines of its code, quotes as what they
+ *  say, rules and tables left out; otherwise each line of the text as it was written. At most `most` words. */
+export function lines(text: string, md = true, most = 160): Word[][] {
+  const out: Word[][] = [];
+  let n = 0;
+  const add = (w: Word[]) => w.length && n < most && (out.push(w.slice(0, most - n)), (n += w.length));
+  const line = (a: Inline[], k?: Word['k']) => {
+    const w: Word[] = [];
+    flow(a, k, w);
+    add(w);
+  };
+  const walk = (blocks: Block[]) => {
+    for (const b of blocks) {
+      if (b.t === 'p') line(b.s);
+      else if (b.t === 'h') line(b.s, 'b');
+      else if (b.t === 'code') for (const l of b.s.split('\n')) line([{ t: 'code', s: l }]);
+      else if (b.t === 'quote') walk(b.blocks);
+      else if (b.t === 'ul' || b.t === 'ol') {
+        let i = b.from;
+        for (const it of b.items) {
+          const w: Word[] = [{ s: it.done !== undefined ? (it.done ? '☑' : '☐') : b.t === 'ol' && !it.depth ? `${i++}.` : '•', k: 'm' }];
+          flow(it.s, undefined, w, true);
+          add(w);
+        }
+      }
+    }
+  };
+  if (md) walk(parse(text));
+  else for (const l of text.split('\n')) line([l]);
+  return out;
+}

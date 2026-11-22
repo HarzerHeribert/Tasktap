@@ -10,7 +10,6 @@ import { plain } from './markdown.ts';
 import { Answer, Glyph, I, Mark, Seat, ago, madeAt, when } from '../ui.tsx';
 import { tip } from '../keys.ts';
 import { shownPath } from '../system.ts';
-import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
@@ -208,12 +207,10 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
   const shows = records.previews.get(id);
   const c = shows ? { s: 'shell' as const, words: [shows.kind === 'web' ? shows.target : shownPath(shows.target), openedBy(shows)].filter(Boolean).join('\n') } : cue(id);
   const name = shows ? shows.title : label(id);
-  // How the session's thought found its way here, said quietly with its name.
-  const th = thoughtOf(sessionOf(id)), how = th && placed(th, agentName);
   return (
     <div class={`tabw${active ? ' on' : ''}${c.s === 'shell' && !shows ? ' shl' : ''}`}>
       <button type="button" role="tab" class="tab" data-id={id} aria-selected={active} tabIndex={active ? 0 : -1}
-        title={[name, c.words, how].filter(Boolean).join('\n')} aria-description="Drag onto a terminal to share its space, onto tabs to join them. Right-click for its commands"
+        title={[name, c.words].filter(Boolean).join('\n')} aria-description="Drag onto a terminal to share its space, onto tabs to join them. Right-click for its commands"
         onPointerDown={(e) => grab(e, project, pane.id, id)}
         onClick={() => {
           if (dragged) return;

@@ -39,8 +39,7 @@ function Session({ project, id, bg }: { project: string; id: string; bg: boolean
   // so neither holds the other, and the row's words and mark stay where they are.
   return (
     <div class="srow" data-id={id}>
-      <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id}
-        title={`${name}\n${c.words}${bg ? ', in background' : ''}${c.activity ? `\n${c.activity}` : ''}`} onClick={() => focusSession(id)}
+      <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id} onClick={() => focusSession(id)}
         onContextMenu={(e) => popup(e, menu)} onKeyDown={(e) => e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && details(id) && e.preventDefault()}>
         <Seat agent={s?.agent} s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
         <span class="lbl">{name}</span>

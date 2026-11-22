@@ -6,12 +6,13 @@
 // flood (four running rows, then a line that opens the rest).
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Capture, atComposer, cap } from '../capture.tsx';
+import { Body, Peek, glance, unpeek, useSettle } from './card.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
-import { fallback, laterWhy, placed } from '../way.ts';
+import { fallback, laterWhy, middle, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import { firstLine } from './markdown.ts';
 import { popup } from './menu.ts';
@@ -64,7 +65,7 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
   if (!isOpen)
     return (
-      <button type="button" class="hr ask" data-nav onClick={choose} title={q.prompt}>
+      <button type="button" class="hr ask" data-nav onClick={choose}>
         {seat}<span class="hr-t">{q.prompt}</span>{time}
         <Meta where={where} who={router ? undefined : who} fact={t ? title(t) : undefined} />
       </button>
@@ -84,15 +85,20 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
 /** One thought, as an object that keeps its shape at every width: its agent's mark in the state it is in, the thought
  *  in the person's words, the project at its right (one column for every row) and the time; under that, only where
  *  there is something to say, how it failed or the first line of the answer. Who works on it is in the mark's name. The
- *  row opens its terminal. */
-function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean }) {
+ *  row opens its terminal; a result not yet opened is a card (card.tsx) that says more and opens the same way. While the
+ *  keyboard is on a row, or the pointer rests on it, a peek shows what its card would. */
+function Row({ t, kind, bg, card }: { t: Thought; kind: 'run' | 'res'; bg?: boolean; card?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useSettle(ref, !!card);
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const r = resultOf(t);
   const failed = kind === 'res' && t.status === 'failed';
   // The second line, only when there is something to say: how it failed, else the first line of what the agent answered.
   const fact = kind === 'run' ? (s?.activity.at(-1) ?? 'Starting') : failed ? `${why(t)}${r?.summary ? `: ${firstLine(r.summary)}` : ''}` : unheard(t) ? endedSays(t) : r?.summary ? firstLine(r.summary) : '';
   const changes = pending(t) ? t : null;
+  const retry = () => void call('thought.retry', { id: t.id }).catch(fail);
   const go = () => {
+    unpeek();
     if (t.session_id && focusSession(t.session_id) && (t.status === 'done' || t.status === 'failed') && !t.read)
       void call('thought.read', { id: t.id }).catch(fail);
   };
@@ -103,15 +109,22 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
   ) : failed && !t.read ? (
     <div class="hr-a">
       {t.session_id && <button type="button" class="btn" onClick={go}>Open terminal</button>}
-      <button type="button" class="btn" onClick={() => void call('thought.retry', { id: t.id }).catch(fail)}>Try again</button>
+      <button type="button" class="btn" onClick={retry}>Try again</button>
     </div>
   ) : null;
   const k = kind === 'run' ? 'working' : stateOf(t);
   const agent = s?.agent ?? t.agent, who = agentName(agent ?? undefined);
+  // A thought begun here is this session's follow-up unless its words say otherwise.
+  const follow = () => {
+    unpeek();
+    Object.assign(cap, { usual: s?.project_id ?? t.project_id, current: t.session_id });
+    page.focus = '#capture-input';
+    open({ kind: 'capture' });
+  };
   return (
-    <div class={`hr task ${kind}${bg ? ' bgd' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
-      title={[t.text, fact, placed(t, agentName)].filter(Boolean).join('\n')}
-      onClick={(e) => !(e.target as HTMLElement).closest('.hr-a') && go()}
+    <div ref={ref} class={`hr task ${kind}${bg ? ' bgd' : ''}${card ? ' card' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
+      {...(card ? { role: 'group', 'aria-label': `${who}: ${said(k, bg)}` } : glance(t, kind))}
+      onClick={(e) => !(e.target as HTMLElement).closest('button') && go()}
       onContextMenu={(e) => t.session_id && popup(e, [{ text: 'Open Terminal', do: go }, { text: 'Session Details…', do: () => void details(t.session_id ?? undefined) }])}
       onKeyDown={(e) => {
         if ((e.target as HTMLElement) !== e.currentTarget || e.metaKey || e.ctrlKey) return;
@@ -121,18 +134,33 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
         else if (changes && key === 'k') main(changes);
         else if (changes && key === 'd') open({ kind: 'settle', thought: t.id, keep: false });
         else if (changes && key === 'r') open({ kind: 'review', thought: t.id });
+        else if (card && key === 'f' && t.session_id) follow();
         else return;
         e.preventDefault();
       }}>
-      <Seat agent={agent} s={k} bg={bg} size={20} label={`${who}: ${said(k, bg)}`} />
-      <span class="hr-t">{title(t)}</span>
-      <span class="hr-p">{projectName(t.project_id)}</span>
-      <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
-      {fact && <span class={`hr-x${failed ? ' fail' : ''}`}>{fact}</span>}
-      {kind === 'res' && t.workdir && <span class="hr-d"><Status t={{ ...t, workdir: t.workdir }} /></span>}
-      {changes && <Told t={changes} />}
-      {fallback(t) && <p class="hr-n">{placed(t, agentName)}</p>}
-      {acts}
+      {card ? (
+        <>
+          <Body t={t} kind={kind} />
+          <div class="hr-a">
+            {t.session_id && <button type="button" class="btn pri" onClick={go}>Open</button>}
+            {failed && <button type="button" class="btn" onClick={retry}>Try again</button>}
+            {t.session_id && <button type="button" class="btn" onClick={follow}>Follow up</button>}
+            {changes && <ChangeActs t={changes} />}
+          </div>
+        </>
+      ) : (
+        <>
+          <Seat agent={agent} s={k} bg={bg} size={20} label={`${who}: ${said(k, bg)}`} />
+          <span class="hr-t">{title(t)}</span>
+          <span class="hr-p">{middle(projectName(t.project_id))}</span>
+          <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
+          {fact && <span class={`hr-x${failed ? ' fail' : ''}`}>{fact}</span>}
+          {kind === 'res' && t.workdir && <span class="hr-d"><Status t={{ ...t, workdir: t.workdir }} /></span>}
+          {changes && <Told t={changes} />}
+          {fallback(t) && <p class="hr-n">{placed(t, agentName)}</p>}
+          {acts}
+        </>
+      )}
     </div>
   );
 }
@@ -157,7 +185,7 @@ export function ChangeActs({ t }: { t: Changed }) {
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
   return (
-    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, fallback(t)].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
+    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
       <time>{when(t.created)}</time>
@@ -170,6 +198,9 @@ function LaterRow({ t }: { t: Thought }) {
     </div>
   );
 }
+
+/** The width of the project column, in characters: that of the longest name shown, at most what a name is cut to. */
+const column = (rows: Thought[]) => Math.max(4, ...rows.map((t) => [...middle(projectName(t.project_id))].length));
 
 /** "1 new 1 failed", or how many there are. */
 function Counts({ rows }: { rows: Thought[] }) {
@@ -256,7 +287,10 @@ export function Home() {
   const resultsOpen = fold === 'results' || ((idle || two) && fold !== 'shut' && fold !== 'later') || (two && fold === 'later');
   // A thought just saved for later opens the line it landed in.
   const laterOpen = fold === 'later' || (two && fold !== 'shut-later') || (fold === '' && h.later.some((t) => t.id === cap.sent?.id));
-  const results = h.results.slice(0, fold === 'results' || two ? 5 : 2);
+  // The newest three results not yet opened are cards, wherever they stand in the list; the rest are rows.
+  const cards = new Set(h.results.filter((t) => !t.read && !unheard(t)).slice(0, 3).map((t) => t.id));
+  const room = fold === 'results' || two ? 5 : 2;
+  const results = h.results.filter((t, i) => i < room || cards.has(t.id));
   const toggle = (name: 'results' | 'later') => () => {
     ui.fold = name === 'results' ? (resultsOpen ? 'shut' : 'results') : laterOpen ? (two ? 'shut-later' : 'shut') : 'later';
     redraw();
@@ -266,8 +300,8 @@ export function Home() {
   return (
     <div class="room" style={light.vars}>
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
-    <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
-      <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={nav}>
+    <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1} onScroll={unpeek}>
+      <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} style={{ '--pj': column([...h.waiting, ...h.running, ...(resultsOpen ? results : [])]) }} onKeyDown={nav}>
         <Capture raised asks={ui.sheet?.kind !== 'capture'} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => showWelcome('voice')} />
         {/* Under the Composer only what was just sent (its Way, its question); what is offered once is the welcome's. */}
         <Finish />
@@ -299,7 +333,7 @@ export function Home() {
           <section class="folds">
             {h.results.length > 0 && (
               <Fold name="Results" open={resultsOpen} rows={h.results} toggle={toggle('results')}>
-                <div class="hrs">{results.map((t) => <Row key={t.id} t={t} kind="res" />)}</div>
+                <div class="hrs">{results.map((t) => <Row key={t.id} t={t} kind="res" card={cards.has(t.id)} />)}</div>
                 <button type="button" class="more" data-nav onClick={() => show('earlier')}>All results<I n="chev" /></button>
               </Fold>
             )}
@@ -320,6 +354,7 @@ export function Home() {
         </div>
       </div>
     </div>
+    <Peek />
     </div>
   );
 }
@@ -369,8 +404,8 @@ export function Earlier() {
   return (
     <div class="room">
     <Light load="paged" />
-    <div class="home paged" id="main" tabIndex={-1}>
-      <div class="hx" onKeyDown={(e) => {
+    <div class="home paged" id="main" tabIndex={-1} onScroll={unpeek}>
+      <div class="hx" style={{ '--pj': column(rows) }} onKeyDown={(e) => {
         if (e.key === 'Escape') (e.preventDefault(), show('home'));
         else nav(e);
       }}>
@@ -396,6 +431,7 @@ export function Earlier() {
         )}
       </div>
     </div>
+    <Peek />
     </div>
   );
 }

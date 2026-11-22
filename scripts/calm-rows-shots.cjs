@@ -5,7 +5,7 @@
 // And what holds on them: on the task rows and in Settings no ring (`.ring-o`), no "·" in what a person reads or what a
 // screen reader is told; a task row is its title, its project and its time on one line, the project names in one
 // column, and a second line only for a failure (in the warning colour) or the first line of an answer, its Markdown
-// marks gone; the agent's name stays in the row's accessible name.
+// marks gone, and no row has a tooltip; the agent's name stays in the row's accessible name.
 // usage: node scripts/calm-rows-shots.cjs <outdir>   (ui/dist must be built; exit status 1 on a failure)
 const fs = require('node:fs');
 const path = require('node:path');
@@ -117,6 +117,8 @@ async function main() {
 
     // ——— The Results list and Find a task ———
     const r = results();
+    // Opened results are rows; the result card (new results) has its own script, results-card-shots.cjs.
+    for (const t of r.records.thoughts) t.read = true;
     page = await open(browser, { label: 'workspace', records: r.records, url: server.url, dpr: 2 });
     await page.waitForFunction(() => window.__ws?.ui.ready, null, { timeout: 15000 }).catch(() => {});
     const home = await plain(page, '.hq, .hr, .setup');
@@ -129,7 +131,7 @@ async function main() {
       const b = (s) => row.querySelector(s)?.getBoundingClientRect();
       const rule = (s) => { const e = row.querySelector(s); return e && { text: e.textContent, color: getComputedStyle(e).color }; };
       return { id: row.dataset.thought, title: row.querySelector('.hr-t')?.textContent, project: rule('.hr-p'), time: row.querySelector('time')?.textContent, x: rule('.hr-x'),
-        px: b('.hr-p')?.left, tt: b('.hr-t')?.bottom, tp: b('.hr-p')?.bottom, tm: b('time')?.bottom, label: row.querySelector('.st')?.getAttribute('aria-label'), name: row.getAttribute('title'), text: row.innerText, rings: row.querySelectorAll('.ring-o').length };
+        px: b('.hr-p')?.left, tt: b('.hr-t')?.bottom, tp: b('.hr-p')?.bottom, tm: b('time')?.bottom, label: row.querySelector('.st')?.getAttribute('aria-label'), titled: [row, ...row.querySelectorAll('[title]:not(.st)')].filter((e) => e.hasAttribute('title')).length, text: row.innerText, rings: row.querySelectorAll('.ring-o').length };
     }));
     const list = await rows(page);
     const by = (id) => list.find((x) => x.id === id);
@@ -138,7 +140,7 @@ async function main() {
     expect(failed?.x?.text.startsWith('The agent exited before it finished') && stopped?.x?.text === 'It was stopped', `a failure says why on a second line: "${failed?.x?.text}", "${stopped?.x?.text}"`);
     expect(answered?.x?.text === 'Test Witness passes: drafts save locally and sync on reconnect.', `an answer shows its first line with no Markdown marks: "${answered?.x?.text}"`);
     expect(failed?.x?.color !== answered?.x?.color, 'a failure has the warning colour, an answer the quiet one');
-    expect(list.every((x) => x.rings === 0) && !(await plain(page, '.hrs')).dots, 'no ring and no "·" in any task row');
+    expect(list.every((x) => x.rings === 0 && x.titled === 0) && !(await plain(page, '.hrs')).dots, 'no ring, no title and no "·" in any task row');
     expect(list.every((x) => Math.abs(x.tt - x.tp) <= 3 && Math.abs(x.tt - x.tm) <= 3) && new Set(list.map((x) => x.px)).size === 1, 'the title, the project and the time stand on one line, the projects in one column');
     expect(!list.some((x) => /\bClaude Code\b|\bCodex\b/.test(x.text)) && /Claude Code|Codex/.test(failed?.label ?? ''), `the agent's name is not written in a row, and stays in its accessible name ("${failed?.label}")`);
     await page.evaluate(() => window.__ws.show('earlier'));

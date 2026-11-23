@@ -241,7 +241,7 @@ function Elsewhere({ q, thought }: { q: Question; thought: string }) {
       </label>
       {rows.map((r, i) => r.does === 'folder'
         ? <Answer k={String(i + 1)} label={r.name} lead={<I n="plus" />} onClick={() => take(r)} />
-        : <Answer k={String(i + 1)} label={r.name} lead={<I n="folder" />} more={[r.found.why, 'card' in r.found.to ? 'not open yet' : r.found.folder].filter(Boolean).join(' · ')} onClick={() => take(r)} />)}
+        : <Answer k={String(i + 1)} label={r.name} lead={<I n="folder" />} more={r.found.why || ('card' in r.found.to ? 'not open yet' : r.found.folder) || undefined} onClick={() => take(r)} />)}
       {rows.length === 1 && text.trim() && <span class="q-detail">No project by that name.</span>}
     </div>
   );

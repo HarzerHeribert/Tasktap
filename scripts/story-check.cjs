@@ -378,6 +378,8 @@ function state() {
           console.log(`${kind}: the chrome is drawn by “${renderer}”, ${exact ? 'taken for a graphics card' : 'taken for a renderer on the processor'}; scrolled back to the top and at rest, the first screen ${said(back)}`);
           if (back.pixels) console.log(`${kind}: in the first picture: ${was}\n${kind}: in the second: ${now}`);
           if (back.pixels) {
+            // The two pictures kept, whatever the browser: the numbers alone have not told which of them is off.
+            if (shots) for (const [name, picture] of [['first', first], ['back', await look()]]) await fs.writeFile(path.join(shots, `story-chrome-${kind}-${name}.png`), Buffer.from(picture, 'base64'));
             // What would tell an earlier frame left in the picture from a renderer's rounding: one more frame of the
             // same place, and the picture again.
             await page.evaluate(() => (scrollBy(0, 1), new Promise((ok) => requestAnimationFrame(() => (scrollBy(0, -1), ok())))));

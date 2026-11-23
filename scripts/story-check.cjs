@@ -360,8 +360,10 @@ function state() {
           assert.equal(await frames(), f0, 'at rest at Place, no frame of the chrome is drawn');
           await rest('work');
           f0 = await frames();
-          await page.waitForTimeout(1000);
-          assert.ok((await frames()) - f0 >= 20, 'at Work the rings\' light turns');
+          // Twenty frames of the chrome, however long a slow machine takes to draw them (5 s at most): counted in one
+          // fixed second, a slow runner whose light did turn failed.
+          const turned = await page.waitForFunction((from) => window.__story.frames - from >= 20, f0, { timeout: 5000 }).then(() => true, () => false);
+          assert.ok(turned, 'at Work the light of a working agent turns');
           // Scrolled back, everything has played backwards: the first screen is the picture it was. Pixel for pixel
           // where a graphics card draws the chrome (here: Chromium started with one, and any browser on a Mac): the
           // same numbers give the same picture. A renderer on the processor (a server's WebKit draws the chrome that

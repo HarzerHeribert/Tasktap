@@ -47,7 +47,7 @@ use tasktap_proto::{
 pub const LIVE_FINISHED: u32 = 200;
 
 /// The schema, oldest first: entry `n` brings `user_version` from `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
 
 /// A SHA-256 digest: of a device key, a session token or a call's arguments.
 pub type Hash = [u8; 32];
@@ -1331,6 +1331,45 @@ impl Tx<'_> {
         self.delete(Table::Cards, &id)
     }
 
+    /// Replaces what `agent`'s history gave as earlier tasks: `(folder, when,
+    /// text)`. Kept here and nowhere else: not a record, never sent to a client.
+    pub fn replace_seeds(&mut self, agent: &str, seeds: &[(String, u64, String)]) -> Result<()> {
+        self.db
+            .prepare_cached("DELETE FROM seeds WHERE agent = ?1")?
+            .execute([agent])?;
+        let mut put = self.db.prepare_cached(
+            "INSERT OR IGNORE INTO seeds (agent, folder, at, text) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for (folder, at, text) in seeds {
+            put.execute(rusqlite::params![agent, folder, *at as i64, text])?;
+        }
+        Ok(())
+    }
+
+    /// Forgets the earlier tasks of every agent not in `agents`.
+    pub fn keep_seeds(&mut self, agents: &[String]) -> Result<()> {
+        let mut stmt = self.db.prepare_cached("SELECT DISTINCT agent FROM seeds")?;
+        let known: Vec<String> = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        for agent in known.iter().filter(|a| !agents.contains(a)) {
+            self.db
+                .prepare_cached("DELETE FROM seeds WHERE agent = ?1")?
+                .execute([agent])?;
+        }
+        Ok(())
+    }
+
+    /// The earlier tasks the agents' histories gave: `(folder, text)`, the
+    /// newest first.
+    pub fn seeds(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .db
+            .prepare_cached("SELECT folder, text FROM seeds ORDER BY at DESC, folder, text")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Whether a thought not yet started goes to the card.
     pub fn bound(&self, card: CardId) -> Result<bool> {
         let id = key(&card)?;
@@ -1838,4 +1877,17 @@ UPDATE prefs SET data = json_set(data, '$.value', json_object(
         'on', json('true'))),
     'terms', coalesce(data ->> '$.value.terms', 0)))
 WHERE id = 'route_by' AND data ->> '$.value.agent' IS NOT NULL;
+"#;
+
+/// The requests the person gave an agent outside Tasktap, as that agent's
+/// history holds them, to start a project's earlier tasks with (`map`):
+/// only text, a few per project and agent, kept apart from every record.
+const SCHEMA_V5: &str = r#"
+CREATE TABLE seeds (
+    agent TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (agent, folder, text)
+) STRICT;
 "#;

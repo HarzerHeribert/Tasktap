@@ -514,6 +514,16 @@ fn asked(request: String, input: Option<&Value>) -> Ask {
 /// bytes in. Only that line's first bytes are read, up to the field, and
 /// the date is the file's modified time; the dated folders are read newest
 /// first. `config.toml`, its history and its state database are not read.
+///
+/// Earlier tasks ([`map::History::tasks`]): of each folder's ten newest
+/// session files, the first typed request of each. A session is one a
+/// person works in when its `session_meta` says `source` is `cli` or
+/// `vscode` (`exec` and a sub-agent's object are machine); the request is
+/// its first `UserMessage` item of an `item_completed` event (or a
+/// `user_message` event, as older versions wrote it) with one text part,
+/// which [`map::said`] says is no wrapper, such as the environment notes
+/// Codex adds in the same shape. A message of several text parts leaves
+/// the session out.
 pub struct History;
 
 /// Most bytes of a session file's first line read for its folder.
@@ -561,6 +571,45 @@ impl crate::map::History for History {
         Ok(worked)
     }
 
+    fn tasks(&self, home: &Path, within: &mut Within) -> Vec<map::Task> {
+        let mut tasks = Vec::new();
+        let mut seen: std::collections::BTreeMap<String, usize> = Default::default();
+        for year in dated(&self.folder(home)) {
+            for month in dated(&year) {
+                for day in dated(&month) {
+                    let Ok(files) = std::fs::read_dir(&day) else {
+                        continue;
+                    };
+                    let mut files: Vec<(u64, PathBuf)> = (files.filter_map(|f| f.ok()))
+                        .filter(|f| f.file_name().to_string_lossy().ends_with(".jsonl"))
+                        .filter_map(|f| Some((map::modified(&f.metadata().ok()?), f.path())))
+                        .collect();
+                    files.sort_by_key(|f| std::cmp::Reverse(f.0));
+                    for (when, file) in files {
+                        if !within.more() {
+                            return tasks;
+                        }
+                        let first = |b: &[u8]| map::field(b.split(|c| *c == b'\n').next()?, "cwd");
+                        let cwd = map::head(&file, FIRST, first);
+                        let Some(cwd) = cwd.filter(|c| Path::new(c).is_absolute()) else {
+                            continue;
+                        };
+                        let n = seen.entry(cwd.clone()).or_default();
+                        *n += 1;
+                        if *n > map::SEED_WINDOW {
+                            continue;
+                        }
+                        if let Some(Some(text)) = map::head(&file, map::SEED_BYTES, opening) {
+                            let folder = PathBuf::from(cwd);
+                            tasks.push(map::Task { folder, when, text });
+                        }
+                    }
+                }
+            }
+        }
+        tasks
+    }
+
     /// The sessions folder and the newest year, month and day in it: a
     /// session that begins today changes the day's folder alone.
     fn watch(&self, home: &Path) -> Vec<PathBuf> {
@@ -575,6 +624,39 @@ impl crate::map::History for History {
         }
         all
     }
+}
+
+/// The first typed request of a session, from its first bytes: none yet
+/// when more must be read, `Some(None)` when it has none.
+fn opening(bytes: &[u8]) -> Option<Option<String>> {
+    let mut lines = map::json_lines(bytes);
+    let meta = lines.next()?;
+    if meta["type"] != "session_meta"
+        || !matches!(meta["payload"]["source"].as_str(), Some("cli" | "vscode"))
+    {
+        return Some(None);
+    }
+    for line in lines.filter(|l| l["type"] == "event_msg") {
+        let event = &line["payload"];
+        let text = match event["type"].as_str() {
+            Some("item_completed") if event["item"]["type"] == "UserMessage" => {
+                let parts = event["item"]["content"].as_array()?;
+                let mut texts = parts.iter().filter(|p| p["type"] == "text");
+                match (texts.next(), texts.next()) {
+                    (Some(text), None) => text["text"].as_str().unwrap_or_default().to_owned(),
+                    _ => return Some(None),
+                }
+            }
+            Some("user_message") => event["message"].as_str().unwrap_or_default().to_owned(),
+            _ => continue,
+        };
+        return match map::said(&text) {
+            map::Said::Machine => continue,
+            map::Said::Short => Some(None),
+            map::Said::Typed(text) => Some(Some(text)),
+        };
+    }
+    None
 }
 
 /// The folders of a dated folder, the greatest number first.

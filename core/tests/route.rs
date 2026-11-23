@@ -2206,7 +2206,7 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
     // projects, and nothing is "routed".
     assert_eq!(
         terms.sends[1],
-        "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the folder names at the project's top"
+        "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks, which include requests you gave an agent outside Tasktap, and the folder names at the project's top"
     );
     let said = terms.sends.join(" ").to_lowercase();
     // ("folder names" at a project's top are the coordinator's words of
@@ -3903,4 +3903,153 @@ fn a_model_is_always_given_where_the_last_task_went_and_the_two_worked_on_most_r
             "fir", "elm", "dogwood", "cedar", "birch", "alder", "larch", "kauri"
         ]
     );
+}
+
+/// A question about `projects`, each at the folder given, with what `seeds`
+/// says of earlier tasks in the store: `earlier` of each, as a model reads it.
+fn earlier_of(
+    seeds: &[(&str, &str)],
+    projects: &[(&str, &str)],
+) -> (String, Vec<(String, Vec<String>)>) {
+    let data = Folder::new("seeded");
+    let (mut store, _) = Store::open(&data.0.join("core.db"), time(wall_ms())).unwrap();
+    let mut tx = store.begin().unwrap();
+    let rows: Vec<_> = (seeds.iter().enumerate())
+        .map(|(i, (folder, text))| ((*folder).to_owned(), 1_000 - i as u64, (*text).to_owned()))
+        .collect();
+    tx.replace_seeds("claude", &rows).unwrap();
+    let named = projects.iter().map(|(name, folder)| Named {
+        folder: (*folder).into(),
+        ..Named::open(ProjectId::mint(), name, &[])
+    });
+    let r = Request {
+        text: "fix the cue timer".into(),
+        projects: named.collect(),
+        ..Request::default()
+    };
+    let r = tasktap_core::route::narrow(&tx, r, time(wall_ms())).unwrap();
+    let asked = tasktap_core::route::question(&r);
+    let said = asked.split("<request>\n").nth(1).unwrap();
+    let said: Value = serde_json::from_str(said.trim_end().trim_end_matches("</request>")).unwrap();
+    let of = (said["projects"].as_array().unwrap().iter())
+        .map(|p| {
+            let all = p["earlier"].as_array().unwrap();
+            let all = all.iter().map(|t| t.as_str().unwrap().to_owned());
+            (p["name"].as_str().unwrap().to_owned(), all.collect())
+        })
+        .collect();
+    (asked, of)
+}
+
+#[test]
+fn earlier_requests_from_agents_fill_a_projects_earlier_tasks_up_to_five_and_pass_the_secret_filter()
+ {
+    let projects = [("cuegrid", "/h/cuegrid"), ("kiln", "/h/kiln")];
+    let key = concat!("sk-", "proj", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4");
+    let token = concat!("ghp_", "0123456789abcdefghij", "ABCDEFGHIJ0123456789");
+    let rotate = format!("Rotate {key} in the deploy file");
+    let paste = format!("Use token {token} for the release");
+    let (asked, of) = earlier_of(
+        &[
+            ("/h/cuegrid", "Add the cue timer"),
+            ("/h/kiln", "Tune the ramp"),
+            ("/h/cuegrid", &rotate),
+            ("/h/cuegrid", &paste),
+            ("/h/cuegrid", "Make the list scroll"),
+            ("/h/cuegrid", "Show the cue count"),
+            ("/h/cuegrid", "Never shown, past five"),
+        ],
+        &projects,
+    );
+    // The newest five, never more; the secret-shaped words are left out.
+    let five = [
+        "Add the cue timer",
+        "Rotate [left out] in the deploy file",
+        "Use token [left out] for the release",
+        "Make the list scroll",
+        "Show the cue count",
+    ];
+    assert_eq!(
+        of[0],
+        ("cuegrid".to_owned(), five.map(String::from).to_vec())
+    );
+    assert_eq!(of[1].1, ["Tune the ramp"]);
+    assert!(!asked.contains(key) && !asked.contains(token));
+    // With no history, or one of other folders, the question is what it is
+    // with none at all, byte for byte.
+    let (none, of) = earlier_of(&[], &projects);
+    assert!(of.iter().all(|(_, e)| e.is_empty()));
+    let (elsewhere, _) = earlier_of(&[("/h/other", "Not for these projects")], &projects);
+    assert_eq!(elsewhere, none);
+    assert!(none.contains(r#""earlier":[]"#));
+}
+
+#[test]
+fn a_persons_own_tasks_come_first_among_a_projects_earlier_tasks_and_a_seeded_one_makes_no_session_nor_recent_task()
+ {
+    let mut a = Asking::new("seeds-after");
+    a.consent("fixture");
+    let mut said = answer("clear", "p1", "Keep the header on one line.");
+    said["title"] = "Header on one line".into();
+    a.answers(&said);
+    let t = a.capture(SPOKEN, None);
+    let placed = a.settled(t).project_id.unwrap();
+    let other = if placed == a.app { a.folio } else { a.app };
+    a.switch(t, tasktap_proto::Place::Project(other));
+    let app = a.app;
+    let name = |id: ProjectId| if id == app { "app" } else { "folio" };
+    // Tasktap stops; what the agents' histories gave is kept beside its own
+    // records, in the project's folder; Tasktap starts again.
+    let retire = tasktap_proto::Retire {
+        when: tasktap_proto::When::Now,
+    };
+    a.core
+        .device()
+        .call::<call::CoreRetire>(&retire)
+        .unwrap()
+        .unwrap();
+    a.core.wait();
+    let (mut store, _) = Store::open(&a.data.0.join("core.db"), time(wall_ms())).unwrap();
+    let mut tx = store.begin().unwrap();
+    let folders = tx.folders().unwrap();
+    let at = |n: &str| folders.iter().find(|f| f.ends_with(n)).unwrap().clone();
+    let rows = [
+        (at(name(other)), 5, "Header on one line".to_owned()),
+        (at(name(other)), 4, "Set up the footer".to_owned()),
+        (at(name(other)), 3, "Add a menu".to_owned()),
+        (at(name(other)), 2, "Fix the logo".to_owned()),
+        (at(name(other)), 1, "Check the colours".to_owned()),
+        (at(name(placed)), 6, "Plan the release".to_owned()),
+    ];
+    tx.replace_seeds("claude", &rows).unwrap();
+    tx.commit().unwrap();
+    drop(store);
+    a.core = Core::with_agents(&a.data.0);
+    a.w = a.core.watch();
+    a.freeze();
+    a.answers(&answer("clear", "p1", "Brief."));
+    let next = a.capture("and the footer too", None);
+    a.settled(next);
+    let asked = a.asked().unwrap();
+    let projects = asked["projects"].as_array().unwrap();
+    let earlier = |n: &str| projects.iter().find(|p| p["name"] == n).unwrap()["earlier"].clone();
+    // The person's own task first, the same words once, then the newest
+    // seeded ones, five in all.
+    assert_eq!(
+        earlier(name(other)),
+        json!([
+            "Header on one line",
+            "Set up the footer",
+            "Add a menu",
+            "Fix the logo",
+            "Check the colours"
+        ])
+    );
+    // Of a project the person has no task in, only the seeded one.
+    assert_eq!(earlier(name(placed)), json!(["Plan the release"]));
+    // No session and no recent task is made of one.
+    let sessions = asked["sessions"].as_array().unwrap();
+    let recent = asked["recent"].as_array().unwrap();
+    let said_all = serde_json::to_string(&[sessions, recent]).unwrap();
+    assert!(!said_all.contains("Plan the release") && !said_all.contains("Add a menu"));
 }

@@ -61,7 +61,11 @@
 //! package file's name and description ([`PACKAGE_BYTES`]), its README's
 //! first paragraph ([`README_BYTES`], [`ABOUT`] characters kept), and of
 //! `.git/config` the remote's address ([`CONFIG_BYTES`]). Never a source
-//! file, never what was said in a session, never a file's later bytes.
+//! file, never a file's later bytes. What was said in a session is read for
+//! one thing: the first request the person typed in each of a project's
+//! newest sessions, as that project's earlier tasks for a model to place by
+//! ([`Task`], [`SEED_FILES`], [`SEED_BYTES`]); only for an agent whose
+//! typed requests its files tell from machine text for certain.
 //!
 //! **No timer, no watcher.** A look runs when the person asks for one (the
 //! first run, Settings, a look switched on) and when a capture or the list
@@ -98,6 +102,15 @@ pub const HISTORY_TIME: Duration = Duration::from_secs(3);
 /// it was started in is found (the owner's: 99 of 100 within 11 KiB, all
 /// within 80 KiB).
 pub const HISTORY_BYTES: usize = 128 << 10;
+/// Files of one agent's history opened in one look for earlier tasks.
+pub const SEED_FILES: usize = 400;
+/// Most bytes of one session file read, from its start, until its first
+/// typed request is found.
+pub const SEED_BYTES: usize = 96 << 10;
+/// Most newest session files of one project, one agent, looked into.
+pub const SEED_WINDOW: usize = 10;
+/// Most earlier tasks kept of one project, one agent.
+pub const SEEDED: usize = 5;
 /// Most folders one look in a folder judges, in all, however deep they
 /// lie: one with more and no project among them is no folder of projects.
 /// The only bound of a walk. Measured on the owner's Mac, a release build,
@@ -213,6 +226,75 @@ impl Within {
     }
 }
 
+/// A request the person typed to an agent, the first of one session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Task {
+    pub folder: PathBuf,
+    /// When the session's file last changed: milliseconds since the Unix epoch.
+    pub when: u64,
+    /// Its first line, cut to an earlier task's length.
+    pub text: String,
+}
+
+/// What a session's text is: machine text, a request too short to place by,
+/// or a typed request.
+pub enum Said {
+    Machine,
+    Short,
+    Typed(String),
+}
+
+/// Tells what the person typed from what a tool wrote into the same file:
+/// the notes and wrappers around a command, a slash command, hook and
+/// pasted command output (an escape, a shell prompt's mark, a first line
+/// of symbols), nothing; a request of one word is too short. The first
+/// non-empty line, cut to [`crate::route::EARLIER_TITLE`] characters.
+pub fn said(text: &str) -> Said {
+    let text = text.trim();
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty());
+    let Some(first) = first else {
+        return Said::Machine;
+    };
+    let word = first.split_whitespace().next().unwrap_or_default();
+    let slash = word.len() > 1
+        && word.starts_with('/')
+        && word[1..]
+            .chars()
+            .all(|c| c.is_alphanumeric() || "-_:.".contains(c));
+    let marks = [
+        "$ ",
+        "% ",
+        "> ",
+        "❯",
+        "➜",
+        "Traceback",
+        "Caveat:",
+        "[Request interrupted",
+    ];
+    let letters = first.chars().filter(|c| c.is_alphanumeric()).count();
+    let symbols = letters * 2 < first.chars().filter(|c| !c.is_whitespace()).count();
+    if text.starts_with('<')
+        || slash
+        || text.contains('\x1b')
+        || marks.iter().any(|m| first.starts_with(m))
+        || symbols
+    {
+        return Said::Machine;
+    }
+    match text.split_whitespace().count() < 2 {
+        true => Said::Short,
+        false => Said::Typed(crate::route::cut(first, crate::route::EARLIER_TITLE)),
+    }
+}
+
+/// The lines of `bytes` that are whole and JSON; a line cut off by the end
+/// of what was read is none.
+pub fn json_lines(bytes: &[u8]) -> impl Iterator<Item = serde_json::Value> + '_ {
+    let end = bytes.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+    let lines = bytes[..end].split(|b| *b == b'\n');
+    lines.filter_map(|l| serde_json::from_slice(l).ok())
+}
+
 /// An agent's own record of where it was started, as its adapter reads it
 /// (`Agent::history`). The shapes are the tools' application data, not
 /// interfaces: a file that does not read as expected gives nothing.
@@ -222,6 +304,14 @@ pub trait History: Sync {
     fn folder(&self, home: &Path) -> PathBuf;
     /// Where the person worked with the agent and when; nothing else.
     fn read(&self, home: &Path, within: &mut Within) -> Result<Vec<Worked>, String>;
+    /// The first typed request of each of the newest sessions of each
+    /// project, as the agent's files hold it, within the bounds `within`
+    /// gives. Nothing for an agent whose files do not tell what the person
+    /// typed from machine text for certain, and for any file that cannot
+    /// be read. Never written to.
+    fn tasks(&self, _home: &Path, _within: &mut Within) -> Vec<Task> {
+        Vec::new()
+    }
     /// The folders whose modified times change when a session begins:
     /// [`stamp`] looks at each and at the folders directly in it. The
     /// history's folder, unless the agent keeps sessions deeper.
@@ -987,10 +1077,20 @@ pub struct Output {
     /// and its [`stamp`] as it was before it was read.
     pub looks: Vec<(LookId, LookState, u32, Option<String>, String)>,
     pub cards: Vec<Made>,
+    /// Each agent read: the earlier tasks of its projects, by project folder.
+    pub seeds: Vec<(String, Vec<Seed>)>,
     /// Folders of known cards that are not there now.
     pub gone: Vec<String>,
     /// Folders the looks read now would have found but the root rule refused.
     pub refused: usize,
+}
+
+/// One earlier task of a project, from an agent's history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Seed {
+    pub folder: String,
+    pub when: u64,
+    pub text: String,
 }
 
 /// One card as a look made it.
@@ -1140,6 +1240,35 @@ fn read_telling(input: Input, now: &Reading) -> Output {
                             }
                             found.insert(top);
                         }
+                        let mut tops: BTreeMap<PathBuf, Vec<(u64, String)>> = BTreeMap::new();
+                        let mut within = Within::new(HISTORY_TIME, SEED_FILES);
+                        for t in history.tasks(rule.home(), &mut within) {
+                            let folder = canonical(&t.folder);
+                            let top = match walked.kind(&rule, &folder) {
+                                Kind::Never | Kind::Gone => continue,
+                                Kind::Copy(top) | Kind::Inside(top) => top,
+                                Kind::Top { .. } | Kind::Bare => folder,
+                            };
+                            tops.entry(top).or_default().push((t.when, t.text));
+                        }
+                        let mut seeds = Vec::new();
+                        for (top, mut tasks) in tops {
+                            let Some(folder) = top.to_str() else { continue };
+                            tasks.sort_by_key(|t| std::cmp::Reverse(t.0));
+                            let mut texts: Vec<&str> = Vec::new();
+                            for (when, text) in &tasks {
+                                if texts.len() < SEEDED && !texts.contains(&text.as_str()) {
+                                    texts.push(text);
+                                    let folder = folder.to_owned();
+                                    seeds.push(Seed {
+                                        folder,
+                                        when: *when,
+                                        text: text.clone(),
+                                    });
+                                }
+                            }
+                        }
+                        out.seeds.push((id.to_owned(), seeds));
                         (LookState::Ready, None)
                     }
                 }
@@ -1650,6 +1779,18 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
             None => {}
         }
     }
+    // The earlier tasks of the agents whose look is on, as this read found them.
+    let agents: Vec<String> = (tx.looks()?.into_iter())
+        .filter(|l| l.on)
+        .filter_map(|l| l.agent)
+        .collect();
+    for (agent, seeds) in out.seeds.iter().filter(|(a, _)| agents.contains(a)) {
+        let seeds: Vec<_> = (seeds.iter())
+            .map(|s| (s.folder.clone(), s.when, s.text.clone()))
+            .collect();
+        tx.replace_seeds(agent, &seeds)?;
+    }
+    tx.keep_seeds(&agents)?;
     copies(tx)?;
     for (id, state, found, note, stamp) in out.looks {
         if let Some(mut l) = tx.look(id)?.filter(|l| l.on) {

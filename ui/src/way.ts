@@ -183,10 +183,6 @@ export function ranked(by: RouteBy | null | undefined, tools: PlaceTool[]): Rank
   return [...listed, ...rest];
 }
 
-/** Tasktap's order for the rows: the order `route.terms` proposes, each kept as it is switched. */
-export const proposed = (rows: Rank[], tools: PlaceTool[]) =>
-  [...rows].sort((a, b) => tools.findIndex((t) => t.agent === a.agent) - tools.findIndex((t) => t.agent === b.agent));
-
 /** The rows with the one at `from` moved to `to`. */
 export function moved(rows: Rank[], from: number, to: number): Rank[] {
   const next = [...rows], at = Math.max(0, Math.min(rows.length - 1, to));
@@ -234,7 +230,7 @@ export function chatgptRow(c: ChatGpt | null | undefined): { state: 'out' | 'wai
   }
 }
 
-/** What the placing sheet says above the button that signs in with ChatGPT: where a task goes, and the model that
+/** What "What is sent" in Settings › Placing says of signing in with ChatGPT: where a task goes, and the model that
  *  finds its project. */
 export const chatgptOffer = (model: string) =>
   `Sign in with ChatGPT and every task you do not place yourself goes to OpenAI, where ${model} finds the project in one direct call on your ChatGPT plan. No agent is started for the placing, and each placing counts against your plan like any other use of ChatGPT.`;

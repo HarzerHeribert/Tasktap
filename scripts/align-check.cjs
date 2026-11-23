@@ -475,12 +475,12 @@ async function main() {
     // Who runs the thought, its list open; the welcome from "Finish setup" and the placing sheet; a question asked at the Composer, with the keyboard and
     // given back to the field (NOTES §13).
     ['busy', (w) => w.document.querySelector('.cap-agent').click()], ['first', (w) => w.document.querySelector('.cap-agent').click()],
-    ['normal', (w) => w.document.querySelector('.finish').click()], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' })],
+    ['normal', (w) => w.document.querySelector('.finish').click()], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'placing' })],
     ['normal', (w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' }), 'asked'],
     ['normal', (w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' }, w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, 'the next one')), 'asked'],
     // Settings, section by section, and the sheets that are a list of answers, a field, or the Composer.
     // (At the usual width and the narrowest: `TWO`.)
-    ...['thoughts', 'agents', 'projects', 'voice', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],
+    ...['thoughts', 'agents', 'placing', 'projects', 'voice', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id }), '', TWO], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'open-workspace' }), '', TWO],
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'reply', question: [...w.__ws.records.questions.values()].find((q) => q.state === 'open' && q.kind === 'choice').id }), '', TWO], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'capture' }), '', TWO],
     ['workspace', (w) => (w.__ws.show(w.__fake.records.ids.projects.cuegrid), (w.__ws.ui.sheet = { kind: 'find', id: w.__fake.records.ids.export.terminal })), '', TWO],
@@ -494,7 +494,7 @@ async function main() {
     ['normal', null, 'placing'], ['normal', null, 'gone'], ['busy', null, 'asked', { lang: 'de' }], ['normal', (w) => (w.__ws.ui.fold = 'later'), 'later-gone'],
     ['normal', (w) => mine(w, 'thought', true), 'recording'], ['normal', (w) => mine(w), 'writing'], ['normal', (w) => mine(w), 'failed-heard'], ['busy', (w) => mine(w, 'text', false, '.hq.open .reply input'), 'recording'],
     ['normal', (w) => (w.__speech.talk.said = 'service'), 'no-service', { voice: false }],
-    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' }), 'off'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'speech' }), 'no-service', { voice: false }],
+    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'placing' }), 'off'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'speech' }), 'no-service', { voice: false }],
     ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'thoughts' }), 'plain'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'voice' }), 'plain'],
     ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'terminal' }), 'plain'],
     // Previews beside a terminal: what the person opened and what the agent did, text that is cut, a file that is gone.
@@ -562,7 +562,7 @@ async function main() {
     const P = '__fake.records.ids.projects.cuegrid';
     for (const [name, sc, kind, sheet] of [
       ['a decision', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'close-tab', project: ${P}, id: __fake.records.ids.export.terminal, runs: { state: 'running', what: ['Claude Code'], session: __fake.records.ids.export.session } })`],
-      ['the Composer', 'busy', 'off', `(__ws.ui.sheet = { kind: 'capture' })`], ['a form', 'normal', 'off', `(__ws.ui.sheet = { kind: 'placing' })`],
+      ['the Composer', 'busy', 'off', `(__ws.ui.sheet = { kind: 'capture' })`], ['a form', 'normal', 'off', `(__ws.ui.sheet = { kind: 'speech' })`],
       ['a session', 'busy', 'session', `(__ws.ui.sheet = { kind: 'session', id: [...__ws.records.sessions.values()].find((s) => s.turn > 1).id })`],
       ['a review', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'review', thought: [...__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],
       ['Settings', 'busy', 'plain', `(__ws.ui.sheet = { kind: 'settings', at: 'appearance' })`],

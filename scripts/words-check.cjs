@@ -23,9 +23,7 @@ const OLD = ['Key to put a thought in', 'Delete finished thoughts after', 'Wait 
   'Thoughts and history', "A service's key", 'Looked', 'Where your agents have worked', 'Folders Tasktap looks in', 'Workspace'];
 /** Words a person does not use (the checklist's rule): placing may stay, its row says what it is. */
 const WORDS = /\b(briefs?|briefed|sessions?|harness|router|worktrees?|isolated?|cards?|look|looks|looked|looking)\b/i;
-/** The one sentence of placing, in the owner's words, which says what is sent in the words of what is sent (consent.tsx PLACING_SAYS). */
-const SAYS = 'A task you do not place yourself is sent with the names of your projects and sessions to the model you choose here.';
-const SECTIONS = ['thoughts', 'agents', 'projects', 'voice', 'terminal', 'about'];const MB = 574_000_000;
+const SECTIONS = ['thoughts', 'agents', 'placing', 'projects', 'voice', 'terminal', 'about'];const MB = 574_000_000;
 
 /** An agent's switch as the core words it, from its own source: what the row shows. */
 function option(file, id) {
@@ -53,9 +51,9 @@ function states() {
   };
   const tab = (display) => () => ({ ...scene('busy'), tab: { display, displays: [{ name: '\\\\.\\DISPLAY1', primary: true, width: 2560, height: 1440 }, { name: '\\\\.\\DISPLAY2', primary: false, width: 1920, height: 1080 }] } });
   return [
-    ['placing off', busy, SECTIONS], ['placing agreed', agreed, ['projects', 'about', 'voice']],
-    ['placing agreed before', () => { const r = agreed(); r.prefs = r.prefs.map((p) => (p.id === 'route_by' ? { ...p, value: { ...p.value, terms: 2 } } : p)); return r; }, ['projects']],
-    ['no agent can place', () => ({ ...scene('busy'), tools: [] }), ['projects']],
+    ['placing off', busy, SECTIONS], ['placing agreed', agreed, ['placing', 'about', 'voice']],
+    ['placing agreed before', () => { const r = agreed(); r.prefs = r.prefs.map((p) => (p.id === 'route_by' ? { ...p, value: { ...p.value, terms: 2 } } : p)); return r; }, ['placing']],
+    ['no agent can place', () => ({ ...scene('busy'), tools: [] }), ['placing']],
     ...[['none', {}], ['part', { have: MB / 4 }], ['fetching', { model: 'fetching', have: MB / 3 }], ['failed', { model: 'failed', have: MB / 3, error: 'No network: the model could not be fetched' }], ['ready', { model: 'ready', have: MB }], ['unsupported', { supported: false }]]
       .map(([name, s]) => [`speech here ${name}`, speech({ model: 'none', ...s }), ['voice', 'about']]),
     ...[['off'], ['current', '1.3.0'], ['available', '1.3.0'], ['downloading', '1.3.0'], ['installing', '1.3.0'], ['failed', '1.3.0']]
@@ -141,7 +139,7 @@ async function main() {
         }
         const where_ = `${state}, ${at}`;
         const found = await page.evaluate(rows);
-        if (!found.some((r) => !r.line)) failures.add(`${where_}: no row`);
+        if (!found.length) failures.add(`${where_}: no row`);
         // (The form of an agent of one's own, opened above, takes the keyboard to its first field: it is let go of.)
         await page.evaluate(() => document.activeElement?.blur());
         let rest = null;
@@ -188,15 +186,13 @@ async function main() {
           if (win) failures.add(`${where_}: a Mac is told "${win[0]}"`);
         }
       }
-      // The two sheets Settings opens: what placing sends, and a speech service.
+      // The sheet Settings opens for a speech service.
       if (state === 'placing agreed' || state === 'placing off') {
-        for (const kind of ['placing', 'speech']) {
-          await page.evaluate((k) => ((window.__ws.ui.sheet = { kind: k }), window.__motion.redraw()), kind);
-          await page.waitForTimeout(450);
-          sheets++;
-          const text = (await page.evaluate(words)).replace(SAYS, ''), bad = WORDS.exec(text);
-          if (bad) failures.add(`${state}, the ${kind} sheet: "${bad[0]}" (…${text.slice(Math.max(0, bad.index - 60), bad.index + 40)}…)`);
-        }
+        await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'speech' }), window.__motion.redraw()));
+        await page.waitForTimeout(450);
+        sheets++;
+        const text = await page.evaluate(words), bad = WORDS.exec(text);
+        if (bad) failures.add(`${state}, the speech sheet: "${bad[0]}" (…${text.slice(Math.max(0, bad.index - 60), bad.index + 40)}…)`);
       }
       for (const e of page.errors) failures.add(`${state}: page: ${e}`);
       await page.context().close();

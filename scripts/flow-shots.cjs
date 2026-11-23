@@ -17,12 +17,12 @@ const type = (text) => `(() => { const a = document.querySelector('#capture-inpu
 
 // name, page, scene, flow kind, its options, what to run in the page, what to cut out (a selector's box, padded).
 const SHOTS = [
-  ['terms-placing', 'workspace', 'normal', 'off', {}, sheet({ kind: 'placing' }), '.sheet'],
-  ['terms-placing-read', 'workspace', 'normal', 'off', {}, `${sheet({ kind: 'placing' })}; __motion.redraw(); setTimeout(() => document.querySelector('.disc').click(), 300)`, '.sheet'],
-  ['terms-placing-on', 'workspace', 'normal', 'plain', {}, sheet({ kind: 'placing', back: true }), '.sheet'],
+  ['terms-placing', 'workspace', 'normal', 'off', {}, sheet({ kind: 'settings', at: 'placing' }), '.sheet'],
+  ['terms-placing-read', 'workspace', 'normal', 'off', {}, `${sheet({ kind: 'settings', at: 'placing' })}; __motion.redraw(); setTimeout(() => document.querySelector('.disc').click(), 300)`, '.sheet'],
+  ['terms-placing-on', 'workspace', 'normal', 'plain', {}, sheet({ kind: 'settings', at: 'placing' }), '.sheet'],
   ['offer-first', 'workspace', 'first-folder', 'off', {}, '', '.capture'],
   ['settings-off', 'workspace', 'normal', 'no-service', { voice: false }, `(__fake.records.prefs.length = 0, ${sheet({ kind: 'settings', at: 'voice' })})`, '.sheet'],
-  ['settings-on', 'workspace', 'normal', 'plain', {}, sheet({ kind: 'settings', at: 'projects' }), '.sheet'],
+  ['settings-on', 'workspace', 'normal', 'plain', {}, sheet({ kind: 'settings', at: 'placing' }), '.sheet'],
   ['settings-voice', 'workspace', 'normal', 'plain', {}, sheet({ kind: 'settings', at: 'voice' }), '.sheet'],
   ['terms-speech', 'workspace', 'normal', 'no-service', { voice: false }, sheet({ kind: 'speech' }), '.sheet'],
   ['terms-speech-other', 'workspace', 'normal', 'no-service', { voice: false }, `${sheet({ kind: 'speech' })}; __motion.redraw(); setTimeout(() => { document.querySelectorAll('.terms .seg button')[2].click(); setTimeout(() => { const a = document.querySelector('.terms input'); a.focus(); document.execCommand('insertText', false, 'http://speech.example.lan:8080'); }, 100); }, 300)`, '.sheet'],

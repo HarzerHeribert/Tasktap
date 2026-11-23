@@ -2,7 +2,7 @@
 // the main window shows it by itself in place of Home: one step in view, centred, one headline, at most one sentence,
 // one primary action and a quiet Skip, with quiet marks for where the person is. Four steps: the projects (the search
 // starts as the step appears), the agents, who finds the project for a task (the agreement, the same call as the
-// placing sheet's Allow), and talking instead of typing. Return takes the primary action, Escape leaves. After the last
+// switch in Settings › Placing), and talking instead of typing. Return takes the primary action, Escape leaves. After the last
 // step Home shows with the cursor in the Composer. A step left open stays open: Home then has one quiet line, "Finish
 // setup", that comes back to the first open one; Settings › About shows the welcome again. Nothing of it is kept by the
 // page but where it is: what was answered is in the records (a look, `route_by`, speech), and that the first start was

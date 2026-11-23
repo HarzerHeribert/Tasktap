@@ -1,6 +1,6 @@
 // The three surfaces the owner judged "structureless" (2026-11-22), as pictures and as checks, from ui/dist in headless
 // Chromium on the fixture records the other picture scripts use, dark, at 2x, no host: Settings › Agents at rest, with
-// rows opened, and with the start command's field focused (its hint in the foot); the placing row; every other section of
+// rows opened, and with the start command's field focused (its hint in the foot); the Placing section; every other section of
 // Settings; the Results list with one failed, one stopped and one answered task; "Find a task"; the session's head.
 // And what holds on them: on the task rows and in Settings no ring (`.ring-o`), no "·" in what a person reads or what a
 // screen reader is told; a task row is its title, its project and its time on one line, the project names in one
@@ -99,15 +99,15 @@ async function main() {
     await sheet(page, 'agents-start-command');
     await page.context().close();
 
-    // ——— The placing row, and every other section ———
-    for (const [name, at_, records] of [['placing-row', 'projects', scene('busy')], ['thoughts', 'thoughts', scene('busy')], ['voice', 'voice', scene('busy')], ['appearance', 'appearance', scene('busy')], ['terminal', 'terminal', scene('busy')], ['about', 'about', scene('busy')]]) {
+    // ——— Placing, and every other section ———
+    for (const [name, at_, records] of [['placing-row', 'placing', scene('busy')], ['thoughts', 'thoughts', scene('busy')], ['voice', 'voice', scene('busy')], ['appearance', 'appearance', scene('busy')], ['terminal', 'terminal', scene('busy')], ['about', 'about', scene('busy')]]) {
       page = await open(browser, { label: 'workspace', records, url: server.url, dpr: 2 });
       await section(page, at_);
-      if (name === 'placing-row') await page.locator('.set-pane .set:has(> .t:text-is("Finding the project for a task")) .btn').first().hover();
+      if (name === 'placing-row') await page.locator('.set-pane .rank.sign .btn').first().hover();
       await page.waitForTimeout(150);
       const r = await plain(page, '.set-pane');
       expect(!r.dots && r.rings === 0, `Settings › ${at_}: no "·", no ring`);
-      if (name === 'placing-row') expect(await page.locator('.set-pane .set:has(> .t:text-is("Finding the project for a task")) .btn').first().textContent() === 'Sign in with ChatGPT…', 'the placing row offers "Sign in with ChatGPT…" while agents are signed in');
+      if (name === 'placing-row') expect(await page.locator('.set-pane .rank.sign .btn').first().textContent() === 'Sign in with ChatGPT' && await page.locator('.set-pane .rank.mine .btn').first().isVisible(), 'Settings › Placing offers "Sign in with ChatGPT" and the own model while agents are signed in, with nothing opened');
       await sheet(page, name);
       await page.context().close();
     }

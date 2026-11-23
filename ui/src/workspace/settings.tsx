@@ -1,6 +1,6 @@
-// Settings: one sheet, its sections listed at its left, one section shown at a time, each on its key, ⌘1 to ⌘7. The
+// Settings: one sheet, its sections listed at its left, one section shown at a time, each on its key, ⌘1 to ⌘8. The
 // sections are what a person comes here to do, the most frequent and the most consequential first: what happens to a
-// thought, which agents run the work, the projects and how a thought finds one, how voice becomes text, how the app
+// thought, which agents run the work, which model finds the project of a task, the projects, how voice becomes text, how the app
 // looks, how a terminal reads, and what the app is and sends. Each row is one decision (form.tsx Row): a label that
 // reads by itself and names what the person decides, and the answer readable at a glance with its options completing the
 // label's sentence. What changes for them is its hint, one sentence in plain words, said in the foot of the window while
@@ -28,11 +28,11 @@ import { AgentsPane } from './agents.tsx';
 import { ProjectsPane } from './projects.tsx';
 import { ASKS, UpdateRow, checks, update } from './update.tsx';
 import { WelcomeRow } from './welcome.tsx';
-import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
+import { FINDING, Placing, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref, unfoot } from './form.tsx';
 import { agent, agentName, call, fail, loadTerms, openQuestions, page, placers, pref, records, redraw, sentence, ui } from './model.ts';
 
-export const SECTIONS = [['thoughts', 'Tasks'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
+export const SECTIONS = [['thoughts', 'Tasks'], ['agents', 'Agents'], ['placing', 'Placing'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
 /** The section last shown: Settings opens there again unless a link asks for another. */
 export const shown = { at: 'thoughts' as Section };
@@ -357,7 +357,7 @@ function AboutPane() {
       <Row name={FINDING} hint={names.length
         ? `${names[0]}’s model reads each task naming no single project, and each long task for its summary, with likely projects’ names${names.length > 1 ? `; if it cannot, ${names.slice(1).join(', then ')}` : ''}.`
         : `Your words are matched to your projects’ names on ${HERE}, and nothing is sent.`}>
-        <span class="v">{names.length ? `To ${names.join(', ')}` : 'Nothing'}</span><To at="projects">Projects</To>
+        <span class="v">{names.length ? `To ${names.join(', ')}` : 'Nothing'}</span><To at="placing">Placing</To>
       </Row>
       <Row name="Your voice" hint={speech ? 'Each recording goes when you let go, and Tasktap keeps none.' : hearsHere() ? `What you say becomes text on ${HERE}; only its model came once, from huggingface.co.` : 'Voice is not set up, so nothing is recorded.'}>
         <span class="v">{speech ? `To ${serviceName(speech.server)}` : 'Nothing'}</span><To at="voice">Voice</To>
@@ -384,7 +384,7 @@ function AboutPane() {
 }
 
 const PANES: Record<Section, () => ComponentChildren> = {
-  thoughts: () => <ThoughtsPane />, agents: () => <AgentsPane />, projects: () => <><Finding /><ProjectsPane /></>, voice: () => <VoicePane />,
+  thoughts: () => <ThoughtsPane />, agents: () => <AgentsPane />, placing: () => <Placing />, projects: () => <ProjectsPane />, voice: () => <VoicePane />,
   appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
 };
 
@@ -393,7 +393,7 @@ export function Settings({ at }: { at: Section }) {
   useEffect(() => void loadTerms(), []);
   // The foot's hint belongs to a row of the section shown: gone with it.
   useLayoutEffect(() => unfoot, [at]);
-  // A section by its key, ⌘1 to ⌘7 in the order of the list, from anywhere in the sheet, and only while it is up: the
+  // A section by its key, ⌘1 to ⌘8 in the order of the list, from anywhere in the sheet, and only while it is up: the
   // keys go with it the moment it goes (a key pressed right after ⌘W would bring it back).
   useLayoutEffect(() => {
     const keys = (e: KeyboardEvent) => {

@@ -67,12 +67,12 @@ const mine = `(w) => Object.assign(w.__speech.talk, { id: w.__fake.records.dicta
 const VIEWS = [
   ['busy'], ['normal'], ['quiet'], ['first'], ['busy', `(w) => (w.__ws.ui.fold = 'results')`], ['busy', `(w) => (w.__ws.ui.fold = 'later')`], ['busy', `(w) => w.__ws.show('earlier')`],
   ['workspace', `(w) => w.__ws.show(Object.values(w.__fake.records.ids.projects)[0])`], ['busy', `(w) => w.__ws.show(Object.values(w.__fake.records.ids.projects)[2])`], ['busy', `(w) => w.__ws.command('sidebar')`],
-  ...['thoughts', 'agents', 'projects', 'voice', 'appearance', 'terminal', 'about'].map((at) => ['busy', sheet({ kind: 'settings', at })]), ['normal', sheet({ kind: 'settings', at: 'about' }), 'plain'], ['busy', sheet({ kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
+  ...['thoughts', 'agents', 'placing', 'projects', 'voice', 'appearance', 'terminal', 'about'].map((at) => ['busy', sheet({ kind: 'settings', at })]), ['normal', sheet({ kind: 'settings', at: 'about' }), 'plain'], ['busy', sheet({ kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
   ['workspace', `(w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id })`], ['busy', `(w) => w.document.querySelector('#dest-chip').click()`],
   // After the owner's first trial (NOTES §13): who runs a thought, its list open; the welcome from "Finish setup" and the placing sheet; the question asked at
   // the Composer about the thought just sent.
-  ['busy', `(w) => w.document.querySelector('.cap-agent').click()`], ['normal', `(w) => w.document.querySelector('.finish').click()`], ['normal', sheet({ kind: 'placing' })],
+  ['busy', `(w) => w.document.querySelector('.cap-agent').click()`], ['normal', `(w) => w.document.querySelector('.finish').click()`], ['normal', sheet({ kind: 'settings', at: 'placing' })],
   ['normal', `(w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' })`, 'asked'],
   ['normal', '', 'held'], ['normal', '', 'two'], ['normal', '', 'placing'], ['normal', '', 'gone'], ['busy', '', 'asked'], ['normal', `(w) => (w.__ws.ui.fold = 'later')`, 'later-gone'],
   ['normal', mine, 'recording'], ['normal', mine, 'writing'], ['normal', mine, 'failed-heard'], ['normal', `(w) => (w.__speech.talk.said = 'service')`, 'no-service', { voice: false }],
@@ -80,7 +80,7 @@ const VIEWS = [
   ...['previews', 'preview-notes', 'preview-text', 'preview-gone', 'preview-other', 'preview-web'].map((kind) => ['workspace', `(w) => w.__ws.show(w.__fake.records.ids.projects.cuegrid)`, kind]),
   ['workspace', `(w) => (w.__ws.show(w.__fake.records.ids.projects.cuegrid), w.__ws.follow(w.__fake.records.ids.timer.terminal, { kind: 'path', target: 'notes/missing.md' }, '/Users/example/projects/cuegrid', {}))`, 'preview-notes'],
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'thoughts' }, w.__motion.redraw(), w.setTimeout(() => w.document.querySelector('.rec').click(), 100))`],
-  ['normal', sheet({ kind: 'placing' }), 'off'], ['normal', sheet({ kind: 'speech' }), 'no-service', { voice: false }], ['first-folder', '', 'off'],
+  ['normal', sheet({ kind: 'settings', at: 'placing' }), 'off'], ['normal', sheet({ kind: 'speech' }), 'no-service', { voice: false }], ['first-folder', '', 'off'],
 ];
 /** The text sizes every key is measured at: all three in a plain run (as host/scripts/smoke.sh runs it); with TEXT
  *  set (scripts/text-sizes.sh runs one per size), that one, since the runs at the other two measure theirs. */

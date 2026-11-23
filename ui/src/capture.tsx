@@ -92,8 +92,6 @@ export const cap = {
   refused: '',
   /** The thought a dictation is to become, until it has. */
   spoken: '',
-  /** No longer offered under the Composer (NOTES §13: offers are Setup's); kept for the placing sheet, which clears it. */
-  offer: false,
 };
 
 const folder = (dest: string | undefined) => (dest && dest !== 'later' ? dest : undefined);

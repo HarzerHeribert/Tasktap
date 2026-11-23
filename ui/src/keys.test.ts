@@ -70,17 +70,17 @@ test('a key without Command is the same key, in the words Windows prints', () =>
 
 test('no two commands share a key on either system', () => {
   // The menu's commands and the Composer's own: ⌘K the place's list, ⌘J the agent control's (rings.tsx AGENT_KEY), ⌘L the weight control's (weights.tsx WEIGHT_KEY).
-  const all = ['⌘N', '⇧⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘K', '⌘J', '⌘L'];
+  const all = ['⌘N', '⇧⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘8', '⌘K', '⌘J', '⌘L'];
   for (const onMac of [true, false]) assert.equal(new Set(all.map((k) => spell(k, onMac))).size, all.length);
 });
 
-test('Settings\' sections are on ⌘1 to ⌘7 in the order of their list (Ctrl+1 to Ctrl+7 on Windows)', () => {
+test('Settings\' sections are on ⌘1 to ⌘8 in the order of their list (Ctrl+1 to Ctrl+8 on Windows)', () => {
   // The list as settings.tsx has it, read as text: that page needs a web view to run.
   const source = readFileSync(new URL('./workspace/settings.tsx', import.meta.url), 'utf8');
   const names = [.../export const SECTIONS = \[(.*?)\] as const;/.exec(source)![1]!.matchAll(/\['[a-z]+', '([A-Za-z]+)'\]/g)].map((m) => m[1]);
-  assert.deepEqual(names, ['Tasks', 'Agents', 'Projects', 'Voice', 'Appearance', 'Terminal', 'About']);
-  assert.deepEqual(names.map((_, i) => spell(`⌘${i + 1}`, true)), ['⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7']);
-  assert.deepEqual(names.map((_, i) => spell(`⌘${i + 1}`, false)), ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4', 'Ctrl+5', 'Ctrl+6', 'Ctrl+7']);
+  assert.deepEqual(names, ['Tasks', 'Agents', 'Placing', 'Projects', 'Voice', 'Appearance', 'Terminal', 'About']);
+  assert.deepEqual(names.map((_, i) => spell(`⌘${i + 1}`, true)), ['⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7', '⌘8']);
+  assert.deepEqual(names.map((_, i) => spell(`⌘${i + 1}`, false)), ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4', 'Ctrl+5', 'Ctrl+6', 'Ctrl+7', 'Ctrl+8']);
   names.forEach((_, i) => assert.ok(hit(`⌘${i + 1}`, press(String(i + 1), 'm'), true) && hit(`⌘${i + 1}`, press(String(i + 1), 'c'), false)));
 });
 

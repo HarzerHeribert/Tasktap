@@ -24,8 +24,7 @@ export type Sheet =
   | { kind: 'move'; project: string; id: string }
   | { kind: 'capture' }
   | { kind: 'reply'; question: string }
-  | { kind: 'settings'; at?: 'thoughts' | 'projects' | 'voice' | 'agents' | 'appearance' | 'terminal' | 'about' }
-  | { kind: 'placing'; back?: boolean }
+  | { kind: 'settings'; at?: 'thoughts' | 'placing' | 'projects' | 'voice' | 'agents' | 'appearance' | 'terminal' | 'about' }
   | { kind: 'speech' }
   | { kind: 'review'; thought: string }
   | { kind: 'settle'; thought: string; keep: boolean }

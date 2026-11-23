@@ -1,9 +1,9 @@
-// The welcome (ui/src/workspace/welcome.tsx), the lean placing sheet and the marks, as pictures and as checks, from ui/dist
+// The welcome (ui/src/workspace/welcome.tsx), the lean Placing section and the marks, as pictures and as checks, from ui/dist
 // in headless Chromium on fixture records, dark, at 2x, no host: the welcome shows by itself on a first start and not on
 // a later one (Home then has one quiet line, "Finish setup", that comes back to the first open step); each of its four
 // steps, the first with nothing found, the third with "What is sent" open (the full list is one action away, and not
 // there before); Return takes the primary action and Escape leaves it; a step skipped stays open; after the last step Home
-// has the cursor in the Composer; the placing sheet from Settings is lean; Settings › Agents with the agents' own marks;
+// has the cursor in the Composer; Settings › Placing is lean; Settings › Agents with the agents' own marks;
 // and no "·" and no ring anywhere in them.
 // usage: node scripts/welcome-shots.cjs <outdir>   (ui/dist must be built; exit status 1 on a failure)
 const fs = require('node:fs');
@@ -187,21 +187,21 @@ async function main() {
     await shot(page, '4-voice-downloading');
     await page.context().close();
 
-    // ——— The placing sheet, lean, from Settings ———
+    // ——— Settings › Placing, lean ———
     page = await open(browser, { label: 'workspace', records: speech(scene('normal')), url: server.url, dpr: 2 });
     await ready(page);
-    await page.evaluate(() => window.__ws.open({ kind: 'placing', back: true }));
+    await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'placing' }), window.__motion.redraw()));
     await settle(page, 800);
     const surface = await page.locator('.sheet').innerText();
-    expect(!/included in your subscription|billed by your provider|drag moves a row|Antigravity keeps/.test(surface) && !surface.includes('·') && await page.locator('.sheet .sends').count() === 0, 'the placing sheet has none of the five-line list, the subscription words, the key hints or the Antigravity paragraph on its surface');
-    expect(surface.includes('A task you do not place yourself is sent with the names of your projects and sessions to the model you choose here.') && /Tasktap’s order/.test(surface) && /The instructions they follow/.test(surface), 'it keeps the one sentence, "Tasktap’s order" and "The instructions they follow"');
-    await page.locator('.sheet .rank[tabindex="0"]').first().focus();
+    expect(!/included in your subscription|billed by your provider|drag moves a row|Antigravity keeps/.test(surface) && !surface.includes('·') && await page.locator('.sheet .sends').count() === 0, 'Settings › Placing has none of the five-line list, the subscription words, the key hints or the Antigravity paragraph on its surface');
+    expect(/Tasks you do not place yourself/.test(surface) && /Sign in with ChatGPT/.test(surface) && /The instructions they follow/.test(surface) && /What is sent/.test(surface), 'it has the switch, "Sign in with ChatGPT", "What is sent" and "The instructions they follow"');
+    await page.locator('.set-pane .rank[tabindex="0"]').first().focus();
     await settle(page, 200);
     expect(/moves a row/.test(await page.locator('.sh-hint').textContent()), 'the key hints are in the foot while a row has the keyboard');
-    await sheet(page, '5-placing-sheet');
+    await sheet(page, '5-placing-section');
     await page.getByRole('button', { name: 'What is sent' }).click();
     await settle(page, 200);
-    expect(await page.locator('.sheet .sends li').count() > 0, 'the full list is one action away in the sheet too');
+    expect(await page.locator('.sheet .sends li').count() > 0, 'the full list is one action away');
     await page.context().close();
 
     // ——— Settings › Agents with the agents' own marks ———
@@ -228,7 +228,7 @@ async function main() {
     await server.close();
   }
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  ${failures.length} checks of the welcome` : `PASS  the welcome, the placing sheet and the marks; pictures in ${out}`);
+  console.log(failures.length ? `FAIL  ${failures.length} checks of the welcome` : `PASS  the welcome, Settings › Placing and the marks; pictures in ${out}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

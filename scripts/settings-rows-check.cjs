@@ -260,7 +260,8 @@ async function answerKeys(browser, url, system) {
   await tries(mac ? 'Meta+KeyJ' : 'Control+Shift+KeyJ', `Tasktap uses ${mac ? '⌘J' : 'Ctrl+Shift+J'} for the list of agents.`, `${mac ? '⌘J' : 'Ctrl+Shift+J'}`);
   await tries(mac ? 'Meta+KeyN' : 'Control+Shift+KeyN', `Tasktap uses ${mac ? '⌘N' : 'Ctrl+Shift+N'} for New task.`, `${mac ? '⌘N' : 'Ctrl+Shift+N'}`);
   await tries(mac ? 'Meta+Comma' : 'Control+Comma', `Tasktap uses ${mac ? '⌘,' : 'Ctrl+,'} for Settings.`, `${mac ? '⌘,' : 'Ctrl+,'}`);
-  await tries(mac ? 'Meta+Digit3' : 'Control+Digit3', `Tasktap uses ${mac ? '⌘3' : 'Ctrl+3'} for Projects in Settings.`, `${mac ? '⌘3' : 'Ctrl+3'}`);
+  await tries(mac ? 'Meta+Digit3' : 'Control+Digit3', `Tasktap uses ${mac ? '⌘3' : 'Ctrl+3'} for Placing in Settings.`, `${mac ? '⌘3' : 'Ctrl+3'}`);
+  await tries(mac ? 'Meta+Digit4' : 'Control+Digit4', `Tasktap uses ${mac ? '⌘4' : 'Ctrl+4'} for Projects in Settings.`, `${mac ? '⌘4' : 'Ctrl+4'}`);
   await tries(mac ? 'Meta+KeyB' : 'Control+KeyB', mac ? 'Other apps use ⌘ with a single key: hold Control or Option as well.' : 'Other apps use Ctrl with a single key: hold Alt or Shift as well.', `${mac ? '⌘B' : 'Ctrl+B'}, which every app has`);
   await rec(3).focus();
   await key(page, 'Enter');

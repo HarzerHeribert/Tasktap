@@ -4,7 +4,7 @@ import test from 'node:test';
 import type { ChatGpt, Routing, Thought } from '../../core/proto/protocol.ts';
 import {
   agentState, agreement, back, briefOf, chatgptOffer, chatgptRow, onThisMachine, ownMark, ownOffer, clock, decided, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy,
-  middle, offers, placed, placeOf, places, placing, proposed, ranked, ring, step, waits, wholeHold,
+  middle, offers, placed, placeOf, places, placing, ranked, ring, step, waits, wholeHold,
 } from './way.ts';
 
 test('ChatGPT\'s row of placing is a button until it is signed in, waits for the browser, and then is a row like the others', () => {
@@ -225,9 +225,6 @@ test('the placing group lists the agreement in its order, then the others in Tas
   // At either end it stays.
   assert.deepEqual(moved(r, 0, -1).map((x) => x.agent), ['claude', 'codex', 'agy']);
   assert.deepEqual(moved(r, 2, 3).map((x) => x.agent), ['claude', 'codex', 'agy']);
-  // Tasktap's order again, each as it was switched.
-  const mine = moved([...r.slice(0, 2), { ...r[2]!, on: false }], 2, 0);
-  assert.deepEqual(proposed(mine, TOOLS).map((x) => `${x.agent}${x.on ? '' : ' off'}`), ['claude', 'codex', 'agy off']);
   // What is written: the rows, then what was agreed of one not shown now, with the model asked now; one Tasktap no
   // longer asks at all is let go.
   const kept = by(2, ['codex', 'gpt-5-mini', false], ['claude', 'haiku', true], ['gone', 'm', true]);

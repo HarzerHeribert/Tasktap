@@ -216,7 +216,7 @@ export function AgentsPane() {
   const can = agents.filter((a) => runs(a) && a.signed_in !== false);
   return (
     <>
-      <Row name="New tasks start with" hint="For a single task, choose a different agent where you write the task.">
+      <Row name="New tasks start with" hint="For a single task, choose a different agent where you write the task. Which model finds the project for a task is set under Placing.">
         <Choice name="New tasks start with" value={usual ?? ''} all={can.map((a): [string, string] => [a.id, a.name])} set={(id) => setPref({ id: 'agent', patch: id })} />
       </Row>
       <div class="list">

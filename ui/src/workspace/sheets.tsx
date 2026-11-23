@@ -21,7 +21,7 @@ import {
   agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, open, openWorkspace,
   pickFolder, projectName, projects, QUIET, byPerson, records, setLayout, stop, title, ui,
 } from './model.ts';
-import { PlacingSheet, SpeechSheet } from './consent.tsx';
+import { SpeechSheet } from './consent.tsx';
 import { SessionSheet } from './session.tsx';
 import { footing } from './form.tsx';
 import { showWelcome } from './welcome.tsx';
@@ -300,8 +300,6 @@ function Body() {
       );
     case 'settings':
       return <Frame size="lg" title="Settings" hint={footing()}><Settings at={d.at ?? 'thoughts'} /></Frame>;
-    case 'placing':
-      return <PlacingSheet back={d.back} />;
     case 'speech':
       return <SpeechSheet />;
     case 'reply': {

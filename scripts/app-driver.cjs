@@ -210,9 +210,9 @@ async function launch({ exe = RELEASE, fixture = false, env = {}, display = 0, p
     await ask('workspace', `(document.querySelector('.welcome .wc')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)`);
     if (!(await until('workspace', `String(!document.querySelector('.welcome') && !!document.querySelector('.home #capture-input'))`, 'true', 8))) throw new Error('Home did not show: the welcome is still there');
   };
-  /** Home at rest again: the Composer empty and every result read. */
+  /** Home at rest again: the Composer empty and every result read (a result is a thought that finished; one still going has none to read). */
   const rest = async () => {
-    await ask('workspace', `(document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), Promise.all([...__ws.records.thoughts.values()].filter(t => !t.read).map(t => __ws.call('thought.read', { id: t.id }))).then(() => 1))`);
+    await ask('workspace', `(document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), Promise.all([...__ws.records.thoughts.values()].filter(t => !t.read && (t.status === 'done' || t.status === 'failed')).map(t => __ws.call('thought.read', { id: t.id }).catch(() => 0))).then(() => 1))`);
     await until('workspace', "document.querySelector('.light')?.dataset.state ?? 'idle'", 'idle', 8);
   };
   try {

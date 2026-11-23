@@ -216,6 +216,11 @@ screen() { echo "eval __ws.text()"; }
 # A key pressed on the element `$2` of page $1 (the strip's or a sheet's keys act on what has the keyboard).
 press() { js "$1" "(()=>{const t=document.querySelector('$2');t?.focus();t?.dispatchEvent(new KeyboardEvent('keydown',{key:'$3',bubbles:true,cancelable:true,metaKey:${4:-false}}));return !!t})()"; }
 thought() { echo "eval [...__ws.records.thoughts.values()].find(t=>t.text==='$1')?.$2"; }
+# The Settings row named $1, as the sheet shows it.
+setting() { echo "[...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === '$1')"; }
+# What the foot of Settings says of the row named $1, as it does while the row has the keyboard (the page is told as focus tells it:
+# a passive window is not given the keyboard by the system).
+foot_of() { js workspace "(r => (r.dispatchEvent(new FocusEvent('focusin', { bubbles: true })), 1))($(setting "$1"))" >/dev/null; sleep 0.3; ask workspace "text .sheet .sh-hint"; }
 
 if part "Quit while the core starts (a short launch of its own, its core ten seconds slow)"; then
 # Quit two seconds in, the core still starting: the app ends, the core is ended with it, and none starts after it has
@@ -283,10 +288,11 @@ for _ in $(seq 1 200); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; 
 # covered window would not draw is checked too.
 [ -n "${FRONT:-}" ] && send front
 grep -q '"event":"ready"' "$log" && pass "the app starts and reaches its own core" || { fail "the app starts" "$(tail -3 "$log")"; exit 1; }
-# The host shows the window a moment after Home's first picture with the records is laid out: its line is waited for.
-until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .capture')" 10 "home true" \
+# The host shows the window a moment after the first picture with the records is laid out: its line is waited for. On this
+# first start (an empty data folder, no agent's history) the first picture is the welcome, in place of Home.
+until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.welcome .wc')" 10 "home true" \
   && for _ in $(seq 1 100); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done && grep -q '"event":"window"' "$log" \
-  && pass "the workspace window opens at launch, on Home, once its page has drawn" || fail "the workspace window opens"
+  && pass "the workspace window opens at launch, on the welcome, once its page has drawn" || fail "the workspace window opens"
 # A core built with its fixtures lists its agents when asked, as a normal one does at start, and runs their commands then.
 send 'call put {"c":"prefs","id":"agent","patch":"fixture"}' 'call put {"c":"prefs","id":"hold","patch":2}' 'call agents.detect {}'
 # Every agent on this Mac answers in its own time, and one asks its servers first: what follows waits for them all,
@@ -297,25 +303,36 @@ js workspace "(__ws.menu.dry = true)" >/dev/null
 sleep 1
 shot collapsed-idle
 shot home workspace
-# First start (design/ui-directions/NOTES.md §13): with no agent's history to offer (the app is given empty folders
-# for Claude Code's and Codex's, so this is the same on every machine), Setup's first step comes down by itself as a
-# sheet, part of Home's first picture: "Choose where your projects are", three facts, and behind "What exactly is read" all it would read and what a model
-# would get. Not now is an answer; Home is then one composition: the Composer a little above the middle of the
-# content, its key the metal one, and under it on its own edges Setup, with nothing loose under the Composer.
-until_has workspace "text .sheet" 5 "Choose where your projects are" && [ "$(js workspace "String(__ws.ui.sheet?.kind === 'setup' && __ws.ui.sheet.auto === true && document.querySelectorAll('.sheet .facts > li').length <= 3)")" = true ] \
-  && js workspace "(document.querySelector('.sheet .more-l').click(), 1)" >/dev/null && until_has workspace "text .sheet .facts-all" 3 "first lines of its README" && begin="$(ask workspace "text .sheet .facts-all")" \
-  && echo "$begin" | grep -q "asks Git for its first commit" && echo "$begin" | grep -q "up to 8 likely projects" \
-  && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' ')")" = "Auto" ] \
-  && pass "with no agent's history, the first start brings down Setup's first sheet by itself: where the projects are, in three facts, and behind one line all it would read and what a model would get" || fail "the first start's sheet" "$(echo "${begin:-}" | tr '\n' '|' | cut -c1-200)"
-js workspace "([...document.querySelectorAll('.sheet .sh-f .act')].find(b => b.textContent.includes('Not now')).click(), 1)" >/dev/null
-edges="((c, a, h, x, s) => [Math.abs(c.left + c.width / 2 - (x.left + x.width / 2)) < 1 && Math.abs(x.left - Math.max((innerWidth - x.width) / 2, s + 36)) < 1, Math.abs(a.left - c.left) < 1 && Math.abs(a.right - c.right) < 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.home .setup').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect(), document.querySelector('.hx').getBoundingClientRect(), document.querySelector('.side')?.getBoundingClientRect().right ?? 0)"
+# First start (ui/src/workspace/welcome.tsx): with no agent's history to offer (the app is given empty folders for Claude
+# Code's and Codex's, so this is the same on every machine), the welcome comes by itself in place of Home, one step in
+# view: the projects, the agents, who finds the project for a task, talking instead of typing. Each can be skipped; after
+# the last Home shows, with "Finish setup" under the Composer, which comes back to the first step left open; Escape
+# leaves the welcome for Home, the keyboard in the Composer.
+welcome="document.querySelector('.welcome .wc')"
+stepnow="eval (w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + '|' + w.querySelector('h1').childNodes[0].textContent : 'none')($welcome)"
+until_has workspace "eval (w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + ' ' + /^(Your projects|No projects found)/.test(w.querySelector('h1').textContent) + ' ' + !document.querySelector('.home') + ' ' + String(__ws.ui.sheet) + ' ' + __ws.records.prefs.get('setup_hidden')?.value : 'none')($welcome)" 10 "Step 1 of 4 true true null false" \
+  && pass "with no agent's history, the first start shows the welcome by itself in place of Home: its first step, the projects, no sheet over it, and that the first start was seen is written down" || fail "the first start's welcome" "$(ask workspace "$stepnow")"
+walked=yes
+for want in "Step 2 of 4|Your agents" "Step 3 of 4|Let Tasktap find the project for each task" "Step 4 of 4|Talk instead of typing"; do
+  js workspace "(document.querySelector('.welcome .wc-skip').click(), 1)" >/dev/null
+  until_has workspace "$stepnow" 5 "$want" || { walked="it did not reach: $want"; break; }
+done
+[ "$walked" = yes ] && js workspace "(document.querySelector('.welcome .wc-skip').click(), 1)" >/dev/null \
+  && until_has workspace "eval String(!document.querySelector('.welcome')) + ' ' + document.querySelector('.home .finish')?.textContent" 5 "true Finish setup" \
+  && pass "the welcome's four steps are walked, the agents, who finds the project and talking instead of typing, and after the last Home shows with Finish setup" || fail "walking the welcome" "$walked"
+js workspace "(document.querySelector('.home .finish')?.click(), 1)" >/dev/null
+until_has workspace "eval String(!!document.querySelector('.welcome .wc')) + ' ' + String(!document.querySelector('.home'))" 5 "true true" \
+  && js workspace "(document.querySelector('.welcome .wc').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)" >/dev/null \
+  && until_has workspace "eval String(!document.querySelector('.welcome')) + ' ' + document.activeElement?.id + ' ' + document.querySelector('.home .finish')?.textContent" 5 "true capture-input Finish setup" \
+  && pass "Finish setup brings the welcome back at a step still open, and Escape leaves it for Home: the keyboard in the Composer, Finish setup still under it" || fail "Escape leaves the welcome for Home"
+edges="((c, f, h, x, s) => [Math.abs(c.left + c.width / 2 - (x.left + x.width / 2)) < 1 && Math.abs(x.left - Math.max((innerWidth - x.width) / 2, s + 36)) < 1, Math.abs(f.left + f.width / 2 - (c.left + c.width / 2)) < 2 && f.top >= c.bottom - 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.home .finish').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect(), document.querySelector('.hx').getBoundingClientRect(), document.querySelector('.side')?.getBoundingClientRect().right ?? 0)"
 metal="(k => /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)')(document.querySelector('.home .cap-row .key'))"
-until_has workspace "eval String(!__ws.ui.sheet && !!document.querySelector('.home .setup'))" 5 "true" && ! ask workspace "text .hx" | grep -q "Agents" \
+until_has workspace "eval String(!__ws.ui.sheet && !!document.querySelector('.home .finish'))" 5 "true" && ! ask workspace "text .hx" | grep -q "Agents" \
   && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' ')")" = "Auto" ] \
   && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Start true" ] && [ "$(js workspace "String($metal)")" = true ] \
-  && [ "$(js workspace "String(!document.querySelector('.hx.first > :not(.capture, .setup, .cols)') && /0 of [23] done/.test(document.querySelector('.setup .setup-n').textContent))")" = true ] \
+  && [ "$(js workspace "String(!document.querySelector('.hx.first > :not(.capture, .finish, .cols)'))")" = true ] \
   && [ "$(js workspace "$edges")" = "true true true" ] \
-  && pass "after Not now, Home is one composition: the Composer a little above the middle, centred on the window as far as the sidebar lets it, its place saying Auto, its key the metal key that Return starts with; under it, on its edges, Setup with none of its steps done, and nothing else loose" || fail "Home on first start" "$(js workspace "$edges")"
+  && pass "after the welcome, Home is one composition: the Composer a little above the middle, centred on the window as far as the sidebar lets it, its place saying Auto, its key the metal key that Return starts with; under it Finish setup, and nothing else loose" || fail "Home on first start" "$(js workspace "$edges")"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 # A Mac may ask for reduced motion (Accessibility, Reduce motion; GitHub's Mac runners have it on): then the light is
@@ -902,7 +919,6 @@ fi
 
 if part "Settings: what Return does, the two keys on one recorder, how long thoughts are kept, the terminal's switches, text size"; then
 # A key pressed on the recorder in row `$1`, as the keyboard would: `$2` its code, then which modifiers are held.
-setting() { echo "[...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === '$1')"; }
 record() {
   js workspace "(r => (r.querySelector('.rec[aria-pressed=false]')?.click(), 1))($(setting "$1"))" >/dev/null
   sleep 0.3
@@ -916,7 +932,8 @@ js workspace "(__ws.show('home'), __ws.open({ kind: 'settings', at: 'thoughts' }
 until_has workspace "text .set-pane" 5 "Return key when writing a task" || fail "the Thoughts section shows its rows"
 # Return: as set, the Composer's key says what sends, and the field does it.
 choose_in "Return key when writing a task" "Starts a new line"
-until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .key-ret').textContent + ' ' + $(setting "Return key when writing a task").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it; in a reply to an agent, Return always sends." \
+until_has workspace "$(pref return_sends)" 3 "false" && foot_of "Return key when writing a task" >/dev/null \
+  && until_has workspace "eval document.querySelector('.home .capture .key .key-ret').textContent + ' ' + (document.querySelector('.sheet .sh-hint')?.textContent ?? '')" 3 "⌘ Command-Return sends it; in a reply to an agent, Return always sends." \
   || fail "Return starts a new line, once chosen"
 # (Saved for later, so that nothing is placed or started by the check of a key.)
 js workspace "(__ws.dismiss(), __speech.cap.dest = 'later', __motion.redraw(), document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'see whether return sends'), 1)" >/dev/null
@@ -964,8 +981,8 @@ case "$back" in
 esac
 shot settings-key-default workspace
 # Opening at login: a check's run never asks the system, and its row says so.
-until_has workspace "eval (r => r ? r.querySelector('.v')?.textContent + ' | ' + r.querySelector('.hint')?.textContent + ' | ' + r.querySelectorAll('[role=switch]').length : 'none')($(setting "Open Tasktap when the computer starts"))" 5 \
-  "Not for this copy | This copy runs for a check, so it never opens by itself. | 0" && [ "$(js workspace "__ws.call('host.login', { on: true }).then(() => 'took it', (e) => e.message)")" = "A check's run never opens by itself" ] \
+until_has workspace "eval (r => r ? r.querySelector('.v')?.textContent + ' | ' + r.querySelectorAll('[role=switch]').length : 'none')($(setting "Open Tasktap when the computer starts"))" 5 \
+  "Not for this copy | 0" && foot_of "Open Tasktap when the computer starts" | grep -q "This copy runs for a check, so it never opens by itself." && [ "$(js workspace "__ws.call('host.login', { on: true }).then(() => 'took it', (e) => e.message)")" = "A check's run never opens by itself" ] \
   && ! grep -q '"event":"login"' "$log" \
   && pass "opening at login: the host never asks the system in a check's run, refuses to be set, and the row says why with no switch" || fail "opening at login in a check's run" "$(js workspace "__ws.call('host.login', {}).then(JSON.stringify)")"
 # The keys that answer a question from any app: recorded through the host as the capture key is, refused when one
@@ -999,7 +1016,7 @@ until_has workspace "eval (r => r.querySelector('.v').textContent + ' | ' + r.qu
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 # When finished thoughts are deleted.
 choose_in "Delete finished tasks after" "30 days"
-until_has workspace "$(pref keep_days)" 3 "30" && ask workspace "text .set-pane" | grep -q "Tasks you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays." \
+until_has workspace "$(pref keep_days)" 3 "30" && foot_of "Delete finished tasks after" | grep -q "Tasks you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays." \
   && choose_in "Delete finished tasks after" "Never" && until_has workspace "$(pref keep_days)" 3 "0" \
   && pass "when finished thoughts are deleted is one choice, which says that their answers and terminal history go too and that nothing waiting goes" || fail "keep_days"
 # The hold-to-talk key: the same recorder, a plain preference the core holds to the rule; every hint follows it.
@@ -1117,9 +1134,10 @@ ask workspace "click $locked .btn:nth-of-type(2)" >/dev/null
 until_has workspace "text .sheet" 3 "The changes stay in main" || fail "the discard sheet after a Keep"
 press workspace ".sheet" Backspace true >/dev/null
 until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
-  && js workspace "(__ws.ui.fold = 'results', __motion.redraw(), 1)" >/dev/null \
+  && js workspace "(__ws.ui.fold = 'results', __ws.call('thought.read', { id: [...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').id }), __motion.redraw(), 1)" >/dev/null \
   && until_has workspace "text [data-thought='$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').id")']" 3 "Kept in main" \
   && pass "Discard then removes what is left, and the result reads Kept in main, not discarded" || fail "Discard after a Keep"
+# (A result not yet opened is a card, which says what the task did; opened, it is a row, which says where its changes ended.)
 # A run that left only an ignored file: its copy cannot be removed by itself and waits, with nothing in it to keep.
 run "write:out.log:built"
 until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "pending" || fail "a sixth run's copy is left over"
@@ -1151,26 +1169,30 @@ js workspace "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$tmp/other'
 until_has workspace "eval String([...__ws.records.projects.values()].filter(p => p.open && p.kind === 'folder').length) + ' ' + __ws.records.prefs.get('hold')?.value" 5 "2 10" || fail "a second folder is open"
 # Not allowed yet: Auto places by a thought's words, so one that names no folder is asked about (never a guess),
 # at the Composer, where it was typed, holding the keyboard; nothing else stands under the Composer, and placing by a
-# model is one of Setup's steps (NOTES §13).
+# model is one of the welcome's steps.
 chip="[...document.querySelectorAll('.home #dest-chip > b, .home #dest-chip > span')].map(e => e.textContent).join(' ')"
 [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ "$(js workspace "$chip")" = "Auto" ] \
   || fail "before it is allowed, Auto places by a thought's words" "$(js workspace "$chip")"
 home_says "Tidy the changelog a little"
 until_has workspace "text .home .cap-ask" 5 "Which project is this task for?" && [ "$(js workspace "String(document.activeElement?.id === 'capture-input' && !!document.querySelector('.home .capture .cap-ask') && !document.querySelector('.home .needs [data-question]') && !/(Thoughts|Tasks) can find|Its question is open/.test(document.querySelector('.home .ways').textContent))")" = true ] \
   && pass "the first thought that names no folder is asked about at the Composer, the field keeping the keyboard and its keys answering, not also in Needs you, and nothing else stands under the Composer" || fail "the question at the Composer" "$(ask workspace "text .home .capture" | tr '\n' '|' | cut -c1-200)"
-js workspace "((s => s.classList.contains('open') || s.querySelector('.fold-h').click())(document.querySelector('.home .setup')), 1)" >/dev/null
-js workspace "(document.querySelector('.home .setup [data-step=placing] .act').click(), 1)" >/dev/null
-terms="$(ask workspace "text .sheet")"
+# Who finds the project for a task is agreed to in the welcome's third step, and in Settings, Projects, whose row for it opens
+# the sheet that says all of it.
+js workspace "(__ws.open({ kind: 'settings', at: 'projects' }), 1)" >/dev/null
+until_has workspace "text .set-pane" 5 "Finding the project for a task" || fail "Settings, Projects, has the row that finds the project for a task"
+js workspace "([...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === 'Finding the project for a task').querySelector('.btn').click(), 1)" >/dev/null
+until_has workspace "eval __ws.ui.sheet?.kind" 3 "placing" || fail "the row opens the placing sheet"
+js workspace "([...document.querySelectorAll('.sheet .disc')].find((d) => d.textContent.includes('What is sent')).click(), 1)" >/dev/null
 # The signed-in agents in Tasktap's order: what costs nothing more first, the fastest first among those.
 ranks="[...document.querySelectorAll('.sheet .rank:not(.sign)')].map(r => r.querySelector('.t').textContent + (r.querySelector('.switch').getAttribute('aria-checked') === 'true' ? '' : ' off')).join('|')"
 until_has workspace "text .sheet" 5 "goes to the first agent below that answers" && terms="$(ask workspace "text .sheet")" \
   && echo "$terms" | grep -q "Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent already at work there continues" \
   && echo "$terms" | grep -q "the task in your words, and the project or session open in Tasktap's window" && echo "$terms" | grep -q "up to 8 likely projects" \
   && [ "$(js workspace "$ranks")" = "fixture-silent|Fixture agent|fixture-probed" ] \
-  && echo "$terms" | grep -q "fixture-small · included in your subscription · about 1 s" \
+  && [ "$(js workspace "String([...document.querySelectorAll('.sheet .rank:not(.sign)')].some(r => r.querySelector('.x.m')?.textContent === 'fixture-small' && /about 1 s/.test(r.textContent)))")" = true ] \
   && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] && [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] \
-  && pass "its sheet says what the person gets, which signed-in agents would place the thoughts in Tasktap's order and why, with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(js workspace "$ranks") $(echo "$terms" | tr '\n' '|' | cut -c1-200)"
-js workspace "(document.querySelector('.sheet .disc').click(), 1)" >/dev/null
+  && pass "its sheet says what the person gets, which signed-in agents would place the thoughts in Tasktap's order and why, with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(js workspace "$ranks") $(echo "${terms:-}" | tr '\n' '|' | cut -c1-200)"
+js workspace "([...document.querySelectorAll('.sheet .disc')].find((d) => d.textContent.includes('The instructions they follow')).click(), 1)" >/dev/null
 until_has workspace "text .sheet .instr" 3 "You are the router of Tasktap" && pass "the instructions the model follows are there to read in full, behind one quiet line" || fail "the instructions"
 shot placing-terms workspace
 # The person's own order, by the keyboard: the fixture agent up to the first place, the two others switched off.
@@ -1178,8 +1200,9 @@ row_key() { js workspace "(()=>{const r=[...document.querySelectorAll('.sheet .r
 row_key "Fixture agent" ArrowUp true && row_key fixture-silent " " && row_key fixture-probed " "
 until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed off" || fail "the order by the keyboard" "$(js workspace "$ranks")"
 press workspace ".sheet" Enter >/dev/null
-until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agents":[{"agent":"fixture","model":"fixture-small","on":true},{"agent":"fixture-silent","model":"fixture-small","on":false},{"agent":"fixture-probed","model":"fixture-small","on":false}],"terms":4}false' \
-  && pass "Allow writes the agreement for those agents in that order, each with its model and switch, and the sheet goes" || fail "Allow"
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(__ws.ui.sheet?.kind)" 5 '{"agents":[{"agent":"fixture","model":"fixture-small","on":true},{"agent":"fixture-silent","model":"fixture-small","on":false},{"agent":"fixture-probed","model":"fixture-small","on":false}],"terms":4}settings' \
+  && pass "Allow writes the agreement for those agents in that order, each with its model and switch, and the sheet returns to Settings, where it was opened from" || fail "Allow"
+js workspace "(__ws.dismiss(), 1)" >/dev/null
 # The thought sent before is asked about at the Composer: kept for later by its row's number in the field, then dropped.
 press workspace ".home #capture-input" "$(js workspace "String([...document.querySelectorAll('.home .cap-ask .ans span')].findIndex(s => s.textContent === 'Keep for later') + 1)")" >/dev/null
 until_has workspace "eval String([...__ws.records.questions.values()].some(q => q.state === 'open'))" 3 "false" || fail "the offered thought is kept for later"
@@ -1213,7 +1236,7 @@ shot torn-decision
 shot torn-decision-home workspace
 js workspace "(document.querySelector('.home .way-more').click(), 1)" >/dev/null
 until_has workspace "text .home .way" 3 "Keep the header on one line." && going="$(ask workspace "text .home .way")" && ! echo "$going" | grep -q "[·,]  *new run" \
-  && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Placed by Fixture agent · fixture-small" \
+  && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Placed by Fixture agent, fixture-small" \
   && [ "$(js workspace "(b => b ? b.textContent + ' ' + b.disabled : 'no key')(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
   && pass "behind its disclosure the torn task's brief in full, the person's own words and who placed it; the Composer's key Start" || fail "the torn task's brief" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
 shot held-brief workspace
@@ -1267,12 +1290,14 @@ shot router-question-home workspace
 js workspace "(document.querySelector('.cap-ask .ans').click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5 "true" && ask workspace "click .home .way .act:not([data-offer])" >/dev/null
 until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought asked about is taken back"
-# Settings says what is on, and turns it off.
-js workspace "(__ws.command('settings'), 1)" >/dev/null
+# Settings says what is on, and turns it off. (About, shown last: Settings opens there again; ⌘3 goes to Projects.)
+js workspace "(__ws.open({ kind: 'settings', at: 'about' }), 1)" >/dev/null
+until_has workspace "text .set-pane" 3 "Show again" || fail "Settings, About, shows the welcome again"
+js workspace "(__ws.dismiss(), __ws.command('settings'), 1)" >/dev/null
 # (A moment for the sheet to listen: behind a locked screen the page is hidden, and a hidden page takes its time.)
-until_has workspace "eval __ws.ui.sheet?.at" 3 "appearance" && sleep 1 && press workspace ".sheet" 3 true >/dev/null
-until_has workspace "text .settings" 3 "Tasks you do not place go where they belong: Fixture agent decides from earlier tasks and what your agents last answered." && ask workspace "text .settings .ranks" | grep -q "fixture-small · included in your subscription" \
-  && pass "Settings opens where it was last shown, and under Projects (⌘3) lists who decides where a task you do not place goes, in the person's order, and says what they decide from" || fail "Settings, Projects"
+until_has workspace "eval __ws.ui.sheet?.at" 3 "about" && sleep 1 && press workspace ".sheet" 3 true >/dev/null
+until_has workspace "eval __ws.ui.sheet?.at" 3 "projects" && foot_of "Finding the project for a task" | grep -q "Tasks you do not place go where they belong: Fixture agent decides from earlier tasks and what your agents last answered." && ask workspace "text .settings .ranks" | grep -q "fixture-small" \
+  && pass "Settings opens where it was last shown, and under Projects (⌘3) lists who decides where a task you do not place goes, in the person's order, and says in its foot what they decide from" || fail "Settings, Projects" "$(ask workspace "text .sheet .sh-hint")"
 shot settings-flows workspace
 js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What is sent')).click(), 1)" >/dev/null
 until_has workspace "text .sheet .sh-f" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null
@@ -1289,13 +1314,16 @@ quiet() { until_has "${1:-workspace}" "eval String(__speech.live()) + ' ' + __re
 js workspace "(window.__records_size = () => __ws.records.dictations.size, 1)" >/dev/null
 send 'call delete {"c":"prefs","id":"speech_by"}'
 until_has workspace "eval String(__ws.records.prefs.has('speech_by'))" 3 "false" || fail "no speech service is chosen"
-# Without a service the microphone brings down Setup's speech step (NOTES §13: nothing of it under the Composer), which
-# says what on this Mac needs, as Voice in Settings does.
+# Without a service the microphone brings the welcome's last step (nothing of it under the Composer), which says what on this
+# Mac needs, as Voice in Settings does; Escape leaves it for Home.
 js workspace "(__ws.show('home'), document.querySelector('.home .mic').click(), 1)" >/dev/null
-until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.step" 3 "setup speech" && ask workspace "text .sheet" | grep -q "Needs 574 MB, downloaded once" \
-  && ! ask workspace "text .home .ways" | grep -q "Voice needs" && js workspace "(__ws.open({ kind: 'settings', at: 'voice' }), 1)" >/dev/null \
+until_has workspace "$stepnow" 3 "Step 4 of 4|Talk instead of typing" && until_has workspace "text .welcome" 5 "Download 574 MB" \
+  && ! ask workspace "text .home .ways" | grep -q "Voice needs" \
+  && js workspace "(document.querySelector('.welcome .wc').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)" >/dev/null \
+  && until_has workspace "eval String(!document.querySelector('.welcome') && !!document.querySelector('.home .mic'))" 3 "true" \
+  && js workspace "(__ws.open({ kind: 'settings', at: 'voice' }), 1)" >/dev/null \
   && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings voice" && ask workspace "text .settings" | grep -q "Needs a model first: Whisper large-v3 turbo, 574 MB" \
-  && pass "with nothing to turn speech into text the microphone brings down Setup's speech step, which says what on this Mac needs, as Voice in Settings does" || fail "voice with nothing set up"
+  && pass "with nothing to turn speech into text the microphone brings the welcome's speech step, which says what on this Mac needs, as Voice in Settings does" || fail "voice with nothing set up"
 js workspace "([...document.querySelectorAll('.settings .seg button')].find(b => b.textContent === 'At a speech service').click(), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "What it is sent" || fail "the speech sheet opens"
 js workspace "(document.querySelectorAll('.terms .seg button')[2].click(), 1)" >/dev/null
@@ -1308,7 +1336,7 @@ until_has workspace "text .sheet" 3 "is not https" && sheet="$(ask workspace "te
 shot speech-terms workspace
 press workspace ".sheet" Enter >/dev/null
 until_has workspace "eval JSON.stringify(__ws.records.prefs.get('speech_by')?.value)" 5 "{\"server\":\"http://127.0.0.1:$port\",\"model\":\"fixture-speech\"}" \
-  && until_has workspace "text .settings" 3 "By 127.0.0.1:$port · fixture-speech" && pass "Allow writes the preference for that server and model, and Settings says where speech is turned into text" || fail "allowing a speech service"
+  && until_has workspace "text .settings" 3 "By 127.0.0.1:$port, fixture-speech" && pass "Allow writes the preference for that server and model, and Settings says where speech is turned into text" || fail "allowing a speech service"
 # A key is only ever written: once stored, all that shows is that one is, and Remove.
 js workspace "((k) => (k.focus(), document.execCommand('insertText', false, 'fixture-key-not-real'), k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })), 1))(document.querySelector('.settings input[type=password]'))" >/dev/null
 until_has workspace "text .settings" 5 "Saved in the keychain" && [ "$(js workspace "String(document.body.innerHTML.includes('fixture-key-not-real')) + ' ' + JSON.stringify(__ws.records.prefs.get('keys')?.value)")" = "false [\"http://127.0.0.1:$port\"]" ] \

@@ -84,7 +84,7 @@ section "The capture flow keeps its pace (the built app with the fixture agent, 
 out="$(node "$root/scripts/flow-check.cjs" --app --debug --short ${FRONT:+--front} 2>&1)"
 if [ $? = 0 ]; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"
 elif echo "$out" | grep -q "nothing can be measured\|nothing drawn on it can be measured"; then pass "the capture flow was not timed: $(echo "$out" | grep -o 'The [^:]*: nothing[^.]*' | head -1)"
-else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace" "$(echo "$out" | grep -q '^FAIL' || echo "$out" | tail -4 | tr '\n' '|' | cut -c1-400)"; fi
+else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace" "$(echo "$out" | grep -q '^FAIL' || echo "$out" | grep -v '^ *at ' | tail -4 | tr '\n' '|' | cut -c1-400)"; fi
 
 section "One type system (headless, every state of both pages)"
 if out="$(node "$root/scripts/type-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the type scale"; fi
@@ -107,7 +107,7 @@ if out="$(node "$root/scripts/speech-check.cjs" 2>&1)"; then pass "$(echo "$out"
 
 section "Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"
 out="$(node "$root/scripts/speech-app-check.cjs" ${SPEECH_MODEL:+--model "$SPEECH_MODEL"} 2>&1)"
-if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app" "$(echo "$out" | grep -q '^FAIL' || echo "$out" | tail -4 | tr '\n' '|' | cut -c1-400)"; fi
+if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app" "$(echo "$out" | grep -q '^FAIL' || echo "$out" | grep -v '^ *at ' | tail -4 | tr '\n' '|' | cut -c1-400)"; fi
 
 if [ -n "${SPEECH_MODEL:-}" ]; then
   section "Speech on this Mac is written in the language it is said in (the real helper and model; the Mac's voices in files)"
@@ -1755,8 +1755,8 @@ send "close ws-$project"
 until_has workspace "eval JSON.stringify([...__ws.ui.out]) + ' ' + __ws.ui.view" 10 "[] $project" \
   && pass "closing a workspace's window puts the workspace back into the main window, in view" || fail "closing a workspace's window"
 until_has workspace "$(screen_has)" 10 "true" && until_has workspace "eval document.querySelectorAll('.pane:not([hidden])').length" 5 "$panes" \
-  && until_has workspace "eval (e => String(e.term.cols === e.fit.proposeDimensions()?.cols && e.term.cols === __ws.records.terminals.get('$cur').cols))(__ws.engines.get('$cur'))" 10 "true" \
-  && pass "back in the main window the workspace shows its panes and the terminal's screen as it was, the terminal the size of its pane again" || fail "the workspace's terminal after its window closed" "$(js workspace "__ws.text('$cur')" | head -c 200)"
+  && until_has workspace "eval (e => String(e.attached && e.term.cols === __ws.records.terminals.get('$cur').cols && e.term.rows === __ws.records.terminals.get('$cur').rows))(__ws.engines.get('$cur'))" 10 "true" \
+  && pass "back in the main window the workspace shows its panes and the terminal's screen as it was, its terminal open again and the size its process has" || fail "the workspace's terminal after its window closed" "$(js workspace "(e => [e.attached, e.term.cols + 'x' + e.term.rows, e.fit.proposeDimensions()?.cols, JSON.stringify(__ws.records.terminals.get('$cur')?.cols), document.querySelectorAll('.pane:not([hidden])').length].join(' '))(__ws.engines.get('$cur'))") $(js workspace "__ws.text('$cur')" | head -c 200)"
 js workspace "(__ws.call('host.window', { do: 'pop', project: '$project', w: 900, h: 600 }), 1)" >/dev/null
 until_has workspace "eval JSON.stringify([...__ws.ui.out])" 15 "$project" || fail "the workspace is out again before the quit"
 quit && pass "the app quits on request" || fail "the app quits on request"

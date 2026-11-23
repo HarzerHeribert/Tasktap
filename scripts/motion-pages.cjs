@@ -685,6 +685,8 @@ async function open(browser, { label, records = {}, viewport, dpr = 2, url, vide
   // function, or its text).
   if (fixed) await page.clock.setFixedTime(fixed);
   if (init) await page.addInitScript(typeof init === 'string' ? { content: init } : init);
+  // TASKTAP_SLOW=<n>: the page's processor n times slower (Chromium only), as a loaded runner's is.
+  if (+process.env.TASKTAP_SLOW > 1 && browser.browserType().name() === 'chromium') await (await page.context().newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: +process.env.TASKTAP_SLOW });
   page.errors = [];
   page.on('pageerror', (e) => page.errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });

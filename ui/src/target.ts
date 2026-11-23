@@ -95,11 +95,12 @@ export class Target {
     return ++this.seq;
   }
 
-  /** The model's answer to question `n`, for the words `of` it asked about; an older question's is dropped. `whole`:
+  /** The model's answer to question `n`, for the words `of` it asked about; an older question's is dropped, and what
+   *  waits to be shown goes on waiting (its time is returned, not none: none would end the wait unshown). `whole`:
    *  it was asked with exactly those words. An answer for fewer (a last word was held back) is only a guess for them:
    *  in the quiet tone, and never taken at Return. */
   preview(n: number, of: string, choices: Place[], now: number, whole = true): number | null {
-    if (n !== this.seq || !choices.length) return null;
+    if (n !== this.seq || !choices.length) return this.settle(now);
     if (!whole) return this.guess(of, choices[0]!, now);
     this.confirmed = { of, choices };
     this.step = 0;

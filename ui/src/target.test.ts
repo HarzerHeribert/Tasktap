@@ -105,6 +105,26 @@ test('an answer to an older question is dropped, so nothing flickers when answer
   assert.equal(t.take(W2, 2000), 0);
 });
 
+test('an older answer that comes while a newer target waits to be shown leaves it waiting, and it then shows', () => {
+  const t = new Target();
+  t.set(W1, 0);
+  t.guess(W1, to('a'), 0);
+  const first = t.ask(W1);
+  t.set(W2, 800);
+  t.guess(W2, to('a'), 900);
+  // The newer answer names another place than the one on show: it waits to have stood.
+  const second = t.ask(W2);
+  assert.equal(t.preview(second, W2, [to('b')], 1000), STAND);
+  assert.equal(name(t.shown?.place), 'a');
+  // The older one, late, inside that wait: dropped, and the wait goes on with the time that is left of it.
+  assert.equal(t.preview(first, W1, [to('c')], 1100), STAND - 100);
+  // An answer that names no place, the same.
+  assert.equal(t.preview(second, W2, [], 1150), STAND - 150);
+  t.set(W2, 1000 + STAND);
+  assert.equal(name(t.shown?.place), 'b');
+  assert.equal(t.shown?.tone, 'confirmed');
+});
+
 test('a confirmed target for older words stays until the new words have another that stood; Return takes it only for the words it is of', () => {
   const t = new Target();
   t.set(W1, 0);

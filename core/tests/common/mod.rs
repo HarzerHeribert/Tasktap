@@ -173,8 +173,19 @@ impl Core {
         env: &[(&str, &str)],
         patience: std::time::Duration,
     ) -> Core {
+        Self::start_exe(Path::new(EXE), data, extra, env, patience)
+    }
+
+    /// The same with the core of another binary, an earlier build.
+    pub fn start_exe(
+        exe: &Path,
+        data: impl AsRef<Path>,
+        extra: &[&str],
+        env: &[(&str, &str)],
+        patience: std::time::Duration,
+    ) -> Core {
         let data = data.as_ref();
-        let mut serve = client::serve_command(Path::new(EXE), data);
+        let mut serve = client::serve_command(exe, data);
         serve.args(["--idle-ms", "600000"]).args(extra);
         // Every shell a test's core starts, also the one that follows an
         // agent's end, is `sh` in a home of the test's own: never the
@@ -857,9 +868,16 @@ pub fn clear(project: ProjectId) -> Route {
 /// A folder of `data` that holds this binary as `fixture-agent`, the
 /// program the core launches for the fixture agents.
 pub fn agents(data: &Path) -> PathBuf {
+    agents_of(Path::new(EXE), data)
+}
+
+/// The same with `exe` as that program: the agents a core of another build
+/// starts are that build's own.
+pub fn agents_of(exe: &Path, data: &Path) -> PathBuf {
     let folder = data.join("agents");
     std::fs::create_dir_all(&folder).unwrap();
     if as_batch_files() {
+        assert_eq!(exe, Path::new(EXE), "batch files wrap this build only");
         batch_file(&folder, "fixture-agent");
         return folder;
     }
@@ -867,20 +885,20 @@ pub fn agents(data: &Path) -> PathBuf {
         .join("fixture-agent")
         .with_extension(std::env::consts::EXE_EXTENSION);
     // Never a copy onto a link to the binary itself, which would empty it.
-    if !program.exists() && link(&program).is_err() {
-        std::fs::copy(EXE, &program).unwrap();
+    if !program.exists() && link(exe, &program).is_err() {
+        std::fs::copy(exe, &program).unwrap();
     }
     folder
 }
 
-/// A link to this binary at `to`: symbolic on macOS, where a second name
+/// A link to the binary `exe` at `to`: symbolic on macOS, where a second name
 /// for the binary can get it killed as the shims' links would
 /// (`roles::shim::install`).
-fn link(to: &Path) -> std::io::Result<()> {
+fn link(exe: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
-    return std::os::unix::fs::symlink(EXE, to);
+    return std::os::unix::fs::symlink(exe, to);
     #[cfg(not(target_os = "macos"))]
-    return std::fs::hard_link(EXE, to);
+    return std::fs::hard_link(exe, to);
 }
 
 /// Whether the tests install their agents as npm installs a tool on Windows

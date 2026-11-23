@@ -107,6 +107,10 @@
     const { id, name, args } = call;
     calls.push(name);
     if (name === 'put') puts.push(args);
+    // A core of 2.0.0 (`earlier`), as an update leaves it running: what it does not know it refuses, as it refuses it.
+    const old = welcome.earlier;
+    if (old?.calls.includes(name)) return toCore({ t: 'reply', id, err: { code: 'unknown', message: `no call ${name}` } });
+    if (old && name === 'put' && args.c === 'prefs' && old.prefs.includes(args.id)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: `unknown variant \`${args.id}\`` } });
     if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
@@ -619,7 +623,7 @@
       return null;
     },
   };
-})({ label: 'notch', records, welcome: { v: 1, calls: ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'] }, terms: { route: { instructions: '', sends: [], terms: 3, tools: [{ agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }] }, speech: { sent: [], path: '/v1/audio/transcriptions', seconds: 300 } } });
+})({ label: 'notch', records, welcome: { v: 1, calls: ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history', 'route.guess', 'route.preview', 'placings.count', 'placings.clear', 'chatgpt.sign_in', 'chatgpt.sign_out', 'own_model.set', 'own_model.remove', 'own_model.list'] }, terms: { route: { instructions: '', sends: [], terms: 3, tools: [{ agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }] }, speech: { sent: [], path: '/v1/audio/transcriptions', seconds: 300 } } });
 
   const fake = window.__fake;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');

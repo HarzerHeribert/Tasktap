@@ -364,11 +364,19 @@ pub fn closed(app: &AppHandle, label: &str) {
 
 /// A check says where the window is (`where front|behind`), or gives it back to the system (`where system`).
 pub fn tell(app: &AppHandle, front: Option<bool>) {
-    with(|st| {
-        st.told = front;
-        st.front = front.unwrap_or(st.active && st.key && seen_now(st));
-    });
+    with(|st| tell_in(st, front));
     changed(app);
+}
+
+/// `tell` on the state. The rule speaks of the window that has the keyboard, which the system never gives in a check's
+/// run: where none has had it, the window the check says is in front is the main one, so that what the rule says of a
+/// question follows what that window shows (the strip under its terminal, Needs you on Home) as it does for a person.
+fn tell_in(st: &mut State, front: Option<bool>) {
+    st.told = front;
+    if front == Some(true) && st.last.is_empty() {
+        st.last = crate::workspace::LABEL.to_owned();
+    }
+    st.front = front.unwrap_or(st.active && st.key && seen_now(st));
 }
 
 /// A check says whether a full-screen app is in front, or gives it back to the system.
@@ -473,6 +481,22 @@ mod tests {
         // Its window gone, or none yet: nothing is shown.
         assert_eq!(shows_of(&window("ws-b", &both, &[])), Shows::Closed);
         assert_eq!(shows_of(&window("", &[], &[])), Shows::Closed);
+    }
+
+    #[test]
+    fn a_check_that_says_the_window_is_in_front_puts_the_main_window_there_unless_another_had_the_keyboard() {
+        let both = [("workspace", Shows::Home), ("ws-a", terminals(&["s"]))];
+        let mut st = window("", &both, &[]);
+        tell_in(&mut st, Some(true));
+        assert!(st.front);
+        assert_eq!(shows_of(&st), Shows::Home);
+        // Behind, or given back to the system, it leaves where the keyboard was alone.
+        tell_in(&mut st, Some(false));
+        assert!(!st.front);
+        assert_eq!(st.last, "workspace");
+        let mut st = window("ws-a", &both, &[]);
+        tell_in(&mut st, Some(true));
+        assert_eq!(shows_of(&st), terminals(&["s"]));
     }
 
     #[test]

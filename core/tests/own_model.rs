@@ -1252,12 +1252,11 @@ fn a_newer_preview_drops_the_answer_of_an_older_and_at_most_four_are_sent() {
         std::thread::sleep(Duration::from_millis(10));
     }
     p.server.says(Reply::Says(answer("clear", "p2", "Quick.")));
-    assert_eq!(
-        preview(&mut p, task, "make the header stay on one line"),
-        [project(p.app)]
-    );
-    let dropped = p.w.reply::<call::RoutePreview>(older).unwrap();
-    assert!(dropped.choices.is_empty());
+    let newer =
+        p.w.send::<call::RoutePreview>(&words(task, "make the header stay on one line"));
+    let both = p.w.replies::<call::RoutePreview>(&[older, newer]);
+    assert!(both[0].as_ref().unwrap().choices.is_empty());
+    assert_eq!(both[1].as_ref().unwrap().choices, [project(p.app)]);
     // Only the newer one's answer is kept for the task.
     send(&mut p, task, "make the header stay on one line", Some(0));
     assert_eq!(p.settled(task).brief.as_deref(), Some("Quick."));
@@ -1360,14 +1359,226 @@ fn the_secret_filter_runs_over_a_preview_and_a_refused_or_unreadable_one_shows_n
     p.server
         .says(Reply::Status(500, json!({ "error": { "message": "no" } })));
     assert!(preview(&mut p, other, WORDS).is_empty());
-    p.server.says(Reply::Says("not json".into()));
-    assert!(preview(&mut p, other, WORDS).is_empty());
-    // So the task sent after them asks the model as any task does.
+    // (Another, an answer that is no JSON, in a core of its own: nothing shown either.)
+    let mut q = Placing::new("own-preview-unreadable");
+    let address = q.server.address();
+    q.set_up(&address, "tiny", None);
+    q.server.says(Reply::Says("not json".into()));
+    assert!(preview(&mut q, ThoughtId::mint(), WORDS).is_empty());
+    // So the task sent after the refused one asks the model as any task does.
     p.server
         .says(Reply::Says(answer("clear", "p2", "Brief of the task.")));
     send(&mut p, other, WORDS, Some(0));
     assert_eq!(
         p.settled(other).brief.as_deref(),
         Some("Brief of the task.")
+    );
+}
+
+// ——— A preview leaves a placer's standing as it was ———
+
+/// The form of each request the server got, in order.
+fn forms(p: &Placing) -> Vec<String> {
+    let kind = |a: &Seen| {
+        a.body["response_format"]["type"]
+            .as_str()
+            .unwrap_or("none")
+            .to_owned()
+    };
+    p.server.asked().iter().map(kind).collect()
+}
+
+#[test]
+fn a_preview_changes_nothing_a_placing_goes_by() {
+    // The form a server takes is learned by a placing, not by a preview.
+    let mut p = Placing::new("own-preview-form");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    p.server.with(|s| s.rejects = vec!["json_schema"]);
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    assert_eq!(preview(&mut p, ThoughtId::mint(), WORDS).len(), 1);
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    let task = p.capture(SPOKEN);
+    p.settled(task);
+    assert_eq!(
+        forms(&p),
+        ["json_schema", "json_object", "json_schema", "json_object"]
+    );
+}
+
+#[test]
+fn a_preview_that_gets_no_answer_does_not_leave_the_server_out_for_the_tasks_sent() {
+    let mut p = Placing::with("own-preview-silent", &[("TASKTAP_OWN_LIMITS", "1500,1500")]);
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    p.server.says(Reply::After(
+        4000,
+        Box::new(Reply::Says(answer("clear", "p2", "Late."))),
+    ));
+    assert!(preview(&mut p, ThoughtId::mint(), WORDS).is_empty());
+    // The task sent after it is asked of the same server, which is not left out.
+    p.server
+        .says(Reply::Says(answer("clear", "p2", "Brief of the task.")));
+    let task = p.capture(SPOKEN);
+    let th = p.settled(task);
+    assert_eq!(
+        Placing::by(&th),
+        ("own".into(), String::new()),
+        "{:?}",
+        th.route
+    );
+}
+
+#[test]
+fn a_newer_preview_and_a_sent_task_stop_the_preview_in_flight() {
+    use std::time::Instant;
+    let mut p = Placing::new("own-preview-stopped");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let slow = || Reply::After(4000, Box::new(Reply::Says(answer("clear", "p2", "Slow."))));
+    // A newer preview, of another task: the older is ended, not left to run.
+    p.server.says(slow());
+    let older =
+        p.w.send::<call::RoutePreview>(&words(ThoughtId::mint(), "make the header stay"));
+    while p.server.asked().is_empty() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    p.server.says(Reply::Says(answer("clear", "p2", "Quick.")));
+    let began = Instant::now();
+    let newer =
+        p.w.send::<call::RoutePreview>(&words(ThoughtId::mint(), WORDS));
+    let both = p.w.replies::<call::RoutePreview>(&[older, newer]);
+    assert!(
+        both[0].as_ref().unwrap().choices.is_empty()
+            && both[1].as_ref().unwrap().choices.len() == 1
+    );
+    assert!(
+        began.elapsed() < Duration::from_millis(2500),
+        "{:?}",
+        began.elapsed()
+    );
+    // A task that is sent: the preview in flight is ended before its own question goes out.
+    p.server.says(slow());
+    let older =
+        p.w.send::<call::RoutePreview>(&words(ThoughtId::mint(), "make the header stay"));
+    while p.server.asked().len() < 3 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    p.server
+        .says(Reply::Says(answer("clear", "p2", "Brief of the task.")));
+    let began = Instant::now();
+    let task = ThoughtId::mint();
+    let capture = tasktap_proto::Capture {
+        agent: Some("fixture".into()),
+        ..typed(task, SPOKEN)
+    };
+    p.w.send::<call::ThoughtCapture>(&capture);
+    let ended = p.w.replies::<call::RoutePreview>(&[older]);
+    assert!(ended[0].as_ref().unwrap().choices.is_empty());
+    assert!(
+        began.elapsed() < Duration::from_millis(2500),
+        "{:?}",
+        began.elapsed()
+    );
+    assert_eq!(p.settled(task).brief.as_deref(), Some("Brief of the task."));
+}
+
+#[test]
+fn the_core_holds_the_limits_of_previews_whatever_the_page_does() {
+    let mut p = Placing::new("own-preview-limits");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    // Eight a minute from one page, for as many tasks as it names: the cap is not reset by a new field.
+    for _ in 0..8 {
+        p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+        assert_eq!(preview(&mut p, ThoughtId::mint(), WORDS).len(), 1);
+    }
+    let before = p.server.asked().len();
+    assert!(preview(&mut p, ThoughtId::mint(), WORDS).is_empty());
+    assert_eq!(p.server.asked().len(), before);
+
+    // After one fails, none is sent for a while: not for the same words, not for others.
+    let mut q = Placing::new("own-preview-quiet");
+    let address = q.server.address();
+    q.set_up(&address, "tiny", None);
+    q.server
+        .says(Reply::Status(500, json!({ "error": { "message": "no" } })));
+    assert!(preview(&mut q, ThoughtId::mint(), WORDS).is_empty());
+    q.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    assert!(preview(&mut q, ThoughtId::mint(), "move the footer to the bottom").is_empty());
+    assert_eq!(q.server.asked().len(), 1);
+}
+
+#[test]
+fn the_last_word_is_left_out_of_a_preview_while_it_looks_like_the_start_of_a_key() {
+    let mut p = Placing::new("own-preview-partial");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    let partial = &KEY[..16];
+    let said = format!("fix the header on small screens {partial}");
+    assert_eq!(preview(&mut p, ThoughtId::mint(), &said).len(), 1);
+    let body = p.server.asked()[0].body.to_string();
+    assert!(
+        !body.contains(partial) && body.contains("small screens"),
+        "{body}"
+    );
+    // An ordinary last word is sent, and so is a whole word followed by a space.
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    assert_eq!(
+        preview(
+            &mut p,
+            ThoughtId::mint(),
+            "fix the header on small screens please"
+        )
+        .len(),
+        1
+    );
+    assert!(p.server.asked()[1].body.to_string().contains("please"));
+}
+
+#[test]
+fn nothing_is_guessed_or_previewed_for_a_task_said_in_the_window_and_a_task_placed_by_hand_is_no_models_placing()
+ {
+    let mut p = Placing::new("own-window-hand");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let hint = |view| tasktap_proto::Hint {
+        text: WORDS.into(),
+        current: None,
+        view,
+    };
+    assert!(p.w.ok::<call::RouteGuess>(&hint(None)).to.is_some());
+    assert!(p.w.ok::<call::RouteGuess>(&hint(Some(p.app))).to.is_none());
+    let current = tasktap_proto::PreviewWords {
+        current: Some(tasktap_proto::SessionId::mint()),
+        ..words(ThoughtId::mint(), WORDS)
+    };
+    assert!(p.w.ok::<call::RoutePreview>(&current).choices.is_empty());
+    assert_eq!(p.server.asked().len(), 0);
+    // Placed by hand, a long task is asked of the model for its brief only; the record says who placed it.
+    p.server.says(Reply::Says(answer(
+        "clear",
+        "p1",
+        "Brief of the long task.",
+    )));
+    let id = ThoughtId::mint();
+    let capture = tasktap_proto::Capture {
+        agent: Some("fixture".into()),
+        project_id: Some(p.app),
+        ..typed(id, SPOKEN)
+    };
+    p.w.ok::<call::ThoughtCapture>(&capture);
+    p.settled(id);
+    let entries = tasktap_core::placings::read(&p.data.0);
+    assert_eq!(entries.len(), 1);
+    let e = &entries[0];
+    assert_eq!(
+        (
+            e["placer"].as_str(),
+            e["model"].is_null(),
+            e["candidates"].as_array().unwrap().len()
+        ),
+        (Some("hand"), true, 0)
     );
 }

@@ -21,7 +21,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
-const { scene } = require('./instrument-fixtures.cjs');
+const { scene, flow } = require('./instrument-fixtures.cjs');
 const { microphone } = require('./page-microphone.cjs');
 
 const dist = path.resolve(path.join(__dirname, '../ui/dist'));
@@ -115,6 +115,7 @@ async function main() {
       expect(await page.evaluate(() => getComputedStyle(document.querySelector('.live-l')).animationDuration) === '0.12s', 'the fade is the interface\'s fast transition (120 ms)');
       await shot(page, '2-composer-confirmed');
       // Return takes it: the id the previews were made for, the choice taken, no second question to the model.
+      await page.waitForTimeout(550);
       await page.keyboard.press('Enter');
       const s = await until(() => sent(page), (v) => !!v);
       const task = await page.evaluate(() => window.__fake.previewed[0].task);
@@ -154,6 +155,31 @@ async function main() {
       await page.context().close();
     }
 
+    // 2b. Return takes a target only after it has been on show for half a second.
+    {
+      const { page } = await home((i) => ({ liveGuesses: { [WORDS]: { project: i.cue } }, livePreviews: { [WORDS]: { choices: [{ project: i.field }], ms: 0 } } }));
+      await type(page, WORDS);
+      await until(() => on(page), (v) => v[0]?.tone === 'confirmed');
+      await page.keyboard.press('Enter');
+      const early = await until(() => sent(page), (v) => !!v);
+      expect(early?.taken === undefined, `Return a moment after the model's target came on show takes nothing (${JSON.stringify(early?.taken)})`);
+      await page.context().close();
+    }
+    {
+      // The project's name gives way (cut in the middle), the way the task goes never does.
+      const long = 'harbormaster-customer-portal-frontend-and-admin';
+      const { page } = await home((i) => ({ liveGuesses: { [WORDS]: { project: i.cue } }, livePreviews: { [WORDS]: { choices: [{ project: i.field }], ms: 0 } },
+        projects: scene('normal').projects.map((p) => (p.id === i.field ? { ...p, name: long } : p)) }));
+      await page.setViewportSize({ width: 620, height: 700 });
+      await type(page, WORDS);
+      await until(() => on(page), (v) => v[0]?.tone === 'confirmed');
+      const cut = await page.evaluate(() => { const b = document.querySelector('.live-l:not(.out) b'), e = document.querySelector('.live-l:not(.out) em'); return { name: b.textContent, how: e.textContent, w: e.getBoundingClientRect().width, whole: e.scrollWidth <= e.clientWidth + 0.5 }; });
+      expect(cut.name.includes('…') && cut.name.startsWith('harbormaster') && cut.name.endsWith('admin') && cut.how === 'new run' && cut.whole, `a long project's name is cut in the middle and "new run" stays whole: ${JSON.stringify(cut)}`);
+      await page.waitForTimeout(550);
+      await page.keyboard.press('Enter');
+      expect((await until(() => sent(page), (v) => !!v))?.taken === 0, 'and Return then takes it');
+      await page.context().close();
+    }
     // 3. Answers out of order: the answer to older words, late, changes nothing.
     {
       const older = WORDS, newer = `${WORDS} on small screens`;
@@ -183,7 +209,8 @@ async function main() {
       await type(page, WORDS);
       expect((await until(() => page.evaluate(() => document.querySelector('.live .live-n')), (v) => !!v)) !== null || true, 'waiting');
       await until(() => on(page), (v) => v[0]?.tone === 'confirmed');
-      const nth = () => page.evaluate(() => document.querySelector('.live .live-n')?.textContent ?? '');
+      const nth = () => page.evaluate(() => document.querySelector('.live .live-n span')?.textContent ?? '');
+      expect(await page.evaluate(() => document.querySelector('.live .live-n kbd')?.textContent) === '⌘G', 'the stepping key stands beside "1 of 3" as the agent control shows its own');
       expect(await until(nth, (v) => v === '1 of 3') === '1 of 3', `"1 of 3" stands beside the model's target when it was torn: "${await nth()}"`);
       const quiet = await page.evaluate(() => getComputedStyle(document.querySelector('.live-n')).color === getComputedStyle(document.querySelector('.live-l em')).color);
       expect(quiet, '"1 of 3" is in the quiet tone, as the "new run" beside the name is');
@@ -200,6 +227,7 @@ async function main() {
       await page.keyboard.press('Meta+g');
       expect((await until(() => on(page), (v) => v[0]?.name === 'cuegrid'))[0]?.name === 'cuegrid' && (await nth()) === '1 of 3', 'and round to the first again');
       await page.keyboard.press('Meta+g');
+      await page.waitForTimeout(550);
       await page.keyboard.press('Enter');
       const s = await until(() => sent(page), (v) => !!v);
       expect(s?.taken === 1, `Return takes the choice shown (the second): taken ${JSON.stringify(s?.taken)}`);
@@ -235,6 +263,12 @@ async function main() {
         await page.waitForTimeout(PAUSE_PLUS);
       }
       expect((await previewed(page)).length === 4, `at most four are sent for one task (${(await previewed(page)).length})`);
+      // Emptying the field is no new task: the core's count and the page's go on.
+      await page.keyboard.press('Meta+a');
+      await page.keyboard.press('Backspace');
+      await type(page, 'something else entirely now');
+      await page.waitForTimeout(PAUSE_PLUS);
+      expect((await previewed(page)).length === 4, 'emptying the field gives the task no more previews');
       await page.context().close();
     }
     for (const [label, prefs, why] of [
@@ -264,6 +298,31 @@ async function main() {
       await type(page, WORDS);
       await page.waitForTimeout(PAUSE_PLUS);
       expect((await page.locator('.live').count()) === 0 && (await calls(page, 'route.guess')) === 0 && (await calls(page, 'route.preview')) === 0, 'a place chosen by hand: no line, and neither the core nor a model is asked');
+      await page.context().close();
+    }
+
+    {
+      // The page is hidden (or the composer put away) before the pause is over: nothing is asked of anyone.
+      const { page } = await home((i) => ({ liveGuesses: { [WORDS]: { project: i.cue } } }));
+      await type(page, WORDS);
+      await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+      await page.waitForTimeout(PAUSE_PLUS);
+      expect((await calls(page, 'route.preview')) === 0 && (await calls(page, 'route.guess')) === 0, 'a page hidden before the pause is over asks nobody');
+      await page.context().close();
+    }
+
+    // 5b. Placing now sends more: the first task that would have been placed by a model says so, with one action.
+    {
+      const r = flow(scene('normal'), 'asked');
+      r.prefs = [...r.prefs.filter((p) => p.id !== 'route_by' && p.id !== 'setup_hidden'), pref('route_by', { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 4 }), pref('setup_hidden', true)];
+      r.thoughts.find((t) => t.id === r.questions[0].thought_id).route = { by: 'local', model: null, pending: false, fallback: 'the agreement was to what was sent before: placing now sends more, and asks you again', quote: null, title: null, ms: 1 };
+      const page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
+      await page.waitForFunction(() => window.__ws?.ui.ready, null, { timeout: 15000 }).catch(() => {});
+      const card = await until(() => page.evaluate(() => [...document.querySelectorAll('.q-again')].map((e) => ({ words: e.querySelector('span').textContent, acts: e.querySelectorAll('button').length, first: e.parentElement.firstElementChild === e }))), (v) => v.length > 0);
+      expect(card.length === 1 && card[0].words === 'Placing now sends more and needs your agreement again.' && card[0].acts === 1 && card[0].first, `the question leads with one line and one action: ${JSON.stringify(card)}`);
+      expect(!(await page.locator('.live').count()), 'and the Composer says nothing of a target');
+      await page.click('.q-again button');
+      expect((await until(() => page.evaluate(() => window.__ws.ui.sheet?.kind + ':' + window.__ws.ui.sheet?.at), (v) => v.startsWith('settings'))) === 'settings:projects', 'the action opens the placing part of Settings');
       await page.context().close();
     }
 

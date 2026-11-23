@@ -12,7 +12,7 @@
 use crate::calls::Cx;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tasktap_proto::Empty;
 use tasktap_proto::call::Error;
@@ -74,20 +74,31 @@ impl Record {
         self.append(data, &did.line(id));
     }
 
-    /// Empties the record.
+    /// Empties the record, and takes a temporary file a trim left away.
     pub fn clear(&mut self, data: &Path) {
-        let _ = std::fs::remove_file(file(data));
+        let path = file(data);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("tmp"));
         self.lines = Some(0);
     }
 
     fn append(&mut self, data: &Path, line: &Value) {
         let path = file(data);
-        let mut open = std::fs::OpenOptions::new();
-        open.create(true).append(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-        let Ok(mut f) = open.open(&path) else { return };
-        let lines = self.lines.unwrap_or_else(|| lines_of(&path));
+        // What cannot be read is set aside before anything is written, never
+        // replaced by nothing.
+        let lines = match self.lines {
+            Some(lines) => lines,
+            None => lines_of(&path),
+        };
+        let Ok(mut f) = private(&path, false) else {
+            return;
+        };
+        // A line a crash cut short is ended: this entry starts on its own.
+        let mut last = *b"\n";
+        if f.seek(SeekFrom::End(-1)).is_ok() && f.read_exact(&mut last).is_ok() && last[0] != b'\n'
+        {
+            let _ = f.write_all(b"\n");
+        }
         if writeln!(f, "{line}").is_err() {
             return;
         }
@@ -101,7 +112,7 @@ impl Record {
     /// Rewrites the file with the newest [`KEPT`] entries, what was done
     /// with each folded in.
     fn trim(&mut self, path: &Path) {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let Some(text) = readable(path) else { return };
         let entries = fold(&text);
         let mut out = String::new();
         for entry in &entries {
@@ -109,14 +120,48 @@ impl Record {
             out.push('\n');
         }
         let next = path.with_extension("tmp");
-        if std::fs::write(&next, out).is_ok() && std::fs::rename(&next, path).is_ok() {
+        let written = private(&next, true).and_then(|mut f| f.write_all(out.as_bytes()));
+        if written.is_ok() && std::fs::rename(&next, path).is_ok() {
             self.lines = Some(entries.len());
         }
     }
 }
 
+/// The file opened for appending (or, `fresh`, made empty), readable by the
+/// person alone.
+fn private(path: &Path, fresh: bool) -> std::io::Result<std::fs::File> {
+    let mut open = std::fs::OpenOptions::new();
+    open.create(true).read(true).write(true);
+    match fresh {
+        true => open.truncate(true),
+        false => open.append(true),
+    };
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+    let f = open.open(path)?;
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    Ok(f)
+}
+
+/// The text of the file; none when it cannot be read, and then it is set
+/// aside under another name (never replaced by nothing). No file is no text.
+fn readable(path: &Path) -> Option<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(String::new()),
+        Err(_) => {
+            let at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis());
+            let _ = std::fs::rename(path, path.with_extension(format!("unreadable-{at}")));
+            None
+        }
+    }
+}
+
 fn lines_of(path: &Path) -> usize {
-    std::fs::read_to_string(path).map_or(0, |t| t.lines().count())
+    readable(path).map_or(0, |t| t.lines().count())
 }
 
 /// The entries of a record's text, oldest first and at most [`KEPT`], each
@@ -202,6 +247,59 @@ mod tests {
         assert_eq!(read(&data)[KEPT - 1]["did"], "other");
         record.clear(&data);
         assert!(read(&data).is_empty());
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    fn folder(name: &str) -> PathBuf {
+        let data =
+            std::env::temp_dir().join(format!("tasktap-placings-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        std::fs::create_dir_all(&data).unwrap();
+        data
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_file_is_the_persons_alone_also_after_a_trim() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = folder("mode");
+        let mut record = Record::default();
+        for n in 0..=(2 * KEPT) {
+            record.placed(&data, &n.to_string(), json!({}));
+        }
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert!(lines_of(&file(&data)) <= KEPT + 1, "it was trimmed");
+        assert_eq!(mode(&file(&data)), 0o600);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_set_aside_and_a_cut_line_ends_before_the_next_entry() {
+        let data = folder("aside");
+        std::fs::write(file(&data), [0xff, 0xfe, b'x']).unwrap();
+        let mut record = Record::default();
+        record.placed(&data, "1", json!({ "words": "kept" }));
+        assert_eq!(read(&data).len(), 1);
+        let aside: Vec<_> = (std::fs::read_dir(&data).unwrap().flatten())
+            .filter(|e| e.file_name().to_string_lossy().contains("unreadable"))
+            .collect();
+        assert_eq!(aside.len(), 1);
+        assert_eq!(std::fs::read(aside[0].path()).unwrap(), [0xff, 0xfe, b'x']);
+        // A line a crash cut short: the next entry is whole, on a line of its own.
+        let mut text = std::fs::read_to_string(file(&data)).unwrap();
+        text.push_str(r#"{"k":"placed","id":"cut"#);
+        std::fs::write(file(&data), text).unwrap();
+        let mut record = Record::default();
+        record.placed(&data, "2", json!({}));
+        let ids: Vec<_> = read(&data)
+            .iter()
+            .map(|e| e["id"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(ids, ["1", "2"]);
+        // Clear takes a temporary file that a trim left, too.
+        std::fs::write(file(&data).with_extension("tmp"), "x").unwrap();
+        record.clear(&data);
+        assert!(!file(&data).with_extension("tmp").exists() && read(&data).is_empty());
         let _ = std::fs::remove_dir_all(&data);
     }
 }

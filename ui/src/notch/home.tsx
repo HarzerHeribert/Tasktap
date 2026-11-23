@@ -10,8 +10,12 @@ import { lost, next, pending, running, settle, settling, Status, Told } from '..
 import { Answer as Act, Seat, type State, elapsed, plural, when } from '../ui.tsx';
 import { agentName, call, endedSays, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, unheard, why } from './model.ts';
 import { fold, peek } from './panel.ts';
+import { toPlacing } from '../question.tsx';
 
 /** The notch's hooks into the shared capture line, here and under a question. */
+// The question about a task a model would have placed, with the agreement to what was sent before, leads to Settings.
+toPlacing.go = () => void call('host.show', { surface: 'workspace', at: 'settings:projects' }).then(fold, fail);
+
 export const hooks = {
   // After the folder panel the notch takes the keyboard back.
   picked: () => void call('host.notch', { open: true, key: true }),

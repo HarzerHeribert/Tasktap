@@ -117,10 +117,18 @@
 .live-l{grid-area:1/1;display:flex;align-items:center;gap:var(--sp2);min-width:0;animation:live-in var(--t-fast) var(--ease) both}
 .live-l.out{animation:live-out var(--t-fast) var(--ease) both;pointer-events:none}
 .live-l>.amark{transition:color var(--t-fast) var(--ease)}
-.live-l b{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-label);color:var(--fg2);transition:color var(--t-fast) var(--ease)}
+.live-l b{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-label);color:var(--fg2);transition:color var(--t-fast) var(--ease)}
 .live-l[data-tone=confirmed] b{color:var(--fg)}
-.live-l em{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-style:normal;color:var(--fg3)}
+/* What gives way is the project's name (cut in the middle, as the task rows cut one); the way the task goes, "new run" or
+   the start of the session's title, never goes. */
+.live-l em{flex:0 1 auto;min-width:min(9ch,100%);overflow:hidden;text-overflow:ellipsis;font-style:normal;color:var(--fg3)}
+.live-n .keycap,.live-n kbd{margin-left:var(--sp1)}
 .live-n{color:var(--fg3)}
 @keyframes live-in{from{opacity:0}}
 @keyframes live-out{to{opacity:0}}
 @media (prefers-reduced-motion:reduce){.live-l{animation:none}.live-l.out{display:none}}
+
+/* The line a question leads with when placing now sends more and needs the person's agreement again (question.tsx). */
+.q-again{display:flex;align-items:center;gap:var(--sp2);margin-bottom:var(--sp2);font:var(--f-small);color:var(--fg2)}
+.q-again>span{flex:1;min-width:0}
+.q-again .btn{flex:none}

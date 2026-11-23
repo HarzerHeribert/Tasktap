@@ -20,6 +20,7 @@ import { Glyph, I } from '../ui.tsx';
 import { AGAIN, type Rank, ownMark, agreement, chatgptOffer, chatgptRow, moved, ownOffer, placeWhy, places, placing, ranked } from '../way.ts';
 import { CHATGPT, OWN, agentName, call, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row, Switch } from './form.tsx';
+import { toPlacing } from '../question.tsx';
 import { type Act, Frame } from './sheets.tsx';
 import { HERE, KEYS_KEPT, mac } from '../system.ts';
 
@@ -271,6 +272,9 @@ export function Placing() {
     </>
   );
 }
+
+// A question about a task a model would have placed, now that the agreement is to what was sent before, leads here.
+toPlacing.go = () => open({ kind: 'settings', at: 'placing' });
 
 /** Settings › Placing, under the placers, once placing is agreed to: whether the words of a task are sent to find
  *  its target while the person writes or speaks it (core preview.rs, `route.preview`). Off, no preview is sent and

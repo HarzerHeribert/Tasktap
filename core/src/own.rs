@@ -217,6 +217,30 @@ impl Own {
         limit: Duration,
         stop: &Stop,
     ) -> Result<String, Failed> {
+        self.call(to, request, limit, stop, false)
+    }
+
+    /// The same for a preview of the words of a task still being written:
+    /// it leaves no mark on the server's standing. It never marks it silent,
+    /// never warms it, and never changes the form it takes.
+    pub fn preview(
+        &self,
+        to: &Placing,
+        request: &str,
+        limit: Duration,
+        stop: &Stop,
+    ) -> Result<String, Failed> {
+        self.call(to, request, limit, stop, true)
+    }
+
+    fn call(
+        &self,
+        to: &Placing,
+        request: &str,
+        limit: Duration,
+        stop: &Stop,
+        preview: bool,
+    ) -> Result<String, Failed> {
         let key = match to.keyed.then(|| self.vault.get(&to.address)) {
             None => None,
             Some(Ok(Some(key))) => Some(key),
@@ -228,17 +252,18 @@ impl Own {
             }
             Some(Err(e)) => return Err(why(&e, None)),
         };
-        self.send(to, key.as_deref(), request, limit, stop)
+        self.send(to, key.as_deref(), request, limit, (stop, preview))
     }
 
-    /// The same with the key given.
+    /// The same with the key given. A preview changes nothing the next
+    /// placing goes by.
     fn send(
         &self,
         to: &Placing,
         key: Option<&str>,
         request: &str,
         limit: Duration,
-        stop: &Stop,
+        (stop, preview): (&Stop, bool),
     ) -> Result<String, Failed> {
         let (began, same) = (Instant::now(), format!("{} {}", to.address, to.model));
         let mut form = match &*self.form.lock().unwrap_or_else(PoisonError::into_inner) {
@@ -273,7 +298,7 @@ impl Own {
                 limit: left,
             };
             let answer = http::send(&post, wait).map_err(|e| {
-                if e == http::Failed::Slow {
+                if e == http::Failed::Slow && !preview {
                     self.seen(&to.address, |s| s.silent = Some(Instant::now()));
                 }
                 why(&chatgpt::unanswered(e, WHO, limit), key)
@@ -283,14 +308,19 @@ impl Own {
             let words = || chatgpt::said(&parsed, answer.status, key);
             let sentence = match answer.status {
                 200 => {
-                    self.seen(&to.address, |s| {
-                        *s = Seen {
-                            warm: true,
-                            silent: None,
-                        }
-                    });
+                    if !preview {
+                        self.seen(&to.address, |s| {
+                            *s = Seen {
+                                warm: true,
+                                silent: None,
+                            }
+                        });
+                    }
                     let text = reply(&parsed).map_err(|e| why(&e, key))?;
-                    *self.form.lock().unwrap_or_else(PoisonError::into_inner) = Some((same, form));
+                    if !preview {
+                        *self.form.lock().unwrap_or_else(PoisonError::into_inner) =
+                            Some((same, form));
+                    }
                     return Ok(text);
                 }
                 // The form is what a server may refuse: the next is asked.
@@ -373,7 +403,7 @@ pub fn lab(address: &str, model: &str, key: Option<&str>, request: &str) -> Resu
         model: model.into(),
         keyed: key.is_some(),
     };
-    match Own::default().send(&to, key, request, FIRST, &Stop::default()) {
+    match Own::default().send(&to, key, request, FIRST, (&Stop::default(), false)) {
         Ok(text) => Ok(text),
         Err(Failed::Why(why)) => Err(why),
         Err(_) => Err("it gave no answer".into()),

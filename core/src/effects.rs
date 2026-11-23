@@ -476,7 +476,7 @@ fn route(
 ) {
     use crate::route::{agreed, askable, home, narrow, on_pad, only, request, short, unsure};
     // A preview still asked for these words is not waited for any more.
-    core.seams.previews.drop_pending(id);
+    core.seams.previews.drop_pending();
     let found = read(core, |tx| {
         let thought = tx.thought(id)?;
         let asked = (thought.map(|t| request(tx, &t.text, current))).transpose()?;
@@ -763,7 +763,7 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         Asker::ChatGpt(_) | Asker::Own(_) => {
             drop(hear);
             let text = crate::route::asked(&chain.asked);
-            direct(core, &asker, text, limit, Some(heard))
+            direct(core, &asker, text, limit, (Some(heard), false))
         }
     };
     crate::calls::aside(core, ask, move |core, answer| {
@@ -902,12 +902,14 @@ fn answered(
 /// The direct call to ChatGPT or the own model with `text` (route.rs
 /// `asked`), for a placing or a preview, run off the core's thread; its
 /// answer's JSON text. With `undo`, Undo stops the call as it stops a tool.
+/// `preview`: a call for the words of a task still being written, which
+/// leaves no mark on the placer's standing (own.rs `preview`).
 pub(crate) fn direct(
     core: &mut Core,
     asker: &Asker,
     text: String,
     limit: Duration,
-    undo: Option<mpsc::Receiver<Asked>>,
+    (undo, preview): (Option<mpsc::Receiver<Asked>>, bool),
 ) -> Box<dyn FnOnce() -> Result<String, Failed> + Send> {
     let undo = |then: Box<dyn FnOnce() + Send>| {
         if let Some(heard) = undo {
@@ -935,7 +937,10 @@ pub(crate) fn direct(
             let stop = crate::own::Stop::default();
             let again = stop.clone();
             undo(Box::new(move || again.now()));
-            Box::new(move || asking.ask(&own, &text, limit, &stop))
+            Box::new(move || match preview {
+                true => asking.preview(&own, &text, limit, &stop),
+                false => asking.ask(&own, &text, limit, &stop),
+            })
         }
         Asker::Agent(..) => unreachable!("an agent is asked by its tool"),
     }
@@ -952,6 +957,20 @@ fn record(
     answer: &str,
 ) {
     use crate::route::{redact, shown};
+    // A task the person placed by hand was asked about only for its brief:
+    // the record says they placed it, with no model's choice in it.
+    if asked.picked.is_some() {
+        let entry = json!({
+            "at": core.seams.now().get(), "placer": "hand", "model": null,
+            "words": redact(&asked.text), "candidates": [], "answer": "",
+            "previews": core.seams.previews.sent(id),
+        });
+        let data = core.terminals.data().to_owned();
+        core.seams
+            .record
+            .placed(&data, &id.uuid().to_string(), entry);
+        return;
+    }
     let candidates: Vec<_> = shown(asked)
         .into_iter()
         .map(|(id, name)| json!({ "id": id, "name": name }))

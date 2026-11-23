@@ -250,6 +250,11 @@ export function ownMark(address: string): string {
 export const ownOffer = (address: string, here: string) =>
   `Your own model gets each task at ${address}${onThisMachine(address) ? `, which is on ${here}: the task does not leave ${here}` : ''}.`;
 
+/** The one line a question about a task leads with when the task would have been placed by a model but the agreement is
+ *  to what was sent before (core route.rs `AGAIN`, said in the thought's `route.fallback`). */
+export const AGAIN_LINE = 'Placing now sends more and needs your agreement again.';
+export const needsAgain = (t: Pick<Thought, 'route'>) => /^the agreement /.test(t.route?.fallback ?? '');
+
 /** What Setup and Settings say while an agreement is to what was sent before (`placing`: `again`). */
 export const AGAIN = 'Placing now sends more. Agree again to keep placing on.';
 /** What an agent's row says of its asking: about how long it takes, or why it is passed over now: its plan at its usage limit

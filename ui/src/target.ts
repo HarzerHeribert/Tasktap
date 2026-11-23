@@ -14,6 +14,12 @@ export const PAUSE = 600;
 export const STAND = 250;
 /** The fewest words a preview is made of. */
 export const MIN_WORDS = 3;
+/** How long a target is on show before Return may take it: the person has seen where the task goes. */
+export const SHOWN_FOR = 500;
+
+/** The id the previews of the words are made for: the thought a spoken one becomes, only while those spoken words are
+ *  what the target is for; typed words are a task of their own, never a pending spoken thought's. */
+export const taskOf = (speaking: boolean, spoken: string, mint: () => string) => (speaking && spoken ? spoken : mint());
 
 export const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
@@ -31,6 +37,8 @@ export const due = (o: { words: string; asked: string | null; sent: number }) =>
 
 export class Target {
   shown: Shown | null = null;
+  /** When the target on show came on show (or turned to the model's word). */
+  private at = 0;
   /** What the core's ranking said of `of`, and what the model's preview said, the choices in its order. */
   private provisional: { of: string; place: Place | null } | null = null;
   private confirmed: { of: string; choices: Place[] } | null = null;
@@ -44,17 +52,31 @@ export class Target {
   asked: string | null = null;
   sent = 0;
 
-  /** The task is sent, or its words are gone: nothing is kept of it. */
-  reset() {
-    this.shown = this.provisional = this.confirmed = this.wait = this.asked = null;
+  /** The words are gone: what is shown of them goes. What was asked of the model stays counted: emptying the field does
+   *  not make a new task, nor give it more previews. */
+  private clear() {
+    this.shown = this.provisional = this.confirmed = this.wait = null;
     this.words = '';
-    // The count of questions goes on: an answer to a task before this one is never taken for this one's.
-    this.step = this.sent = 0;
+    this.step = 0;
+  }
+
+  /** The task is sent: nothing is kept of it. The count of questions goes on: an answer to a task before this one is
+   *  never taken for this one's. */
+  done() {
+    this.clear();
+    this.asked = null;
+    this.sent = 0;
+  }
+
+  private show(want: Shown, now: number) {
+    const s = this.shown;
+    if (!s || keyOf(s.place) !== keyOf(want.place) || s.tone !== want.tone || s.at !== want.at) this.at = now;
+    this.shown = want;
   }
 
   /** The words are these now; returns when the line may change by itself next, in ms, if it may. */
   set(words: string, now: number): number | null {
-    if (!words.trim()) return (this.reset(), null);
+    if (!words.trim()) return (this.clear(), null);
     if (words !== this.words) this.step = 0;
     this.words = words;
     return this.settle(now);
@@ -92,34 +114,35 @@ export class Target {
   private settle(now: number): number | null {
     const want = this.want(), shown = this.shown;
     if (!want) return null;
-    if (!shown) return ((this.shown = want), null);
+    if (!shown) return (this.show(want, now), null);
     if (keyOf(want.place) === keyOf(shown.place)) {
       // The same place: the model's word on it is the one change that is made at once; a provisional one never takes it back.
       this.wait = null;
-      if (want.tone === 'confirmed' && (shown.tone !== 'confirmed' || shown.at !== want.at || shown.of !== want.of)) this.shown = want;
+      if (want.tone === 'confirmed' && (shown.tone !== 'confirmed' || shown.at !== want.at || shown.of !== want.of)) this.show(want, now);
       return null;
     }
     const key = keyOf(want.place);
     if (this.wait?.key !== key) this.wait = { key, since: now };
-    if (now - this.wait.since >= STAND) return ((this.shown = want), (this.wait = null), null);
+    if (now - this.wait.since >= STAND) return (this.show(want, now), (this.wait = null), null);
     return STAND - (now - this.wait.since);
   }
 
   /** The person steps to the model's next choice, which shows at once. */
-  next(): boolean {
+  next(now: number): boolean {
     const c = this.confirmed;
     if (!c || c.of !== this.words || c.choices.length < 2) return false;
     this.step = (this.step + 1) % c.choices.length;
-    this.shown = this.want();
+    this.show(this.want()!, now);
     this.wait = null;
     return true;
   }
 
-  /** What Return takes: the choice on show, when it is the model's for exactly these words and the person has it before
-   *  them; else none, and the task is asked about as any task is. */
-  take(words = this.words): number | null {
+  /** What Return takes: the choice on show, when it is the model's for exactly these words, has been on show for
+   *  `SHOWN_FOR` ms and is whole to the eye (`whole`: the way it goes, "new run" or the start of the session's title, is
+   *  not cut); else none, and the task is asked about as any task is. */
+  take(words: string, now: number, whole = true): number | null {
     const c = this.confirmed, s = this.shown;
-    if (!c || c.of !== words || words !== this.words || s?.tone !== 'confirmed') return null;
+    if (!c || c.of !== words || words !== this.words || s?.tone !== 'confirmed' || !whole || now - this.at < SHOWN_FOR) return null;
     const at = this.step % c.choices.length;
     return keyOf(c.choices[at]!) === keyOf(s.place) ? at : null;
   }

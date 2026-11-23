@@ -567,6 +567,21 @@ impl Watch {
         }
     }
 
+    /// Waits for the replies to calls sent with [`Watch::send`], which may
+    /// come in any order: the results, in the order of `ids`. A reply to
+    /// another call is not waited for.
+    pub fn replies<C: Call>(&mut self, ids: &[CallId]) -> Vec<Result<C::Result, Error>> {
+        let mut got: Vec<Option<Result<C::Result, Error>>> = ids.iter().map(|_| None).collect();
+        while got.iter().any(Option::is_none) {
+            if let Some((id, outcome)) = self.step()
+                && let Some(at) = ids.iter().position(|i| *i == id)
+            {
+                got[at] = Some(C::result(outcome));
+            }
+        }
+        got.into_iter().flatten().collect()
+    }
+
     pub fn call<C: Call>(&mut self, args: &C::Args) -> Result<C::Result, Error> {
         let id = self.send::<C>(args);
         self.reply::<C>(id)

@@ -8,10 +8,16 @@ import { uuid7 } from './client.ts';
 import { keyName } from './keys.ts';
 import { type Asked, asked, short } from './place.ts';
 import { talkKey } from './page.ts';
-import { agentName, call, fail, focus, openQuestions, placeArgs, pref, projectName, records, redraw, sessionName } from './page.ts';
+import { agentName, call, fail, focus, openQuestions, placeArgs, placers, pref, projectName, records, redraw, sessionName } from './page.ts';
 import { control, mine, talk } from './speech/record.ts';
 import { Answer, I, Key, Level, Mark } from './ui.tsx';
-import { briefOf } from './way.ts';
+import { AGAIN_LINE, briefOf, needsAgain, placing } from './way.ts';
+
+/** Where the action of that line leads: the placing part of Settings, which each page opens in its own way. */
+export const toPlacing = { go: () => {} };
+/** The first task that would have been placed by a model says it; the others only wait. */
+let againFor = '';
+const firstAgain = (id: string) => (againFor ||= id) === id;
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
 
@@ -257,6 +263,9 @@ export function Ask({ q, size, terminal, who, class: cls = '', on }: { q: Questi
     return (
       <div class={`ask-${size} ask-place ${cls}`} data-question={q.id} role="group" aria-label={`${q.prompt} ${short(text)}`.trim()}
         {...(size === 'cap' ? { 'data-keys': 'field' } : { 'data-keys': true, tabIndex: -1, onKeyDown: (e: KeyboardEvent) => keys(q, e, terminal) })}>
+        {said && needsAgain(said) && placing(pref('route_by'), placers()) !== 'on' && firstAgain(said.id) && (
+          <p class="q-again"><span>{AGAIN_LINE}</span><button type="button" class="btn" onClick={() => toPlacing.go()}>Agree again…</button></p>
+        )}
         {text && <p class="q-words" dir="auto" title={short(text)}>{text}</p>}
         <p class="q-asks">{size === 'cap' && <Mark s="asks" label="" />}{q.prompt}</p>
         {said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}

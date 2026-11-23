@@ -19,7 +19,7 @@ import { type Local, local, model, watch } from '../speech/local.ts';
 import { Glyph, I } from '../ui.tsx';
 import { AGAIN, type Rank, ownMark, agreement, chatgptOffer, chatgptRow, moved, ownOffer, placeWhy, places, placing, ranked } from '../way.ts';
 import { CHATGPT, OWN, agentName, call, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
-import { Row, Switch } from './form.tsx';
+import { Row, Switch, setPref } from './form.tsx';
 import { toPlacing } from '../question.tsx';
 import { type Act, Frame } from './sheets.tsx';
 import { HERE, KEYS_KEPT, mac } from '../system.ts';
@@ -265,7 +265,7 @@ export function Placing() {
       </Row>
       <Targeting />
       <Recorded />
-      <Row name="What is sent">
+      <Row name="Details">
         <Sent rows={shown} />
         <Instructions />
       </Row>

@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn a_key_the_system_refuses_leaves_the_old_one_registered_and_says_it_is_taken() {
-        let (first, other, taken) = (Key::capture(true), key(true, false, "KeyG"), key(false, true, "Space"));
+        let (first, other, taken) = (Key::capture(true), key(true, false, "KeyU"), key(false, true, "Space"));
         let mut system = System::new(vec![taken.clone()]);
         let mut held = None;
         // The first key, as the preference's default is registered at start.
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn a_change_the_core_refuses_puts_back_the_key_that_was_registered() {
-        let (first, other) = (Key::capture(true), key(true, false, "KeyG"));
+        let (first, other) = (Key::capture(true), key(true, false, "KeyU"));
         let mut system = System::new(Vec::new());
         let mut held = None;
         follow(&mut held, first.clone(), system.set()).unwrap();
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn a_review_build_takes_no_global_key_chosen_or_not() {
-        let mine = key(true, false, "KeyG");
+        let mine = key(true, false, "KeyU");
         assert_eq!(TAKES, !crate::REVIEW);
         assert_eq!(global(Some(mine.clone()), usual), TAKES.then(|| mine.clone()));
         assert_eq!(global(None, usual), TAKES.then(usual));
@@ -599,7 +599,7 @@ mod tests {
         }
         let mac = cfg!(target_os = "macos");
         let others = [(PrefKey::CaptureKey, Key::capture(mac)), (PrefKey::TalkKey, Key::talk(mac))];
-        let (mine, taken) = (key(true, false, "KeyG"), key(true, false, "KeyH"));
+        let (mine, taken) = (key(true, false, "KeyU"), key(true, false, "KeyH"));
         // No question waits: the system is asked for the key and it is let go at once; nothing stays registered.
         let mut answers = defaults();
         let mut system = System::new(vec![taken.clone()]);
@@ -660,7 +660,7 @@ mod tests {
             return;
         }
         let mac = cfg!(target_os = "macos");
-        let (first, mine, taken) = (Key::capture(mac), key(true, false, "KeyG"), key(true, false, "KeyH"));
+        let (first, mine, taken) = (Key::capture(mac), key(true, false, "KeyU"), key(true, false, "KeyH"));
         let others = [(PrefKey::NoKey, Key::answer(mac, Which::No)), (PrefKey::TalkKey, Key::talk(mac))];
         let mut system = System::new(vec![taken.clone()]);
         let mut held = None;
@@ -683,7 +683,7 @@ mod tests {
     #[test]
     fn the_talk_key_another_app_holds_is_refused_and_none_stays_registered() {
         let mac = cfg!(target_os = "macos");
-        let (mine, taken) = (key(true, false, "KeyG"), key(true, false, "KeyH"));
+        let (mine, taken) = (key(true, false, "KeyU"), key(true, false, "KeyH"));
         let others = [(PrefKey::CaptureKey, Key::capture(mac)), (PrefKey::YesKey, Key::answer(mac, Which::Yes))];
         let mut now = Some(Key::talk(mac));
         // Another app holds it globally, so it would never reach Tasktap: refused, the talk key before stays.

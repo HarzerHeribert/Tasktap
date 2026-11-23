@@ -14,7 +14,7 @@ import { toPlacing } from '../question.tsx';
 
 /** The notch's hooks into the shared capture line, here and under a question. */
 // The question about a task a model would have placed, with the agreement to what was sent before, leads to Settings.
-toPlacing.go = () => void call('host.show', { surface: 'workspace', at: 'settings:projects' }).then(fold, fail);
+toPlacing.go = () => void call('host.show', { surface: 'workspace', at: 'settings:placing' }).then(fold, fail);
 
 export const hooks = {
   // After the folder panel the notch takes the keyboard back.

@@ -365,7 +365,7 @@ async function main() {
       expect(card.length === 1 && card[0].words === 'Placing now sends more and needs your agreement again.' && card[0].acts === 1 && card[0].first, `the question leads with one line and one action: ${JSON.stringify(card)}`);
       expect(!(await page.locator('.live').count()), 'and the Composer says nothing of a target');
       await page.click('.q-again button');
-      expect((await until(() => page.evaluate(() => window.__ws.ui.sheet?.kind + ':' + window.__ws.ui.sheet?.at), (v) => v.startsWith('settings'))) === 'settings:projects', 'the action opens the placing part of Settings');
+      expect((await until(() => page.evaluate(() => window.__ws.ui.sheet?.kind + ':' + window.__ws.ui.sheet?.at), (v) => v.startsWith('settings'))) === 'settings:placing', 'the action opens the placing part of Settings');
       await page.context().close();
     }
 
@@ -398,11 +398,12 @@ async function main() {
     // 7. Settings: the two rows.
     if (out) {
       const { page } = await home(() => ({ placings: 1284 }), [CHATGPT, BY(), pref('keep_days', 0)], { dpr: 2 });
-      await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'projects' }), window.__motion.redraw()));
+      await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'placing' }), window.__motion.redraw()));
       await page.waitForSelector('.set-pane .set');
       await page.waitForFunction(() => document.querySelector('.set-pane').textContent.includes('1,284 entries'), null, { timeout: 15000 });
       const rows = await page.evaluate(() => [...document.querySelectorAll('.set-pane .set')].map((r) => r.querySelector('.t').textContent));
-      expect(rows.includes('Show the target while you write') && rows.includes('Placing record'), `Settings › Projects has both rows: ${rows.join(', ')}`);
+      const order = ['Who finds the project', 'Show the target while you write', 'Placing record', 'Details'].map((n) => rows.indexOf(n));
+      expect(order.every((i, k) => i >= 0 && (!k || i > order[k - 1])), `Settings › Placing has both rows, after the placers' rows and before the details of what is sent: ${rows.join(', ')}`);
       const at = await page.evaluate(() => { const els = [...document.querySelectorAll('.set-pane .set')].filter((r) => ['Show the target while you write', 'Placing record'].includes(r.querySelector('.t').textContent)); const a = els[0].getBoundingClientRect(), b = els[els.length - 1].getBoundingClientRect(); return { x: a.x, y: a.y, w: Math.max(a.width, b.width), h: b.bottom - a.top }; });
       await page.screenshot({ path: path.join(out, '6-settings-rows.png'), clip: { x: Math.max(0, at.x - 20), y: Math.max(0, at.y - 20), width: at.w + 40, height: at.h + 80 } });
       await page.context().close();

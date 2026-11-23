@@ -1204,7 +1204,7 @@ row_key "Fixture agent" ArrowUp true
 until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent|fixture-probed" && row_key fixture-silent " "
 until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed" && row_key fixture-probed " "
 until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed off" || fail "the order by the keyboard" "$(js workspace "$ranks")"
-until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(__ws.ui.sheet?.kind)" 5 '{"agents":[{"agent":"fixture","model":"fixture-small","on":true},{"agent":"fixture-silent","model":"fixture-small","on":false},{"agent":"fixture-probed","model":"fixture-small","on":false}],"terms":4}settings' \
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(__ws.ui.sheet?.kind)" 5 '{"agents":[{"agent":"fixture","model":"fixture-small","on":true},{"agent":"fixture-silent","model":"fixture-small","on":false},{"agent":"fixture-probed","model":"fixture-small","on":false}],"terms":5}settings' \
   && pass "the switch writes the agreement, and each change of order and each switch is written at once, with its model and switch, while Settings stays where it is" || fail "the agreement"
 js workspace "(__ws.dismiss(), 1)" >/dev/null
 # The thought sent before is asked about at the Composer: kept for later by its row's number in the field, then dropped.

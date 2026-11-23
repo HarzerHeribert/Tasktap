@@ -246,7 +246,9 @@ jobs:
     name: Public site
     # Not ubuntu-latest: that is Ubuntu 26.04 now, for which Playwright 1.60 has no browser.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The browsers' system packages took ten minutes to install on a slow day (2026-11-23), and the story check
+    # was cut off at fifteen: twice the usual seven minutes is not enough room.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:

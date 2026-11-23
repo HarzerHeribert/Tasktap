@@ -332,6 +332,7 @@ pub fn told(app: &AppHandle, active: Option<bool>, window: Option<Option<&str>>)
 
 /// Whether any of a window can be seen (the Mac): a window on another Space, minimised or hidden is not in front,
 /// whatever has the keyboard.
+#[cfg(target_os = "macos")]
 pub fn seen(app: &AppHandle, label: &str, seen: bool) {
     let was = with(|st| {
         let was = seen_now(st);

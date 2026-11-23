@@ -77,9 +77,13 @@ async function main(seconds) {
     // The layer rests unless something goes on in the window in use: agents are working, and this window is that one.
     await page.evaluate(() => (Object.assign(window.__motion.debug, { state: 'working', active: true }), window.__motion.redraw()));
     // A region taking focus and the sidebar sliding are part of a day: each once, early, so what they leave is counted.
+    // The sidebar slides out and in, each when the one before has ended (a slide asked for during another is dropped, and
+    // a sidebar left shut has no glyphs to soak: the page says when a slide has ended, not a clock).
+    const slid = (open) => page.waitForFunction((open) => !window.__ws.ui.slide && window.__ws.ui.sidebar === open, open, { timeout: 30000 }).then(() => true, () => false);
     await page.evaluate(() => (window.__ws.greet('main'), window.__ws.command('sidebar')));
-    await page.waitForTimeout(1500);
+    if (!(await slid(false))) failures.push('the sidebar did not slide out in 30 s');
     await page.evaluate(() => window.__ws.command('sidebar'));
+    if (!(await slid(true))) failures.push('the sidebar did not slide in again in 30 s');
     await page.waitForTimeout(13500);
     // The glyphs come with the layer and sway once they are in: sampled once one does, not at a time of the clock's.
     let swaying = false;

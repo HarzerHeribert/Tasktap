@@ -676,7 +676,7 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
     let mut w = core.device();
     let key = json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyK"});
     let held = |control: bool, code: &str| json!({"control": control, "alt": false, "shift": false, "meta": false, "code": code});
-    // Two modifiers: a key taken from other apps on either system, and none of Tasktap's own window's.
+    // Two modifiers: a key taken from other apps on either system, and none of Tasktap's own window's: Windows adds Shift to Command for a letter, so Ctrl+Shift+L or M is a command there; U and H are not one on either system.
     let two = |code: &str| json!({"control": true, "alt": false, "shift": true, "meta": false, "code": code});
     let settings = [
         ("return_sends", json!(false)),
@@ -687,12 +687,12 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ("terminal_contrast", json!(false)),
         ("text_size", json!("small")),
         ("update_checks", json!(false)),
-        ("question_key", two("KeyL")),
+        ("question_key", two("KeyU")),
         (
             "yes_key",
             json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyY"}),
         ),
-        ("no_key", two("KeyM")),
+        ("no_key", two("KeyH")),
     ];
     for (id, value) in &settings {
         let args = json!({"c": "prefs", "id": id, "patch": value});
@@ -740,12 +740,12 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
     // sentence names the key that has it already.
     let taken_by = |id: PrefKey| tasktap_proto::Shortcut::taken(id).unwrap();
     for (id, patch, why) in [
-        ("capture_key", two("KeyM"), taken_by(PrefKey::NoKey)),
+        ("capture_key", two("KeyH"), taken_by(PrefKey::NoKey)),
         ("capture_key", two("Space"), taken_by(PrefKey::TalkKey)),
-        ("talk_key", two("KeyL"), taken_by(PrefKey::QuestionKey)),
+        ("talk_key", two("KeyU"), taken_by(PrefKey::QuestionKey)),
         ("talk_key", key.clone(), taken_by(PrefKey::CaptureKey)),
         ("question_key", key.clone(), taken_by(PrefKey::CaptureKey)),
-        ("yes_key", two("KeyM"), taken_by(PrefKey::NoKey)),
+        ("yes_key", two("KeyH"), taken_by(PrefKey::NoKey)),
         ("no_key", two("Space"), taken_by(PrefKey::TalkKey)),
     ] {
         assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");

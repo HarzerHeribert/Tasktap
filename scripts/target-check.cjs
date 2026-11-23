@@ -347,8 +347,14 @@ async function main() {
     {
       // The page is hidden (or the composer put away) before the pause is over: nothing is asked of anyone.
       const { page } = await home((i) => ({ liveGuesses: { [WORDS]: { project: i.cue } } }));
-      await type(page, WORDS);
-      await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+      // The words come as one input and the page is hidden in the same task, so the page is hidden before any pause over
+      // them can end, whatever the machine's pace (typed key by key, a slow machine let the pause end between two keys).
+      await page.focus(FIELD);
+      await page.evaluate((words) => {
+        document.execCommand('insertText', false, words);
+        Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, WORDS);
       await page.waitForTimeout(PAUSE_PLUS);
       expect((await calls(page, 'route.preview')) === 0 && (await calls(page, 'route.guess')) === 0, 'a page hidden before the pause is over asks nobody');
       await page.context().close();
@@ -385,7 +391,8 @@ async function main() {
       await page.keyboard.down('Alt');
       await page.keyboard.down('Space');
       await page.waitForSelector('.cap-row.hear', { timeout: 15000 }).catch(() => {});
-      const d = await page.evaluate(() => (window.__fake.records.dictations || [])[0]);
+      // The row is the core's, which makes it a moment after the page shows the listening line: wait for it, not for a time.
+      const d = await until(() => page.evaluate(() => (window.__fake.records.dictations || [])[0]), (v) => !!v, 8000);
       if (d) await page.evaluate((x) => window.__fake.push({ t: 'change', rev: 9000, sets: [{ c: 'dictations', put: [{ ...x, text: 'make the header stay on one line', level: 55, rev: 9000 }] }] }), d);
       await until(() => on(page), (v) => v[0]?.tone === 'confirmed', 8000);
       expect((await on(page)).length === 1, `while the person speaks into the notch, the line shows in the notch: ${JSON.stringify(await page.evaluate(() => ({ calls: window.__fake.calls.filter((c) => c.startsWith('route')), live: document.querySelector('.live')?.outerHTML, dict: window.__fake.records.dictations })))}`);

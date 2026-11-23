@@ -178,6 +178,9 @@
       return reply(id, 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake');
     }
     if (name === 'speech.terms') return reply(id, terms.speech);
+    // The placing record's count, and its clearing (`records.placings`).
+    if (name === 'placings.count') return reply(id, records.placings ?? 0);
+    if (name === 'placings.clear') return (records.placings = 0), reply(id, null);
     const pref = (key, value) => {
       rev++;
       records.prefs = (records.prefs || []).filter((p) => p.id !== key);
@@ -239,6 +242,19 @@
       return reply(id, null);
     }
     if (name === 'dictation.cancel') return dictation(args.id) && row(dictation(args.id), true), reply(id, null);
+    // The live target: the core's ranking by the text (`records.liveGuesses`, else none), and the model's preview by the text
+    // (`records.livePreviews`: the choices, and `ms` the answer is late by; a text not there gets none). Every preview asked
+    // is kept in `window.__fake.previewed`; a preview that is dropped answers none, as the core does.
+    if (name === 'route.guess') return reply(id, { to: (records.liveGuesses || {})[args.text] ?? null });
+    if (name === 'route.preview') {
+      (window.__fake.previewed ??= []).push(args);
+      const p = (records.livePreviews || {})[args.text];
+      // As the core sends it: a last word still being written that looks like a key's start is held back (core preview.rs
+      // `looks_like_key`), and the answer is then for fewer words (`whole` false).
+      const last = args.text.trim().split(/\s+/).pop() || '', unfinished = !/\s$/.test(args.text);
+      const key = /^(sk-|ghp_|gho_|xox|AKIA|eyJ)/.test(last) || (last.length >= 12 && /[A-Za-z]/.test(last) && /[0-9]/.test(last) && !/[\/.]/.test(last));
+      return void setTimeout(() => ((window.__fake.previewedAt ??= []).push(performance.now()), reply(id, { choices: p ? p.choices : [], whole: !(unfinished && key) })), p?.ms || 0);
+    }
     // `hints`: where the router would send a text typed, by the text; else nothing is said.
     if (name === 'route.hint') return reply(id, (records.hints || {})[args.text] ?? null);
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.

@@ -628,7 +628,7 @@ mod tests {
         // A question waits: the new key is registered and the one before let go, at once.
         let mut system = System::new(Vec::new());
         answers.ask(true, system.set());
-        let other = key(true, false, "KeyE");
+        let other = key(true, false, "KeyQ");
         system.asked.clear();
         answers.try_key(Which::Yes, Some(other.clone()), &others, system.set()).unwrap();
         assert_eq!(system.asked, vec![(other.clone(), true), (mine.clone(), false)]);

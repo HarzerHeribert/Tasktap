@@ -1732,14 +1732,24 @@ running=$(ask workspace "eval [...__ws.records.terminals.values()].filter(t=>t.s
 sleep 1
 # A workspace in a window of its own: out of the main window with its panes, back when that window closes, and out again
 # for the relaunch below. The window has a label of its own, so the page in it is asked as `ws-<project>`.
+# What a terminal of the workspace shows, to be found again where the workspace goes: the first line of its screen, in base64 (it
+# may hold any character), asked of whichever page shows it.
+cur="$(js workspace "[...__ws.engines].find(([id, e]) => e.element.isConnected && !e.element.hidden && __ws.records.terminals.get(id)?.project_id === '$project')?.[0] ?? ''")"
+want="$(js workspace "btoa(unescape(encodeURIComponent((__ws.text('$cur') ?? '').split('\\n').find((l) => l.trim())?.trim().slice(0, 40) ?? '')))")"
+screen_has() { echo "eval String((w => (__ws.text('$cur') ?? '').includes(decodeURIComponent(escape(atob(w)))))('$want'))"; }
+[ -n "$cur" ] && [ -n "$want" ] || fail "a terminal shown in the workspace has words on its screen" "terminal '$cur', its first line '$want'"
 js workspace "(__ws.call('host.window', { do: 'pop', project: '$project', w: 900, h: 600 }), 1)" >/dev/null
 until_has workspace "eval JSON.stringify([...__ws.ui.out])" 15 "$project" \
   && until_has "ws-$project" "eval __ws.ui.only + ' ' + document.querySelectorAll('.side').length + ' ' + document.querySelectorAll('.pane:not([hidden])').length" 10 "$project 0 $panes" \
   && [ "$(hstate "'ws-$project' in d['windows']")" = True ] \
   && pass "a workspace taken out has a window of its own, with no sidebar and its panes, and the main window lets go of it" || fail "a workspace in a window of its own" "$(js workspace "JSON.stringify([...__ws.ui.out])")"
+[ "$(js workspace "__ws.ui.view")" != "$project" ] && until_has "ws-$project" "$(screen_has)" 10 "true" \
+  && pass "the workspace has left the main window, which shows another view, and its window shows the terminal's screen as it was" || fail "the workspace shows in its window" "main shows $(js workspace "__ws.ui.view"); the window: $(js "ws-$project" "__ws.text('$cur')" | head -c 200)"
 send "close ws-$project"
 until_has workspace "eval JSON.stringify([...__ws.ui.out]) + ' ' + __ws.ui.view" 10 "[] $project" \
   && pass "closing a workspace's window puts the workspace back into the main window, in view" || fail "closing a workspace's window"
+until_has workspace "$(screen_has)" 10 "true" && until_has workspace "eval document.querySelectorAll('.pane:not([hidden])').length" 5 "$panes" \
+  && pass "back in the main window the workspace shows its panes and the terminal's screen as it was" || fail "the workspace's terminal after its window closed" "$(js workspace "__ws.text('$cur')" | head -c 200)"
 js workspace "(__ws.call('host.window', { do: 'pop', project: '$project', w: 900, h: 600 }), 1)" >/dev/null
 until_has workspace "eval JSON.stringify([...__ws.ui.out])" 15 "$project" || fail "the workspace is out again before the quit"
 quit && pass "the app quits on request" || fail "the app quits on request"

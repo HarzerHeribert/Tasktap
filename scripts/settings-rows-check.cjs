@@ -615,6 +615,10 @@ async function main() {
     await server.close();
   }
   console.log(failures.length ? `FAIL  ${failures.length} of the rows' checks` : `PASS  every row driven by the pointer and the keyboard, in Chromium on a Mac and on Windows${tried.includes('webkit') ? ' and in WebKit on a Mac, with WebKit\'s sweep of the controls a click hands keys to' : ' (not in WebKit, which is not installed here)'}, at text size ${TEXT}; pictures in ${out}`);
+  // What the pages themselves reported is in no line above: say each once, with how often.
+  const said = new Map();
+  for (const f of failures.filter((f) => f.includes(': page: '))) said.set(f, (said.get(f) || 0) + 1);
+  for (const [f, n] of [...said].slice(0, 40)) console.log(`FAIL  ${n} times: ${f.slice(0, 600)}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

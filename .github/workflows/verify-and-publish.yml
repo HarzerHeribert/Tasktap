@@ -128,6 +128,9 @@ jobs:
       # links-check, frame-check, voice-check and speech-check in the host job.)
       - name: Settings' rows by the pointer and the keyboard, in Chromium and WebKit
         run: node scripts/settings-rows-check.cjs "$RUNNER_TEMP/pages/rows"
+      # After an update the new page talks to the 2.0.0 core for as long as its terminals run.
+      - name: A core of 2.0.0 is offered only what it answers, and shows no error
+        run: node scripts/earlier-check.cjs
       # What a part of a page undoes when it goes, undone that moment, never after the next frame (the hold-to-talk
       # recorder's defect was of that kind).
       - name: What goes with a part of a page goes at once, in Chromium and WebKit
@@ -197,7 +200,8 @@ jobs:
   smoke:
     name: Smoke on macOS (the real app on the fixture agent)
     runs-on: macos-26
-    timeout-minutes: 45
+    # Sixty, not forty-five: a passing smoke took 2657 s on a slow day and the job was cut off as it ended (run 45202257275).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:

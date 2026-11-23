@@ -279,6 +279,9 @@ pub enum Effect {
         auto: bool,
         by: Option<RouteBy>,
         picked: Option<Destination>,
+        /// The choice the person took of the preview they saw
+        /// (`Capture::taken`).
+        taken: Option<u8>,
     },
     /// Stop asking the router about the thought: its answer is not wanted.
     Unroute(ThoughtId),
@@ -1199,7 +1202,7 @@ impl Machine<'_, '_> {
             None => {
                 let mut t = t;
                 let by = self.consent()?;
-                self.ask(&mut t, (c.current, c.view, c.auto), by, None);
+                self.ask(&mut t, (c.current, c.view, c.auto), by, (None, c.taken));
                 self.save(t)
             }
         }
@@ -1222,7 +1225,7 @@ impl Machine<'_, '_> {
         t: &mut Thought,
         (current, view, auto): (Option<SessionId>, Option<ProjectId>, bool),
         by: Option<RouteBy>,
-        picked: Option<Destination>,
+        (picked, taken): (Option<Destination>, Option<u8>),
     ) {
         // Until one answers, the first the person lets place them.
         let first = by.as_ref().and_then(|by| by.agents.iter().find(|p| p.on));
@@ -1239,6 +1242,7 @@ impl Machine<'_, '_> {
             auto,
             by,
             picked,
+            taken,
         });
     }
 
@@ -1476,7 +1480,7 @@ impl Machine<'_, '_> {
         let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
         let wordy = brief.is_none() && t.brief.is_none() && !crate::route::short(&t.text);
         if let (true, false, Some(by)) = (wordy, failed, self.consent()?) {
-            self.ask(&mut t, (None, None, false), Some(by), Some(to));
+            self.ask(&mut t, (None, None, false), Some(by), (Some(to), None));
         }
         // Picked while the router's question was still open: that question is moot.
         let id = t.id;

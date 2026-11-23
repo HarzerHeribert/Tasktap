@@ -2201,7 +2201,7 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
             .instructions
             .contains("Add nothing the person did not say")
     );
-    assert_eq!(terms.sends.len(), 5);
+    assert_eq!(terms.sends.len(), 6);
     // In the words the interface uses (docs/projects-design.md, "Words"):
     // projects, and nothing is "routed".
     assert_eq!(

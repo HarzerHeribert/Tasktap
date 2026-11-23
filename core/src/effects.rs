@@ -34,6 +34,7 @@ use crate::agents::checks::{self, Asked, Failed};
 use crate::calls::{Caller, Cx};
 use crate::conn::Link;
 use crate::isolate::{Git, Owner};
+use crate::route::{Asker, accept};
 use crate::serve::Core;
 use crate::state::{
     self, Deliver, Destination, Effect, Event, Launch, Launcher, Report, Route, Router, Worktree,
@@ -142,6 +143,8 @@ pub struct Seams {
     pub made: Vec<ProjectId>,
     /// The private record of what models placed and what the person did.
     pub record: crate::placings::Record,
+    /// What the previews of the tasks being written found (`preview.rs`).
+    pub previews: crate::preview::Previews,
 }
 
 struct Timer {
@@ -338,8 +341,9 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 auto,
                 by,
                 picked,
+                taken,
             } => {
-                route(core, thought, (current, view, auto), by, picked);
+                route(core, thought, (current, view, auto), by, (picked, taken));
                 None
             }
             Effect::Unroute(thought) => {
@@ -468,9 +472,11 @@ fn route(
     id: ThoughtId,
     (current, view, auto): (Option<SessionId>, Option<ProjectId>, bool),
     by: Option<RouteBy>,
-    picked: Option<Destination>,
+    (picked, taken): (Option<Destination>, Option<u8>),
 ) {
     use crate::route::{agreed, askable, home, narrow, on_pad, only, request, short, unsure};
+    // A preview still asked for these words is not waited for any more.
+    core.seams.previews.drop_pending(id);
     let found = read(core, |tx| {
         let thought = tx.thought(id)?;
         let asked = (thought.map(|t| request(tx, &t.text, current))).transpose()?;
@@ -577,6 +583,30 @@ fn route(
         lost: false,
         spent: Duration::ZERO,
     };
+    // The person pressed Return on the target they saw (`taken`): the answer
+    // to a preview of exactly these words stands, with no second question,
+    // while it is still what the first placer would be asked and still finds
+    // the same places (the records may have changed since).
+    if let Some(i) = taken.filter(|_| picked.is_none())
+        && let Some(c) = core.seams.previews.confirmed(id, &chain.asked.text)
+    {
+        let first =
+            (chain.left.front()).is_some_and(|a| (a.id(), a.model()) == (c.asker, &*c.model));
+        let found = first
+            .then(|| accept(&chain.asked, &c.answer).ok())
+            .flatten();
+        if let Some(found) = found.filter(|(r, _)| crate::preview::places(r) == c.choices) {
+            let ms = Some(c.ms);
+            return answered(
+                core,
+                chain,
+                (c.asker, c.model.clone()),
+                &c.answer,
+                found,
+                (ms, Some(i)),
+            );
+        }
+    }
     // The tops of the projects' folders, off the core's thread and in a
     // bounded time; then the chain.
     crate::calls::aside(
@@ -591,7 +621,7 @@ fn route(
 
 /// How long the tops of the projects' folders are waited for: a folder
 /// that has not answered by then is sent without its names.
-const TOPS_WITHIN: Duration = Duration::from_millis(400);
+pub(crate) const TOPS_WITHIN: Duration = Duration::from_millis(400);
 
 /// Where the match on names sends a thought, or the person's pick: what
 /// places it when no model does.
@@ -730,35 +760,10 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             let schema = crate::route::SCHEMA;
             Box::new(move || checks::ask(agent, &how, text, schema, &folder, (hear, heard)))
         }
-        Asker::ChatGpt(model) => {
-            // The sign-in first, renewed where it has to be: that runs to its
-            // end whatever this placing's time.
-            let (gave, renewed) = mpsc::channel();
-            crate::chatgpt::renew(core, gave);
-            let asking = core.chatgpt.asking();
-            let (model, text) = (model.clone(), crate::route::asked(&chain.asked));
-            Box::new(move || {
-                // Undo stops the call as it stops a tool.
-                let (stop, wait) = mpsc::channel();
-                let forward = stop.clone();
-                undone(heard, move || {
-                    let _ = forward.send(crate::command::Signal::Stop);
-                });
-                drop(hear);
-                asking.ask(&model, &text, limit, renewed, (stop, wait))
-            })
-        }
-        Asker::Own(own) => {
-            let (asking, own, text) = (
-                core.own.clone(),
-                own.clone(),
-                crate::route::asked(&chain.asked),
-            );
-            let stop = crate::own::Stop::default();
-            let again = stop.clone();
-            undone(heard, move || again.now());
+        Asker::ChatGpt(_) | Asker::Own(_) => {
             drop(hear);
-            Box::new(move || asking.ask(&own, &text, limit, &stop))
+            let text = crate::route::asked(&chain.asked);
+            direct(core, &asker, text, limit, Some(heard))
         }
     };
     crate::calls::aside(core, ask, move |core, answer| {
@@ -780,46 +785,17 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
             .unwrap_or_else(lost)
             .and_then(|answer| Ok(accept(&chain.asked, &answer)?));
         let name = asker.id();
-        if let (Ok((Route::Clear { .. } | Route::Torn { .. }, _)), Some(said)) = (&accepted, said) {
-            record(core, id, &chain.asked, &asker, &said);
-        }
         let why = match (accepted, &asker) {
-            (Ok((route, found)), _) => {
-                // A model that sees nothing fit leaves the question to the
-                // person, with what the match on names offers: nothing
-                // starts, and nothing is kept unasked. A new project it
-                // proposes is asked about too, first among those.
-                let route = match route {
-                    Route::Unknown => chain.otherwise.clone(),
-                    route @ Route::Create { .. } => {
-                        let known = |folder: &std::path::Path| {
-                            let folder = folder.to_string_lossy();
-                            let known = |tx: &crate::store::Tx| {
-                                let card =
-                                    tx.cards()?.iter().any(|c| c.folder == folder && !c.hidden);
-                                Ok(card || tx.project_by_folder(&folder)?.is_some())
-                            };
-                            read(core, known).unwrap_or(false)
-                        };
-                        crate::route::create(route, chain.home.as_deref(), &chain.otherwise, known)
-                    }
-                    route => route,
-                };
-                // The other vehicle beside the one it chose, on a key of the
-                // decision line: a new run for a follow-up, and back.
-                let others = match (&route, chain.asked.picked) {
-                    (Route::Clear { to, .. }, None) => crate::route::vehicle(&chain.asked, *to),
-                    _ => None,
-                };
-                let how = Routing {
-                    by: name.into(),
-                    model: Some(asker.model().into()),
-                    ms,
-                    others: others.into_iter().map(Into::into).collect(),
-                    lost: chain.lost,
-                    ..found
-                };
-                return routed(core, id, route, how, chain.current);
+            (Ok(found), _) => {
+                let who = (name, asker.model().into());
+                return answered(
+                    core,
+                    chain,
+                    who,
+                    &said.unwrap_or_default(),
+                    found,
+                    (ms, None),
+                );
             }
             (Err(Failed::Gone), &Asker::Agent(agent, _)) => {
                 core.seams.gone.push(agent.id());
@@ -845,6 +821,126 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
     });
 }
 
+/// What a model decided about a thought, taken as its placing: kept in the
+/// placing record where it placed, and routed. A model that sees nothing
+/// fit leaves the question to the person, with what the match on names
+/// offers: nothing starts, and nothing is kept unasked. A new project it
+/// proposes is asked about too, first among those. `taken`: the person took
+/// this choice of a preview they saw before they sent the task, so a model
+/// torn between places has decided: the place taken, the others on their keys.
+fn answered(
+    core: &mut Core,
+    chain: Chain,
+    who: (&'static str, String),
+    answer: &str,
+    (route, found): (Route, Routing),
+    (ms, taken): (Option<u32>, Option<u8>),
+) {
+    let id = chain.id;
+    if matches!(route, Route::Clear { .. } | Route::Torn { .. }) {
+        record(core, id, &chain.asked, (who.0, &who.1), answer);
+    }
+    core.seams.previews.forget(id);
+    let (route, rest) = match (route, taken) {
+        (
+            Route::Torn {
+                mut candidates,
+                brief,
+            },
+            Some(i),
+        ) => {
+            let c = candidates.remove(usize::from(i).min(candidates.len() - 1));
+            let brief = brief.unwrap_or_else(|| chain.asked.text.clone());
+            let said = None;
+            (
+                Route::Clear {
+                    to: c.to,
+                    brief,
+                    said,
+                },
+                Some(candidates),
+            )
+        }
+        (route, _) => (route, None),
+    };
+    let route = match route {
+        Route::Unknown => chain.otherwise.clone(),
+        route @ Route::Create { .. } => {
+            let known = |folder: &std::path::Path| {
+                let folder = folder.to_string_lossy();
+                let known = |tx: &crate::store::Tx| {
+                    let card = tx.cards()?.iter().any(|c| c.folder == folder && !c.hidden);
+                    Ok(card || tx.project_by_folder(&folder)?.is_some())
+                };
+                read(core, known).unwrap_or(false)
+            };
+            crate::route::create(route, chain.home.as_deref(), &chain.otherwise, known)
+        }
+        route => route,
+    };
+    // The other vehicle beside the one it chose, on a key of the decision
+    // line: a new run for a follow-up, and back; or the places it was torn
+    // between.
+    let others: Vec<Destination> = match (&route, rest, chain.asked.picked) {
+        (_, Some(rest), _) => rest.into_iter().map(|c| c.to).collect(),
+        (Route::Clear { to, .. }, None, None) => crate::route::vehicle(&chain.asked, *to)
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    };
+    let how = Routing {
+        by: who.0.into(),
+        model: Some(who.1),
+        ms,
+        others: others.into_iter().map(Into::into).collect(),
+        lost: chain.lost,
+        ..found
+    };
+    routed(core, id, route, how, chain.current);
+}
+
+/// The direct call to ChatGPT or the own model with `text` (route.rs
+/// `asked`), for a placing or a preview, run off the core's thread; its
+/// answer's JSON text. With `undo`, Undo stops the call as it stops a tool.
+pub(crate) fn direct(
+    core: &mut Core,
+    asker: &Asker,
+    text: String,
+    limit: Duration,
+    undo: Option<mpsc::Receiver<Asked>>,
+) -> Box<dyn FnOnce() -> Result<String, Failed> + Send> {
+    let undo = |then: Box<dyn FnOnce() + Send>| {
+        if let Some(heard) = undo {
+            undone(heard, then);
+        }
+    };
+    match asker {
+        Asker::ChatGpt(model) => {
+            // The sign-in first, renewed where it has to be: that runs to its
+            // end whatever this call's time.
+            let (gave, renewed) = mpsc::channel();
+            crate::chatgpt::renew(core, gave);
+            let (asking, model) = (core.chatgpt.asking(), model.clone());
+            Box::new(move || {
+                let (stop, wait) = mpsc::channel();
+                let forward = stop.clone();
+                undo(Box::new(move || {
+                    let _ = forward.send(crate::command::Signal::Stop);
+                }));
+                asking.ask(&model, &text, limit, renewed, (stop, wait))
+            })
+        }
+        Asker::Own(own) => {
+            let (asking, own) = (core.own.clone(), own.clone());
+            let stop = crate::own::Stop::default();
+            let again = stop.clone();
+            undo(Box::new(move || again.now()));
+            Box::new(move || asking.ask(&own, &text, limit, &stop))
+        }
+        Asker::Agent(..) => unreachable!("an agent is asked by its tool"),
+    }
+}
+
 /// The placing record's entry for a task a model placed (`placings.rs`): the
 /// words, the choices and the answer as the model was sent and gave them,
 /// after the filter that leaves out what looks like a secret.
@@ -852,7 +948,7 @@ fn record(
     core: &mut Core,
     id: ThoughtId,
     asked: &crate::route::Request,
-    asker: &crate::route::Asker,
+    (placer, model): (&str, &str),
     answer: &str,
 ) {
     use crate::route::{redact, shown};
@@ -861,8 +957,9 @@ fn record(
         .map(|(id, name)| json!({ "id": id, "name": name }))
         .collect();
     let entry = json!({
-        "at": core.seams.now().get(), "placer": asker.id(), "model": asker.model(),
-        "words": redact(&asked.text), "candidates": candidates, "answer": redact(answer), "previews": 0,
+        "at": core.seams.now().get(), "placer": placer, "model": model,
+        "words": redact(&asked.text), "candidates": candidates, "answer": redact(answer),
+        "previews": core.seams.previews.sent(id),
     });
     let data = core.terminals.data().to_owned();
     core.seams

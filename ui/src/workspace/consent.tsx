@@ -261,10 +261,28 @@ export function Placing() {
       </Row>
       <Row name="Who finds the project" hint={MOVES}>
         <Ranks rows={shown} set={put} lead={<><SignIn /><OwnRow /></>} />
+      </Row>
+      <Targeting />
+      <Recorded />
+      <Row name="What is sent">
         <Sent rows={shown} />
         <Instructions />
       </Row>
     </>
+  );
+}
+
+/** Settings › Placing, under the placers, once placing is agreed to: whether the words of a task are sent to find
+ *  its target while the person writes or speaks it (core preview.rs, `route.preview`). Off, no preview is sent and
+ *  only the target Tasktap works out on this Mac shows. */
+export function Targeting() {
+  const { state } = useRanks();
+  if (state !== 'on') return null;
+  const name = 'Show the target while you write';
+  return (
+    <Row name={name} hint={`While you write or speak a task, the words so far are sent to find the target before you send the task. Off: only the target Tasktap works out on ${HERE} shows, and nothing is sent.`}>
+      <Switch on={pref('show_target')} name={name} set={(on) => setPref({ id: 'show_target', patch: on })} />
+    </Row>
   );
 }
 

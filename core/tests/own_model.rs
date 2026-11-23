@@ -1066,3 +1066,308 @@ fn the_record_keeps_every_task_a_model_placed_with_what_the_person_did_and_goes_
     assert_eq!(p.w.ok::<call::PlacingsCount>(&Empty {}), 0);
     assert!(tasktap_core::placings::read(&p.data.0).is_empty());
 }
+
+// ——— The live target: previews of the words so far ———
+
+/// A preview of \`text\` for the task \`task\`: where the model put it.
+fn preview(p: &mut Placing, task: ThoughtId, text: &str) -> Vec<tasktap_proto::Place> {
+    p.w.ok::<call::RoutePreview>(&words(task, text)).choices
+}
+
+/// The same data folder and server, the core started again after `change` was made to its store.
+fn restarted(p: Placing, change: impl FnOnce(&rusqlite::Connection)) -> Placing {
+    let Placing {
+        _core,
+        w,
+        data,
+        server,
+        app,
+        folio,
+    } = p;
+    drop(w);
+    _core.stop();
+    change(&rusqlite::Connection::open(data.0.join("core.db")).unwrap());
+    let path = path_with(&agents(&data.0));
+    let core = Core::start_env(&data.0, &[], &[("PATH", path.as_str())]);
+    let w = core.watch();
+    Placing {
+        _core: core,
+        w,
+        data,
+        server,
+        app,
+        folio,
+    }
+}
+
+fn words(task: ThoughtId, text: &str) -> tasktap_proto::PreviewWords {
+    tasktap_proto::PreviewWords {
+        task,
+        text: text.into(),
+        current: None,
+        view: None,
+    }
+}
+
+/// Return on the target the person saw: the task goes with the choice it took.
+fn send(p: &mut Placing, id: ThoughtId, text: &str, taken: Option<u8>) {
+    let capture = tasktap_proto::Capture {
+        agent: Some("fixture".into()),
+        taken,
+        ..typed(id, text)
+    };
+    p.w.ok::<call::ThoughtCapture>(&capture);
+}
+
+const WORDS: &str = "make the header stay on one line on small screens";
+
+fn project(p: ProjectId) -> tasktap_proto::Place {
+    tasktap_proto::Place::Project(p)
+}
+
+#[test]
+fn a_preview_starts_nothing_makes_no_task_and_is_in_no_record() {
+    let mut p = Placing::new("own-preview");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    p.server.says(Reply::Says(answer(
+        "clear",
+        "p2",
+        "Keep the header on one line.",
+    )));
+    let task = ThoughtId::mint();
+    assert_eq!(preview(&mut p, task, WORDS), [project(p.app)]);
+    p.w.sync();
+    // It asked the model once, as a sent task is asked, and made nothing.
+    let asked = p.server.asked();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(
+        asked[0].body["messages"][0],
+        json!({ "role": "system", "content": INSTRUCTIONS })
+    );
+    assert!(
+        asked[0].body["messages"][1]["content"]
+            .as_str()
+            .unwrap()
+            .contains(WORDS)
+    );
+    assert!(p.w.model.thoughts.is_empty() && p.w.model.sessions.is_empty());
+    assert!(tasktap_core::placings::read(&p.data.0).is_empty());
+    // The words of a sent task are exactly what the preview sent, so the
+    // task, sent as it stood, is not asked about again.
+    send(&mut p, task, WORDS, Some(0));
+    let th = p.settled(task);
+    assert_eq!(
+        (th.status, th.project_id, th.placed),
+        (Status::Routed, Some(p.app), Some(Placed::Model))
+    );
+    assert!(th.hold_until.is_some());
+    assert_eq!(th.brief.as_deref(), Some("Keep the header on one line."));
+    assert_eq!(p.server.asked().len(), 1);
+    // It is in the record with the number of previews that went before it.
+    let entries = tasktap_core::placings::read(&p.data.0);
+    assert_eq!(
+        (entries.len(), entries[0]["previews"].as_u64()),
+        (1, Some(1))
+    );
+}
+
+#[test]
+fn return_with_changed_words_or_without_the_target_taken_asks_again() {
+    let mut p = Placing::new("own-changed");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let task = ThoughtId::mint();
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    preview(&mut p, task, WORDS);
+    // Words changed after the preview: the model is asked about the words sent.
+    p.server.says(Reply::Says(answer(
+        "clear",
+        "p2",
+        "Brief of the changed words.",
+    )));
+    send(&mut p, task, &format!("{WORDS} please"), Some(0));
+    let th = p.settled(task);
+    assert_eq!(th.brief.as_deref(), Some("Brief of the changed words."));
+    assert_eq!(p.server.asked().len(), 2);
+    // The target not taken (not shown, or not the one the person saw): asked again too.
+    let other = ThoughtId::mint();
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    preview(&mut p, other, WORDS);
+    p.server
+        .says(Reply::Says(answer("clear", "p2", "Brief, asked again.")));
+    send(&mut p, other, WORDS, None);
+    assert_eq!(
+        p.settled(other).brief.as_deref(),
+        Some("Brief, asked again.")
+    );
+    assert_eq!(p.server.asked().len(), 4);
+    // A preview serves one task only, and once.
+    let third = ThoughtId::mint();
+    p.server
+        .says(Reply::Says(answer("clear", "p2", "Brief of the third.")));
+    send(&mut p, third, WORDS, Some(0));
+    assert_eq!(
+        p.settled(third).brief.as_deref(),
+        Some("Brief of the third.")
+    );
+    assert_eq!(p.server.asked().len(), 5);
+}
+
+#[test]
+fn a_torn_preview_is_a_choice_before_sending_and_the_choice_taken_is_decided() {
+    let mut p = Placing::new("own-torn-preview");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let mut torn: Value =
+        serde_json::from_str(&answer("ambiguous", "", "Keep the header on one line.")).unwrap();
+    torn["candidates"] = json!(["p1", "p2"]);
+    p.server.says(Reply::Says(torn.to_string()));
+    let task = ThoughtId::mint();
+    let choices = preview(&mut p, task, WORDS);
+    assert_eq!(choices.len(), 2);
+    // The second choice taken: the task goes there with a hold, not waiting for a key, the first on key 2.
+    send(&mut p, task, WORDS, Some(1));
+    let th = p.settled(task);
+    assert_eq!(project(th.project_id.unwrap()), choices[1]);
+    assert!(th.hold_until.is_some());
+    assert_eq!(th.route.unwrap().others, [choices[0]]);
+    assert_eq!(p.server.asked().len(), 1);
+}
+
+#[test]
+fn a_newer_preview_drops_the_answer_of_an_older_and_at_most_four_are_sent() {
+    let mut p = Placing::new("own-newer");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let task = ThoughtId::mint();
+    // The older is slow; the newer is asked once the older is under way.
+    p.server.says(Reply::After(
+        700,
+        Box::new(Reply::Says(answer("clear", "p1", "Slow."))),
+    ));
+    let older =
+        p.w.send::<call::RoutePreview>(&words(task, "make the header stay"));
+    while p.server.asked().is_empty() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    p.server.says(Reply::Says(answer("clear", "p2", "Quick.")));
+    assert_eq!(
+        preview(&mut p, task, "make the header stay on one line"),
+        [project(p.app)]
+    );
+    let dropped = p.w.reply::<call::RoutePreview>(older).unwrap();
+    assert!(dropped.choices.is_empty());
+    // Only the newer one's answer is kept for the task.
+    send(&mut p, task, "make the header stay on one line", Some(0));
+    assert_eq!(p.settled(task).brief.as_deref(), Some("Quick."));
+    assert_eq!(p.server.asked().len(), 2);
+
+    // At most four are sent for one task; a fifth is answered with none and asks no one.
+    let busy = ThoughtId::mint();
+    for n in 0..tasktap_proto::PREVIEWS {
+        p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+        assert_eq!(preview(&mut p, busy, &format!("{WORDS} {n}")).len(), 1);
+    }
+    let before = p.server.asked().len();
+    assert!(preview(&mut p, busy, &format!("{WORDS} again")).is_empty());
+    assert_eq!(p.server.asked().len(), before);
+}
+
+#[test]
+fn nothing_is_previewed_before_the_terms_are_agreed_with_agents_as_placers_in_the_window_or_with_the_switch_off()
+ {
+    let mut p = Placing::new("own-no-preview");
+    let address = p.server.address();
+    let task = ThoughtId::mint();
+    // No agreement at all.
+    assert!(preview(&mut p, task, WORDS).is_empty());
+    p.set_up(&address, "tiny", None);
+    let put = |p: &mut Placing, patch| {
+        let target = tasktap_proto::PutTarget::Prefs(patch);
+        p.w.ok::<call::Put>(&tasktap_proto::Put {
+            target,
+            if_rev: None,
+        });
+    };
+    // An agreement to the terms before the live target is not to these: the core
+    // reads the stored one as it was, and sends no preview until it is agreed to again.
+    p = restarted(p, |db| {
+        let old =
+            "UPDATE prefs SET data = json_set(data, '$.value.terms', ?1) WHERE id = 'route_by'";
+        db.execute(old, [TERMS - 1]).unwrap();
+    });
+    assert!(preview(&mut p, task, WORDS).is_empty());
+    p.set_up(&address, "tiny", None);
+    // An agent first in the order: no agent is started for a preview, nobody is asked.
+    let agents = RouteBy {
+        agents: vec![
+            Placer {
+                agent: "fixture".into(),
+                model: "fixture-small".into(),
+                on: true,
+            },
+            Placer {
+                agent: "own".into(),
+                model: "tiny".into(),
+                on: true,
+            },
+        ],
+        terms: TERMS,
+    };
+    put(&mut p, tasktap_proto::PrefPatch::RouteBy(Some(agents)));
+    assert!(preview(&mut p, task, WORDS).is_empty());
+    assert!(!p.data.0.join("route").join("asked").exists());
+    // Said in Tasktap's window: the names decide, no model is asked.
+    let own = Placer {
+        agent: "own".into(),
+        model: "tiny".into(),
+        on: true,
+    };
+    let alone = RouteBy {
+        agents: vec![own],
+        terms: TERMS,
+    };
+    put(&mut p, tasktap_proto::PrefPatch::RouteBy(Some(alone)));
+    let window = tasktap_proto::PreviewWords {
+        view: Some(p.app),
+        ..words(task, WORDS)
+    };
+    assert!(p.w.ok::<call::RoutePreview>(&window).choices.is_empty());
+    // The switch off: none; on again, one.
+    put(&mut p, tasktap_proto::PrefPatch::ShowTarget(false));
+    assert!(preview(&mut p, task, WORDS).is_empty());
+    assert_eq!(p.server.asked().len(), 0);
+    put(&mut p, tasktap_proto::PrefPatch::ShowTarget(true));
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    assert_eq!(preview(&mut p, task, WORDS), [project(p.app)]);
+    assert_eq!(p.server.asked().len(), 1);
+}
+
+#[test]
+fn the_secret_filter_runs_over_a_preview_and_a_refused_or_unreadable_one_shows_nothing() {
+    let mut p = Placing::new("own-preview-secret");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let task = ThoughtId::mint();
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    let said = format!("use the key {KEY} for the header on small screens");
+    assert_eq!(preview(&mut p, task, &said), [project(p.app)]);
+    let body = p.server.asked()[0].body.to_string();
+    assert!(!body.contains(KEY) && body.contains("[left out]"), "{body}");
+    // A server that refuses, and one whose answer is no JSON: nothing is shown, nothing kept.
+    let other = ThoughtId::mint();
+    p.server
+        .says(Reply::Status(500, json!({ "error": { "message": "no" } })));
+    assert!(preview(&mut p, other, WORDS).is_empty());
+    p.server.says(Reply::Says("not json".into()));
+    assert!(preview(&mut p, other, WORDS).is_empty());
+    // So the task sent after them asks the model as any task does.
+    p.server
+        .says(Reply::Says(answer("clear", "p2", "Brief of the task.")));
+    send(&mut p, other, WORDS, Some(0));
+    assert_eq!(
+        p.settled(other).brief.as_deref(),
+        Some("Brief of the task.")
+    );
+}

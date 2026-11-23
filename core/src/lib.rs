@@ -20,6 +20,7 @@ mod launch;
 pub mod map;
 pub mod own;
 pub mod placings;
+pub mod preview;
 mod questions;
 mod records;
 pub mod relocate;

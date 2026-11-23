@@ -93,7 +93,7 @@ async function main(out, dist) {
     expect(await stored(page) === 'null', 'nothing is stored before the switch is turned on');
     await page.locator('.settings [role=switch][aria-label="Find the project for each task"]').click();
     await page.waitForTimeout(300);
-    const agreed = '{"agents":[{"agent":"claude","model":"haiku","on":true},{"agent":"codex","model":"gpt-6-luna","on":true},{"agent":"agy","model":"gemini-3.8-flash-low","on":true}],"terms":4}';
+    const agreed = '{"agents":[{"agent":"claude","model":"haiku","on":true},{"agent":"codex","model":"gpt-6-luna","on":true},{"agent":"agy","model":"gemini-3.8-flash-low","on":true}],"terms":5}';
     expect(await stored(page) === agreed, `the switch writes the agreement, in Tasktap's order: ${await stored(page)}`);
     expect(await master(page) === 'true' && await rows(page) === '1Claude Code, 2Codex, 3Antigravity', `on, with the places: ${await rows(page)}`);
     expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'settings', 'and Settings stays where it is');
@@ -152,7 +152,7 @@ async function main(out, dist) {
     await page.context().close();
 
     // With placing on through agents, ChatGPT's button and the own model are in view with nothing opened.
-    const through = { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }, { agent: 'codex', model: 'gpt-6-luna', on: true }, { agent: 'agy', model: 'gemini-3.8-flash-low', on: false }], terms: 4 }, rev: 3 };
+    const through = { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }, { agent: 'codex', model: 'gpt-6-luna', on: true }, { agent: 'agy', model: 'gemini-3.8-flash-low', on: false }], terms: 5 }, rev: 3 };
     page = await open(browser, { label: 'workspace', records: records([through]), url: server.url, dpr: 2 });
     await placingAt(page);
     expect(await master(page) === 'true', 'placing on through agents: the switch is on');
@@ -179,7 +179,7 @@ async function main(out, dist) {
     await shoot(page, out, 'placing-again');
     await page.locator('.settings [role=switch][aria-label="Find the project for each task"]').click();
     await page.waitForTimeout(300);
-    expect(JSON.parse(await stored(page)).terms === 4 && await master(page) === 'true', 'agreed again, to these terms');
+    expect(JSON.parse(await stored(page)).terms === 5 && await master(page) === 'true', 'agreed again, to these terms');
     for (const e of page.errors) failures.push(`page: ${e}`);
     await page.context().close();
 
@@ -208,7 +208,7 @@ async function main(out, dist) {
     await shoot(page, out, 'placing-chatgpt-waiting');
     const prefs = (rev, values) => page.evaluate(([r, v]) => window.__fake.push({ t: 'change', rev: r, sets: [{ c: 'prefs', put: Object.entries(v).map(([id, value]) => ({ id, value, rev: r })) }] }), [rev, values]);
     // Signed in: the core agreed to ChatGPT's row alone and put it first.
-    await prefs(500, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } });
+    await prefs(500, { chatgpt: { state: 'signed_in', model: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', error: null }, route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 5 } });
     await page.waitForTimeout(300);
     expect(await rows(page) === '1ChatGPT, Claude Code off, Codex off, Antigravity off' && await master(page) === 'true', `signed in, ChatGPT alone places: ${await rows(page)}`);
     const signed = await page.evaluate(() => ({ x: `${document.querySelector('.settings .rank .x.m')?.textContent}`, button: document.querySelector('.settings .rank:not(.sign) .btn')?.textContent, sign: !!document.querySelector('.settings .rank.sign:not(.mine)'),
@@ -229,7 +229,7 @@ async function main(out, dist) {
       [{ state: 'no_model', model: null, name: null, error: null }, 'Your ChatGPT account does not offer GPT-6.2-Sol, the model Tasktap uses to find the project for a task.'],
       // OpenAI signed Tasktap out: the core keeps ChatGPT's row for the next sign-in.
       [{ state: 'signed_out', model: null, name: null, error: null }, 'ChatGPT signed Tasktap out. Sign in with ChatGPT again to keep ChatGPT placing your tasks.',
-        { route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 4 } }],
+        { route_by: { agents: [{ agent: 'chatgpt', model: 'gpt-6.2-sol', on: true }], terms: 5 } }],
     ];
     for (const [i, [value, said, more]] of ends.entries()) {
       await prefs(600 + i, { chatgpt: value, ...more });

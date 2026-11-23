@@ -212,6 +212,7 @@ fn every_call_round_trips() {
         current: Some(id(4)),
         view: None,
         auto: false,
+        taken: None,
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -373,7 +374,22 @@ fn every_call_round_trips() {
         brief: "fix the header in folio".into(),
         said: None,
     };
-    round_trip::<call::RouteHint>(hint, route, seen);
+    round_trip::<call::RouteHint>(hint.clone(), route, seen);
+    round_trip::<call::RouteGuess>(
+        hint,
+        Guess {
+            to: Some(Place::Project(id(2))),
+        },
+        seen,
+    );
+    let words = PreviewWords {
+        task: id(4),
+        text: "fix the header in folio".into(),
+        current: None,
+        view: None,
+    };
+    let places = vec![Place::Project(id(2)), Place::Session(id(3))];
+    round_trip::<call::RoutePreview>(words, Previewed { choices: places }, seen);
     let terms = RouteTerms {
         instructions: "You are the router of Tasktap.".into(),
         sends: vec!["the task, as you said or typed it".into()],
@@ -588,6 +604,7 @@ fn every_call_round_trips() {
         current: None,
         view: None,
         auto: false,
+        taken: None,
     };
     for (target, stream) in [
         (
@@ -745,7 +762,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 59);
+    assert_eq!(Name::ALL.len(), 61);
 }
 
 #[test]
@@ -780,7 +797,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 50);
+    assert_eq!(by(Access::Device).len(), 52);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);
@@ -1133,6 +1150,11 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
             PrefKey::TerminalContrast,
         ),
         (
+            json!({"c": "prefs", "id": "show_target", "patch": false}),
+            PrefPatch::ShowTarget(false),
+            PrefKey::ShowTarget,
+        ),
+        (
             json!({"c": "prefs", "id": "text_size", "patch": "large"}),
             PrefPatch::TextSize(TextSize::Large),
             PrefKey::TextSize,
@@ -1152,6 +1174,7 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
         (PrefKey::KeepDays, json!(0)),
         (PrefKey::TerminalBoldBright, json!(true)),
         (PrefKey::TerminalContrast, json!(true)),
+        (PrefKey::ShowTarget, json!(true)),
         (PrefKey::TextSize, json!("default")),
     ] {
         assert_eq!(

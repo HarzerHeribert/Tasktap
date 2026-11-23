@@ -827,6 +827,7 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         current: None,
         view: None,
         auto: false,
+        taken: None,
     }
 }
 

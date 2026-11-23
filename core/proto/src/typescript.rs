@@ -69,6 +69,7 @@ fn typescript() -> String {
         ("MAX_TERMINAL_SIZE", MAX_TERMINAL_SIZE.into()),
         ("READ_HOLD", crate::READ_HOLD as usize),
         ("DECIDED_HOLD", crate::DECIDED_HOLD as usize),
+        ("PREVIEWS", crate::PREVIEWS as usize),
     ] {
         writeln!(out, "export const {name} = {value};").unwrap();
     }

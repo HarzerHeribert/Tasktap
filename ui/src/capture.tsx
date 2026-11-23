@@ -22,8 +22,9 @@ import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { WEIGHT_KEY, WeightControl, WeightList, open as openWeights, shows as weighs } from './weights.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
-import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { QUIET, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, loadTerms, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { Brand, Glyph, I, Key, Level, Mark, madeAt } from './ui.tsx';
+import { PAUSE, QUIET_WORDS, type Shown, Target, due, keyOf } from './target.ts';
+import { QUIET, terms, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, loadTerms, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, decided, first, hold, laterWhy, leave, type Names, offers, onWay, placed, placeOf, placing, step, waits, wholeHold } from './way.ts';
 
 /** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
@@ -39,7 +40,8 @@ export const invite = new Roll(
 );
 /** An input method's composition is under way in the field: its first letters are not the field's value yet. */
 let composing = false;
-void coreIn.then(() => askRoute(), () => {});
+// (The terms of placing too, which the notch's page has not asked for: whether a model places is known from them.)
+void coreIn.then(() => (askRoute(), terms.route || void loadTerms()), () => {});
 const dictating = () => talk.asking || [...records.dictations.values()].some((x) => x.phase === 'recording' || x.phase === 'transcribing');
 /** Whether the line rolls in field `el` (the one with the keyboard, by default) now: never before the core has
  *  answered (the person's effects are not known yet), nor while the page is not shown (a display asleep). */
@@ -92,7 +94,65 @@ export const cap = {
   refused: '',
   /** The thought a dictation is to become, until it has. */
   spoken: '',
+  /** The id the task being written will have, which its previews go by (the core keeps what each found for it). */
+  task: '',
 };
+
+// ——— The live target ———
+
+/** The key that steps through the model's choices for the task being written (a key no command and no field takes:
+ *  proto keys.rs APP_KEYS, beside the agent control's ⌘J and the weight control's ⌘L). */
+export const TARGET_KEY = '⌘G';
+/** The task's target while it is written or spoken (target.ts): the core's ranking, then the model's preview. */
+export const live = new Target();
+/** The placers that make one direct call, which alone are asked for a preview (an agent started for each would be too heavy). */
+const DIRECT = ['chatgpt', 'own'];
+/** A target is shown while the chip says Auto, a model places the task, and the task is not said in Tasktap's window
+ *  (a session or a workspace in view: the names decide there). */
+const liveOn = () => core.in && modelPlaces() && !cap.current && !cap.usual && where().why === 'model';
+/** A preview is sent only where the person allowed it, and the first placer is one that makes a direct call. */
+const previewOn = () => liveOn() && pref('show_target') && DIRECT.includes(first(pref('route_by'), placers()) ?? '');
+/** The words the target is for: those in the field, or those heard so far of a thought being spoken. */
+const liveWords = () => {
+  const d = mine(), speaking = here() && talk.kind === 'thought' && !cap.draft.trim() && (d?.phase === 'recording' || d?.phase === 'transcribing');
+  return (speaking ? d?.text ?? '' : cap.draft).trim();
+};
+/** The id a preview of the words is made for: the thought a spoken one becomes, else the task in the field. */
+const taskId = () => cap.spoken || (cap.task ||= uuid7());
+let seen = '', guessing = 0, previewing = 0, standing = 0;
+/** After a change of the words (told on every render, acted on only when they changed): the target starts over for
+ *  them, the core's ranking is asked once they have stood for a moment, and the model once the person has paused. */
+function liveSync() {
+  const words = liveOn() ? liveWords() : '';
+  if (words === seen) return;
+  seen = words;
+  clearTimeout(guessing);
+  clearTimeout(previewing);
+  stand(live.set(words, performance.now()));
+  if (!words) {
+    cap.task = '';
+    return;
+  }
+  guessing = window.setTimeout(() => {
+    const view = cap.usual ? { view: cap.usual } : {};
+    void call('route.guess', { text: words, current: cap.current, ...view }).then((r) => {
+      if (seen === words) (stand(live.guess(words, r.to, performance.now())), redraw());
+    }, () => {});
+  }, QUIET_WORDS);
+  previewing = window.setTimeout(() => {
+    if (seen !== words || !previewOn() || !due({ words, asked: live.asked, sent: live.sent })) return;
+    const n = live.ask(words);
+    void call('route.preview', { task: taskId(), text: words }).then((r) => {
+      stand(live.preview(n, words, r.choices, performance.now()));
+      redraw();
+    }, () => {});
+  }, PAUSE);
+}
+/** Draws the line again when a different target has stood long enough to be shown. */
+function stand(ms: number | null) {
+  clearTimeout(standing);
+  if (ms !== null) standing = window.setTimeout(() => (stand(live.set(seen, performance.now())), redraw()), ms + 5);
+}
 
 const folder = (dest: string | undefined) => (dest && dest !== 'later' ? dest : undefined);
 /** Where the router would send it, when that is one project: a workspace, or a project Tasktap knows that is not open. */
@@ -226,12 +286,14 @@ async function send(e: Event, hooks: Hooks) {
   }
   // Before the core has answered, where the task goes is worked out the moment it and its records are there, from
   // what the person had chosen when they started it (nothing can be chosen before); the task goes then, once.
-  const pick = picked(), { dest, undone, agent: by, weight, usual, current } = cap;
+  const pick = picked(), { dest, undone, agent: by, weight, usual, current, task } = cap;
+  // The choice of the model's preview the person saw and takes with Return: the task goes there with no second question.
+  const taken = live.take(cap.draft.trim());
   let w = where();
   const waited = !core.in;
   const gone = leave(cap, async (text) => {
     if (waited) (await coreIn, (w = where(pick, undefined, usual)));
-    let id = uuid7();
+    let id = task || uuid7();
     // (An agent is a capture's to name: a thought that goes out again to another agent is captured anew.)
     if (undone && w.to && w.to !== 'later' && by === undone.agent && weight === undone.weight) {
       // The thought Undo returned to the person goes out again, with what they changed, rather
@@ -241,12 +303,12 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.update', { id, ...placeArgs(w.to) });
     } else {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
-      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual, pick === ''), ...(by ? { agent: by } : {}), ...(weight ? { weight } : {}) });
+      await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w, current, usual, pick === ''), ...(by ? { agent: by } : {}), ...(weight ? { weight } : {}), ...(taken !== null ? { taken } : {}) });
     }
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by, weight } });
     page.error = '';
   });
-  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, agents: false, weight: undefined, weights: false, undone: null, refused: '', back: pick });
+  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, agents: false, weight: undefined, weights: false, undone: null, refused: '', back: pick, task: '' });
   // The field is empty again: the next line, rolled in where it rolls, else simply there (Still, Off, Reduce Motion).
   invite.next(rollsHere());
   flights = Promise.allSettled([flights, gone]);
@@ -658,6 +720,49 @@ function Failed({ d }: { d: Dictation }) {
   );
 }
 
+/** How long a target takes to give way to the next: the interface's fast transition (tokens.css `--t-fast`). */
+const FADE = 120;
+let faded: { s: Shown; until: number } | null = null, was: Shown | null = null;
+/** The target of the task being written, as the decision line is: the mark of the agent that runs it, the project's name,
+ *  and the session's title or "new run". Provisional, it is in the quiet tone; confirmed by the model, in the full one;
+ *  "1 of 3" stands beside it, quiet, only where the model was torn, and steps to the next on `${TARGET_KEY}`. A line of
+ *  one row's height stands from the first word while a target is shown for it, empty until one is, so that nothing
+ *  under the field or in it moves when one comes, goes or changes. */
+function Live() {
+  const s = live.shown, now = performance.now();
+  if (was && s && keyOf(was.place) !== keyOf(s.place)) faded = { s: was, until: now + FADE };
+  was = s;
+  const out = faded && now < faded.until ? faded.s : null;
+  useEffect(() => {
+    if (!out) return undefined;
+    const timer = setTimeout(redraw, faded!.until - performance.now() + 20);
+    return () => clearTimeout(timer);
+  });
+  if (!liveOn() || !liveWords()) return null;
+  const line = (x: Shown, leaving: boolean) => {
+    const session = 'session' in x.place ? x.place.session : undefined, at = session ? records.sessions.get(session) : undefined;
+    const project = 'project' in x.place ? x.place.project : 'card' in x.place ? x.place.card : at?.project_id;
+    return (
+      <span class={leaving ? 'live-l out' : 'live-l'} key={`${keyOf(x.place)}${leaving ? ' out' : ''}`} data-tone={x.tone} aria-hidden={leaving || undefined}>
+        <Glyph agent={chosen(session).a?.id ?? 'claude'} size={16} tone={x.tone === 'provisional' ? 'quiet' : undefined} />
+        <b>{projectName(project)}</b>
+        <em>{session ? sessionName(session) : 'new run'}</em>
+      </span>
+    );
+  };
+  return (
+    <section class="way live" aria-label="Where the task goes">
+      <p class="way-h">
+        <span class="live-c">{out && line(out, true)}{s && line(s, false)}</span>
+        {s && s.of > 1 && (
+          <button type="button" class="act live-n" title={`Next place  ${spell(TARGET_KEY)}`} aria-label={`Place ${s.at} of ${s.of}. Next place`} aria-keyshortcuts={TARGET_KEY.replace('⌘', 'Meta+')}
+            onClick={() => (live.next(), redraw())}><span>{s.at} of {s.of}</span></button>
+        )}
+      </p>
+    </section>
+  );
+}
+
 /** How long the Composer says where a thought started, and which thought it last said it of. */
 const SAID_FOR = 6000;
 let told = { id: '', at: 0 };
@@ -695,6 +800,7 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
   const later = t ? `${laterWhy(t, agentName)}${t.placed === 'kept' || t.placed === 'kept_answer' ? '' : '; saved for later'}` : '';
   return (
     <div class={`ways${raised ? ' under' : ''}`}>
+      <Live />
       {failed.map((d) => <Failed key={d.id} d={d} />)}
       {cap.refused && <section class="way failed" role="alert"><p class="way-h"><Mark s="failed" label="" /><b>{cap.refused}</b></p></section>}
       {talk.said === 'service' && !hooks.speech && line(needs())}
@@ -845,6 +951,7 @@ export function Capture({ raised = false, asks = false, weights = false, ...hook
     el.style.height = `${el.scrollHeight}px`;
   };
   useLayoutEffect(() => fit());
+  useLayoutEffect(liveSync);
   // The foot where it is short of room, in this order (NOTES §13): the chip's "Auto" after a place gives way first, by
   // itself (parts.css); then the microphone's key hint is dropped, once that word is gone and only where that gives the
   // names room; then the names are cut short, the place's and the agent's. Nothing wraps; the key never moves.
@@ -915,6 +1022,10 @@ export function Capture({ raised = false, asks = false, weights = false, ...hook
           // Who runs it, from anywhere in the Composer (the agent control's key).
           e.preventDefault();
           openAgents(!cap.agents);
+        } else if (hit(TARGET_KEY, e) && live.next()) {
+          // The next of the places the model was torn between, for the task being written.
+          e.preventDefault();
+          redraw();
         } else if (weights && hit(WEIGHT_KEY, e) && weighs(session) && !hearing) {
           // How heavy it is, from anywhere in the Composer (the weight control's key).
           e.preventDefault();

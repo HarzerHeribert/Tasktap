@@ -140,6 +140,8 @@ jobs:
         run: node scripts/projects-shots.cjs "$RUNNER_TEMP/pages/projects" --check --sizes
       - name: Placing by a model, its sheet and its order
         run: node scripts/placing-check.cjs "$RUNNER_TEMP/pages/placing"
+      - name: The live target while a task is written, its line, its calm, and what Return takes
+        run: node scripts/target-check.cjs "$RUNNER_TEMP/pages/target"
       - name: A workspace in a window of its own, its row and its page
         run: node scripts/windows-check.cjs "$RUNNER_TEMP/pages/windows"
       - name: Closing a terminal asks only when something runs

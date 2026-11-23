@@ -219,7 +219,7 @@ async function where(browser, url, system) {
 async function answerKeys(browser, url, system) {
   const at = `${system}, the answer keys`;
   const mac = system === 'mac';
-  const records = { ...scene('busy'), taken: ['KeyT', 'KeyG'] };
+  const records = { ...scene('busy'), taken: ['KeyT', 'KeyB'] };
   const page = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
   await section(page, 'thoughts');
   const LABELS = ['Key to start a task, from any app', 'Key to go to an agent’s question, from any app', 'Key to answer Yes, from any app', 'Key to answer No, from any app'];
@@ -295,7 +295,7 @@ async function answerKeys(browser, url, system) {
   await talkTries(mac ? 'Control+Alt+KeyN' : 'Alt+Shift+KeyN', 'Tasktap already uses that combination to answer No.', 'the No key');
   await talkTries('Control+Shift+KeyQ', 'Tasktap already uses that combination to go to an agent’s question.', 'the key recorded to go to the question');
   await talkTries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to start a task.', 'the capture key');
-  await talkTries('Control+Shift+KeyG', 'That key is taken by the system or another app.', 'a key another app holds');
+  await talkTries('Control+Shift+KeyB', 'That key is taken by the system or another app.', 'a key another app holds');
   await talkTries(mac ? 'Meta+KeyT' : 'Control+Shift+KeyT', `Tasktap uses ${mac ? '⌘T' : 'Ctrl+Shift+T'} for New terminal.`, `${mac ? '⌘T' : 'Ctrl+Shift+T'}`);
   await talkTries(mac ? 'Meta+KeyA' : 'Control+KeyA', `A text field uses ${mac ? '⌘A' : 'Ctrl+A'} for Select all.`, `${mac ? '⌘A' : 'Ctrl+A'}, a text field's own`);
   await talk.locator('.rec').focus();

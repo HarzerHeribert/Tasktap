@@ -92,6 +92,10 @@ fn handler(name: Name) -> Option<Handler> {
         }
         Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
         Name::RouteHint => |cx, args| now::<call::RouteHint>(cx, args, crate::route::hint),
+        Name::RouteGuess => |cx, args| now::<call::RouteGuess>(cx, args, crate::preview::guess),
+        Name::RoutePreview => {
+            |cx, args| later::<call::RoutePreview>(cx, args, crate::preview::preview)
+        }
         Name::RouteTerms => |cx, args| now::<call::RouteTerms>(cx, args, crate::route::terms),
         Name::PlacingsCount => {
             |cx, args| now::<call::PlacingsCount>(cx, args, crate::placings::count)

@@ -685,6 +685,7 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ("keep_days", json!(30)),
         ("terminal_bold_bright", json!(false)),
         ("terminal_contrast", json!(false)),
+        ("show_target", json!(false)),
         ("text_size", json!("small")),
         ("update_checks", json!(false)),
         ("question_key", two("KeyU")),
@@ -813,6 +814,7 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ("keep_days", json!(-1)),
         ("terminal_bold_bright", json!(1)),
         ("terminal_contrast", json!(null)),
+        ("show_target", json!("yes")),
         ("text_size", json!("huge")),
         ("update_checks", json!("never")),
     ] {

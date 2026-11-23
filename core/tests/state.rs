@@ -92,6 +92,7 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         current: None,
         view: None,
         auto: false,
+        taken: None,
     }
 }
 
@@ -322,6 +323,7 @@ impl World {
                 auto: false,
                 by: None,
                 picked: None,
+                taken: None,
             }]
         );
         id
@@ -442,6 +444,7 @@ fn row_capture_makes_a_captured_thought_and_asks_the_router() {
             auto: false,
             by: None,
             picked: None,
+            taken: None,
         }]
     );
     let t = w.thought(id);
@@ -3738,6 +3741,7 @@ fn row_capture_asks_a_model_only_with_the_persons_consent() {
             auto: false,
             by: Some(consent()),
             picked: None,
+            taken: None,
         }]
     );
     let t = w.thought(id);
@@ -4209,6 +4213,7 @@ fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in()
                 auto: false,
                 by: Some(consent()),
                 picked: Some(to),
+                taken: None,
             },
             Effect::Hold { thought: id, until }
         ]
@@ -4522,6 +4527,7 @@ mod dictations {
             current: None,
             view: None,
             auto: false,
+            taken: None,
         }))
     }
 

@@ -121,6 +121,7 @@ pub enum PrefPatch {
     ),
     SetupHidden(bool),
     UpdateChecks(bool),
+    ShowTarget(bool),
     /// Refused by the core unless each is as [`crate::records::AgentWeight`] says.
     AgentWeights(
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
@@ -196,6 +197,7 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::OwnAgents(v) => PrefValue::OwnAgents(v),
             PrefPatch::SetupHidden(v) => PrefValue::SetupHidden(v),
             PrefPatch::UpdateChecks(v) => PrefValue::UpdateChecks(v),
+            PrefPatch::ShowTarget(v) => PrefValue::ShowTarget(v),
             PrefPatch::AgentCommands(v) => PrefValue::AgentCommands(v),
             PrefPatch::AgentWeights(v) => PrefValue::AgentWeights(v),
         }
@@ -406,6 +408,14 @@ pub struct Capture {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub auto: bool,
+    /// The person pressed Return on the target they saw while writing (a
+    /// `route.preview` of exactly these words): the choice they took, from
+    /// 0, among those that preview gave. The model is not asked again; its
+    /// answer to the preview stands. Without it, or where the preview is not
+    /// there any more, the model is asked as for any task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub taken: Option<u8>,
 }
 
 /// `route.hint`: where a capture would go, asked while it is typed (the
@@ -421,6 +431,41 @@ pub struct Hint {
     /// As `thought.capture`'s `view`: said in Tasktap's window.
     #[serde(default)]
     pub view: Option<ProjectId>,
+}
+
+/// `route.guess`: where a task being written would go by the core's ranking
+/// alone, which asks and sends no one (the quiet target).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Guess {
+    pub to: Option<Place>,
+}
+
+/// `route.preview`: the model that places tasks is asked about the words
+/// written so far, which starts nothing and makes no task. `task` is the id
+/// the task will have; at most [`PREVIEWS`](crate::PREVIEWS) are sent for it, and
+/// a newer one drops the answer of an older.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct PreviewWords {
+    pub task: ThoughtId,
+    #[serde(deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
+    pub text: String,
+    /// As `thought.capture`'s `current` and `view`: a preview is made for no
+    /// task said in Tasktap's window, so the core sends nothing for one.
+    #[serde(default)]
+    pub current: Option<SessionId>,
+    #[serde(default)]
+    pub view: Option<ProjectId>,
+}
+
+/// What a preview found: where the model puts the task, its first choice
+/// first, or the places it is torn between; none where there is nothing to
+/// show (nothing sent, the model had no answer, or it is for the person to say).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Previewed {
+    pub choices: Vec<Place>,
 }
 
 /// `thought.update`: sends a thought to a project, or on to a session: a

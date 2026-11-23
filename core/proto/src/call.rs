@@ -87,6 +87,8 @@ table! {
     SessionAdopt "session.adopt" Session (Adopt) -> SessionId;
     // Routing and agents
     RouteHint "route.hint" Device (Hint) -> Route;
+    RouteGuess "route.guess" Device (Hint) -> crate::args::Guess;
+    RoutePreview "route.preview" Device (crate::args::PreviewWords) -> crate::args::Previewed;
     RouteTerms "route.terms" Device (Empty) -> crate::args::RouteTerms;
     PlacingsCount "placings.count" Device (Empty) -> u32;
     PlacingsClear "placings.clear" Device (Empty) -> ();

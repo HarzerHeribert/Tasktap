@@ -107,6 +107,7 @@ const SENDS: &[&str] = &[
     "the sessions in those projects, each with its name, first and last request, its agent, the agent's state, how long ago it last ran and the start of the agent's last answer",
     "your 3 most recent tasks in those sessions and how each ended",
     "a text that looks like a key, a token or a password is left out, also from the task",
+    "While you write or speak a task, the words so far are sent to find the target before you send the task.",
 ];
 
 /// How much of each text is sent, in one sentence: `route.terms` says it
@@ -114,14 +115,15 @@ const SENDS: &[&str] = &[
 const CUTS: &str = "How much of each text is sent at most: a name 100 characters, a line about a project 160, an earlier task 80, a request 180, an agent's last answer 160, a recent task 320 and how it ended 160.";
 
 /// The version of what is sent and to whom, which an agreement names
-/// (`RouteBy::terms`): 4 since a model is given each project's earlier
+/// (`RouteBy::terms`): 5 since the words of a task are sent while it is
+/// written or spoken, to find its target before it is sent (`preview.rs`); 4 since a model is given each project's earlier
 /// tasks and folder, each session's first task, state, age and last
 /// answer, and what is in view, and decides every task the person did not
 /// place; 3 since it lists the person's agents, asked one after another
 /// until one answers; 2 since a model is given a line about each project,
 /// and projects that are not open. An agreement to another version covers
 /// nothing.
-pub const TERMS: u32 = 4;
+pub const TERMS: u32 = 5;
 
 /// Most projects, sessions and recent exchanges a model is given (design §8).
 const OFFERED: usize = 8;
@@ -3093,6 +3095,20 @@ pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
         true => tasktap_proto::Route::Unknown,
         false => wire(names.unwrap_or(Route::Unknown)),
     })
+}
+
+/// Where the words of a task being written would go by the ranking alone,
+/// with no model: the project or session the names say, else the project
+/// `order` puts first. None for the Scratchpad's own words and where no
+/// project is known. It asks no one and sends nothing (`route.guess`).
+pub fn guess(r: Request) -> Option<Destination> {
+    if on_pad(&r) {
+        return None;
+    }
+    if let Some(Route::Clear { to, .. }) = by_names(&r) {
+        return Some(to);
+    }
+    order(r).projects.first().map(|p| p.to)
 }
 
 /// A route as the protocol says it.

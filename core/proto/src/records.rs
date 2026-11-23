@@ -817,6 +817,11 @@ pub enum PrefValue {
     /// is in the system's credential store under the address, and `keys`
     /// lists the address. None: no own model is set up.
     OwnModel(Option<OwnModel>),
+    /// While a task is written or spoken, its words so far are sent to the
+    /// model that places tasks, to find the target before the task is sent
+    /// (`route.preview`). False: no preview is sent; the target the core's
+    /// ranking gives alone still shows.
+    ShowTarget(bool),
 }
 
 /// The model placing asks at an address of the person's choosing, in the
@@ -1238,7 +1243,7 @@ words! {
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
         AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey,
-        AgentCommands, Chatgpt, OwnModel, AgentWeights
+        AgentCommands, Chatgpt, OwnModel, AgentWeights, ShowTarget
     }
 }
 
@@ -1270,6 +1275,10 @@ pub const READ_HOLD: u32 = 2;
 /// most (a shorter `hold` preference holds it as long as that): Return
 /// starts it at once, a key places it anew (design §8, "Smart placing").
 pub const DECIDED_HOLD: u32 = 3;
+
+/// Most previews of one task's words that are sent to the model that places
+/// it, while the person writes or speaks it (`route.preview`).
+pub const PREVIEWS: u32 = 4;
 
 impl PrefKey {
     /// The value of a preference while none is stored: deleting it restores this.
@@ -1307,6 +1316,7 @@ impl PrefKey {
             PrefKey::AgentWeights => PrefValue::AgentWeights(Vec::new()),
             PrefKey::Chatgpt => PrefValue::Chatgpt(None),
             PrefKey::OwnModel => PrefValue::OwnModel(None),
+            PrefKey::ShowTarget => PrefValue::ShowTarget(true),
         }
     }
 }
@@ -1346,6 +1356,7 @@ impl PrefValue {
             PrefValue::AgentWeights(_) => PrefKey::AgentWeights,
             PrefValue::Chatgpt(_) => PrefKey::Chatgpt,
             PrefValue::OwnModel(_) => PrefKey::OwnModel,
+            PrefValue::ShowTarget(_) => PrefKey::ShowTarget,
         }
     }
 }

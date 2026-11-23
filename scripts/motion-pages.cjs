@@ -220,6 +220,15 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       return reply(id, null);
     }
     if (name === 'dictation.cancel') return dictation(args.id) && row(dictation(args.id), true), reply(id, null);
+    // The live target: the core's ranking by the text (`records.liveGuesses`, else none), and the model's preview by the text
+    // (`records.livePreviews`: the choices, and `ms` the answer is late by; a text not there gets none). Every preview asked
+    // is kept in `window.__fake.previewed`; a preview that is dropped answers none, as the core does.
+    if (name === 'route.guess') return reply(id, { to: (records.liveGuesses || {})[args.text] ?? null });
+    if (name === 'route.preview') {
+      (window.__fake.previewed ??= []).push(args);
+      const p = (records.livePreviews || {})[args.text];
+      return void setTimeout(() => ((window.__fake.previewedAt ??= []).push(performance.now()), reply(id, { choices: p ? p.choices : [] })), p?.ms || 0);
+    }
     // `hints`: where the router would send a text typed, by the text; else nothing is said.
     if (name === 'route.hint') return reply(id, (records.hints || {})[args.text] ?? null);
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
@@ -605,10 +614,11 @@ const TERMS = {
       "the sessions in those projects, each with its name, first and last request, its agent, the agent's state, how long ago it last ran and the start of the agent's last answer",
       'your 3 most recent tasks in those sessions and how each ended',
       'a text that looks like a key, a token or a password is left out, also from the task',
+      'While you write or speak a task, the words so far are sent to find the target before you send the task.',
     ],
     cuts: "How much of each text is sent at most: a name 100 characters, a line about a project 160, an earlier task 80, a request 180, an agent's last answer 160, a recent task 320 and how it ended 160.",
     // In Tasktap's order, as core/src/route.rs proposes it (`COSTS`): ChatGPT first, listed whether or not it is signed in.
-    terms: 4,
+    terms: 5,
     tools: [
       { agent: 'chatgpt', model: 'gpt-6.2-sol', pays: 'plan', ms: 4000 },
       { agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }, { agent: 'codex', model: 'gpt-6-luna', pays: 'plan', ms: 4700 },

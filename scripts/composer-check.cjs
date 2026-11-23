@@ -304,7 +304,7 @@ async function main() {
       await page.context().close();
 
       // Placing by a model agreed to: Auto, and its tooltip says who reads the task.
-      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 4 }, rev: 2 }] }, url: server.url, dpr: 1 });
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 5 }, rev: 2 }] }, url: server.url, dpr: 1 });
       // (Who reads the task is known once the core has said which agents are signed in.)
       const model = await until(() => tip(page), (v) => /^Auto: .+ reads the task and chooses its project/.test(v));
       expect(/^Auto: .+ reads the task and chooses its project/.test(model), `Home, placing by a model agreed to: the chip's tooltip says "${model}", not who reads the task`);

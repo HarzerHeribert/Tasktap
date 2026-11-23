@@ -59,6 +59,7 @@ pub const APP_KEYS: &[AppKey] = &[
     app("agents", "⌘J", "the list of agents", false),
     app("places", "⌘K", "the list of places", false),
     app("weights", "⌘L", "the list of weights", false),
+    app("targets", "⌘G", "the next place for the task", false),
     app("undo", "⌘Z", "Undo", false),
     app("copy", "⌘C", "Copy", false),
     app("paste", "⌘V", "Paste", false),

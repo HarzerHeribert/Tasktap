@@ -108,3 +108,19 @@
 .ans>.i{width:14px;height:14px;color:var(--fg2)}
 /* What a choice is, said quietly after its name: a session's agent and folder. */
 .ans>i:not(.st){font:var(--f-small);font-style:normal;color:var(--fg3)}
+
+/* The target of the task being written (capture.tsx Live): one row from the first word, empty until a target is
+   shown, so nothing in or under the field moves when one comes, goes or changes. The core's ranking is quiet; the
+   model's word on it is the full tone. A target gives way to the next by a cross-fade, the interface's fast transition. */
+.live .way-h{white-space:nowrap}
+.live-c{display:grid;flex:1;min-width:0}
+.live-l{grid-area:1/1;display:flex;align-items:center;gap:var(--sp2);min-width:0;animation:live-in var(--t-fast) var(--ease) both}
+.live-l.out{animation:live-out var(--t-fast) var(--ease) both;pointer-events:none}
+.live-l>.amark{transition:color var(--t-fast) var(--ease)}
+.live-l b{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-label);color:var(--fg2);transition:color var(--t-fast) var(--ease)}
+.live-l[data-tone=confirmed] b{color:var(--fg)}
+.live-l em{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-style:normal;color:var(--fg3)}
+.live-n{color:var(--fg3)}
+@keyframes live-in{from{opacity:0}}
+@keyframes live-out{to{opacity:0}}
+@media (prefers-reduced-motion:reduce){.live-l{animation:none}.live-l.out{display:none}}

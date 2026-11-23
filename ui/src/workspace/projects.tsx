@@ -150,9 +150,11 @@ export const searchHome = () => ((begun.looked = true), lookIn(['~']));
  *  looks. `home`: the home folder was searched, after the folders the core offers found nothing. */
 const begun = { looked: false, asking: 0, last: null as string | null, home: false };
 
-/** What is stored says the first step was seen: a look was kept, Setup's preference was stored, or a thought was put in
- *  (then Tasktap is in use). Read from the records alone, so it is known before Home's first picture (setup.tsx). */
-export const seen = () => records.looks.size > 0 || records.prefs.has('setup_hidden') || records.thoughts.size > 0;
+/** What is stored says the first step was seen: a look was kept, Setup's preference was stored, a thought was put in
+ *  (then Tasktap is in use), or a project of the person's own is there (one added by hand has no look, as in 2.0.0).
+ *  Read from the records alone, so it is known before Home's first picture (setup.tsx). */
+export const seen = () => records.looks.size > 0 || records.prefs.has('setup_hidden') || records.thoughts.size > 0
+  || [...records.projects.values()].some((p) => p.kind !== 'scratch');
 
 /** The welcome's first step (welcome.tsx): the search starts by itself as the step appears, first with what the core
  *  offers (the folders the agents worked in, and the places it offers), and when that finds nothing, the home folder.

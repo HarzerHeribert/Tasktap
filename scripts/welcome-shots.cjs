@@ -1,6 +1,6 @@
 // The welcome (ui/src/workspace/welcome.tsx), the lean Placing section and the marks, as pictures and as checks, from ui/dist
 // in headless Chromium on fixture records, dark, at 2x, no host: the welcome shows by itself on a first start and not on
-// a later one (Home then has one quiet line, "Finish setup", that comes back to the first open step); each of its four
+// a later one, nor for a person who comes from 2.0.0 with projects of their own (Home then has one quiet line, "Finish setup", that comes back to the first open step); each of its four
 // steps, the first with nothing found, the third with "What is sent" open (the full list is one action away, and not
 // there before); Return takes the primary action and Escape leaves it; a step skipped stays open; after the last step Home
 // has the cursor in the Composer; Settings › Placing is lean; Settings › Agents with the agents' own marks;
@@ -116,6 +116,15 @@ async function main() {
     await settle(page, 1200);
     s = await state(page);
     expect(!s.welcome && s.home, 'a later start shows Home, not the welcome');
+    await page.context().close();
+
+    // ——— A person from Tasktap 2.0.0 with projects added by hand (no look), no task kept, Setup never put away ———
+    const earlier = { ...scene('normal'), thoughts: [], sessions: [], terminals: [], results: [], questions: [], looks: [], prefs: [] };
+    page = await open(browser, { label: 'workspace', records: speech(earlier), url: server.url, dpr: 2 });
+    await ready(page);
+    await settle(page, 1200);
+    s = await state(page);
+    expect(!s.welcome && s.home, 'a person from 2.0.0 with projects of their own and nothing else has Home, not the welcome');
     await page.context().close();
 
     // ——— Step 1 with nothing found ———

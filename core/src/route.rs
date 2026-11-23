@@ -2024,6 +2024,20 @@ pub fn asked(r: &Request) -> String {
     format!("<request>\n{request}\n</request>\n")
 }
 
+/// The choices a model is shown, by the key it names them with and their
+/// names as it reads them: for the placing record.
+pub fn shown(r: &Request) -> Vec<(String, String)> {
+    let projects = r
+        .projects
+        .iter()
+        .filter_map(|p| Some((key(r, p.to)?, redact(&cut(&p.name, 100)))));
+    let sessions = r.sessions.iter().filter_map(|s| {
+        let name = s.name.as_deref().unwrap_or(&s.label);
+        Some((key(r, Destination::Session(s.id))?, redact(&cut(name, 140))))
+    });
+    projects.chain(sessions).collect()
+}
+
 /// How long ago, in the words a model reads: "now", "12 min", "3 h", "2 days".
 fn ago(ms: u64) -> String {
     let minutes = ms / 60_000;

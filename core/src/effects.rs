@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     AttemptId, CallId, Change, Offset, Outcome, PrefKey, PrefValue, ProjectId, QuestionId, RouteBy,
@@ -140,6 +140,8 @@ pub struct Seams {
     /// The projects whose folder `project.add` made for a task, while this
     /// core runs: Undo of that task takes an empty one back.
     pub made: Vec<ProjectId>,
+    /// The private record of what models placed and what the person did.
+    pub record: crate::placings::Record,
 }
 
 struct Timer {
@@ -342,6 +344,13 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
             }
             Effect::Unroute(thought) => {
                 unroute(core, thought);
+                None
+            }
+            Effect::Did(thought, did) => {
+                let data = core.terminals.data().to_owned();
+                core.seams
+                    .record
+                    .did(&data, &thought.uuid().to_string(), did);
                 None
             }
             Effect::Hold { thought, until } => {
@@ -766,10 +775,14 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         core.events.notify_one();
         let ms = Some(u32::try_from(chain.began.elapsed().as_millis()).unwrap_or(u32::MAX));
         let lost = || Err(Failed::Why("it ended without an answer".into()));
+        let said = answer.as_ref().and_then(|a| a.as_ref().ok()).cloned();
         let accepted = answer
             .unwrap_or_else(lost)
             .and_then(|answer| Ok(accept(&chain.asked, &answer)?));
         let name = asker.id();
+        if let (Ok((Route::Clear { .. } | Route::Torn { .. }, _)), Some(said)) = (&accepted, said) {
+            record(core, id, &chain.asked, &asker, &said);
+        }
         let why = match (accepted, &asker) {
             (Ok((route, found)), _) => {
                 // A model that sees nothing fit leaves the question to the
@@ -830,6 +843,31 @@ fn ask_next(core: &mut Core, mut chain: Chain) {
         chain.why.push(why);
         ask_next(core, chain);
     });
+}
+
+/// The placing record's entry for a task a model placed (`placings.rs`): the
+/// words, the choices and the answer as the model was sent and gave them,
+/// after the filter that leaves out what looks like a secret.
+fn record(
+    core: &mut Core,
+    id: ThoughtId,
+    asked: &crate::route::Request,
+    asker: &crate::route::Asker,
+    answer: &str,
+) {
+    use crate::route::{redact, shown};
+    let candidates: Vec<_> = shown(asked)
+        .into_iter()
+        .map(|(id, name)| json!({ "id": id, "name": name }))
+        .collect();
+    let entry = json!({
+        "at": core.seams.now().get(), "placer": asker.id(), "model": asker.model(),
+        "words": redact(&asked.text), "candidates": candidates, "answer": redact(answer), "previews": 0,
+    });
+    let data = core.terminals.data().to_owned();
+    core.seams
+        .record
+        .placed(&data, &id.uuid().to_string(), entry);
 }
 
 /// `then` once Undo stops the thought's placing, off the core's thread.

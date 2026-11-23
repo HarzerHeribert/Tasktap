@@ -38,6 +38,7 @@ use tasktap_proto::{
     TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Weight, Workdir,
 };
 
+use crate::placings::Did;
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
 
 use Event as E;
@@ -317,6 +318,9 @@ pub enum Effect {
     },
     /// A question opened: tell the person.
     Notify(QuestionId),
+    /// What the person did with the decision a model made, for the placing
+    /// record (`placings.rs`).
+    Did(ThoughtId, crate::placings::Did),
     /// A thought a model was torn about waits for the person's key: tell
     /// the person, as of a question.
     Waits(ThoughtId),
@@ -689,6 +693,15 @@ impl Machine<'_, '_> {
             // line offered stay offered, the one it was in among them.
             (E::Pick { to, .. }, _, Some(P::Routed), ..) => {
                 let mut t = some(thought)?;
+                if let Some(route) = t.route.as_ref().filter(|_| model_placed(&t)) {
+                    // The key the choice was on: 2 is the first of the others.
+                    let place: tasktap_proto::Place = to.into();
+                    let did = match route.others.iter().position(|p| *p == place) {
+                        Some(i) => Did::Other(i + 2),
+                        None => Did::Hand,
+                    };
+                    self.effects.push(Effect::Did(t.id, did));
+                }
                 self.unwait(&t);
                 if t.hold_until.take().is_some() {
                     self.effects.push(Effect::Unhold(t.id));
@@ -1586,6 +1599,9 @@ impl Machine<'_, '_> {
             Some(Unfit::Asking(why, q)) => return self.ask_again(t, why, Some(*q), true),
             None => {}
         }
+        if model_placed(&t) {
+            self.effects.push(Effect::Did(t.id, Did::Stood));
+        }
         let target = match (t.mode, t.session_id) {
             (Mode::Nudge, Some(id)) => self.tx.session(id)?,
             _ => None,
@@ -1895,6 +1911,9 @@ impl Machine<'_, '_> {
     }
 
     fn undo(&mut self, mut t: Thought) -> Result<()> {
+        if model_placed(&t) {
+            self.effects.push(Effect::Did(t.id, Did::Undone));
+        }
         self.unwait(&t);
         self.unask(&mut t, "it was undone");
         if t.hold_until.take().is_some() {
@@ -2828,6 +2847,13 @@ fn unplaced(how: &Routing) -> Placed {
         true => Placed::KeptName,
         false => Placed::KeptModel,
     }
+}
+
+/// Whether a model placed the thought and it is still where the model put it:
+/// what the person does next goes in the placing record.
+fn model_placed(t: &Thought) -> bool {
+    matches!(t.placed, Some(Placed::Model | Placed::FollowUp))
+        && t.route.as_ref().is_some_and(|r| r.by != LOCAL)
 }
 
 /// Whether the router is still asked about the thought.

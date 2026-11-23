@@ -8,6 +8,13 @@
 //!
 //!     route-lab <corpus.json> <task id>       e.g. pa-t0, or pa-x0-0 for one said with sessions open
 //!     route-lab <corpus.json> <task id> --address <url> --model <name>
+//!     route-lab --record <data folder>
+//!
+//! With `--record` it reads the placing record of a data folder (`placings.rs`:
+//! what each model was shown, what it answered and what the person then did),
+//! prints each entry as a line of JSON, oldest first, so placings can be
+//! replayed and scored, and counts how the decisions ended on standard error.
+//! Nothing is asked of anyone and nothing is written.
 //!
 //! With `--address` the question is asked of the model at that address in
 //! the chat-completions form, as the product asks its own model
@@ -102,8 +109,22 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let usage = || {
         eprintln!("usage: route-lab <corpus.json> <task id> [--address <url> --model <name>]");
+        eprintln!("       route-lab --record <data folder>");
         std::process::exit(2);
     };
+    if let [flag, data] = args.as_slice()
+        && flag == "--record"
+    {
+        let entries = tasktap_core::placings::read(std::path::Path::new(data));
+        let mut ended = std::collections::BTreeMap::new();
+        for entry in &entries {
+            println!("{entry}");
+            let did = entry["did"].as_str().unwrap_or("not yet");
+            *ended.entry(did.to_owned()).or_insert(0) += 1;
+        }
+        eprintln!("{} entries: {ended:?}", entries.len());
+        return;
+    }
     let (file, id, to) = match args.as_slice() {
         [file, id] => (file, id, None),
         [file, id, a, address, m, model] if a == "--address" && m == "--model" => {

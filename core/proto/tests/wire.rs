@@ -387,6 +387,8 @@ fn every_call_round_trips() {
         }],
     };
     round_trip::<call::RouteTerms>(Empty {}, terms, seen);
+    round_trip::<call::PlacingsCount>(Empty {}, 12, seen);
+    round_trip::<call::PlacingsClear>(Empty {}, (), seen);
     let health = AgentHealth {
         id: "codex".into(),
         name: "Codex".into(),
@@ -743,7 +745,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 57);
+    assert_eq!(Name::ALL.len(), 59);
 }
 
 #[test]
@@ -778,7 +780,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 48);
+    assert_eq!(by(Access::Device).len(), 50);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);

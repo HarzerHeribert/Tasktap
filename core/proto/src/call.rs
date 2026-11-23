@@ -88,6 +88,8 @@ table! {
     // Routing and agents
     RouteHint "route.hint" Device (Hint) -> Route;
     RouteTerms "route.terms" Device (Empty) -> crate::args::RouteTerms;
+    PlacingsCount "placings.count" Device (Empty) -> u32;
+    PlacingsClear "placings.clear" Device (Empty) -> ();
     AgentsDetect "agents.detect" Device (DetectAgents) -> Agents;
     ChatgptSignIn "chatgpt.sign_in" Device (Empty) -> String;
     ChatgptSignOut "chatgpt.sign_out" Device (Empty) -> ();

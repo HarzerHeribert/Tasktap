@@ -3841,7 +3841,7 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
         attempt: AttemptId::mint(),
     });
     assert!(
-        matches!(effects.as_slice(), [Effect::Unhold(held), Effect::Launch(l)]
+        matches!(effects.as_slice(), [Effect::Did(..), Effect::Unhold(held), Effect::Launch(l)]
             if *held == id && l.prompt == BRIEF),
         "{effects:?}"
     );
@@ -3851,7 +3851,13 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
     w.tick(9000);
     w.answers(id, route.clone()).unwrap();
     w.tick(500);
-    assert_eq!(w.ok(Event::Stop { thought: id }), [Effect::Unhold(id)]);
+    assert_eq!(
+        w.ok(Event::Stop { thought: id }),
+        [
+            Effect::Did(id, tasktap_core::placings::Did::Undone),
+            Effect::Unhold(id)
+        ]
+    );
     let t = w.thought(id);
     assert_eq!((t.phase, t.hold_until), (Phase::Captured, None));
     w.tick(1500);
@@ -3876,7 +3882,7 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
         attempt: AttemptId::mint(),
     });
     assert!(
-        matches!(effects.as_slice(), [Effect::Launch(_)]),
+        matches!(effects.as_slice(), [Effect::Did(..), Effect::Launch(_)]),
         "{effects:?}"
     );
 }
@@ -4458,7 +4464,10 @@ fn a_restart_between_the_routers_answer_and_the_launch_runs_nothing_again() {
     };
     let effects = w.ok(start.clone());
     assert!(
-        matches!(effects.as_slice(), [Effect::Unwaits(_), Effect::Launch(_)]),
+        matches!(
+            effects.as_slice(),
+            [Effect::Unwaits(_), Effect::Did(..), Effect::Launch(_)]
+        ),
         "{effects:?}"
     );
     let again = w.ok(start);

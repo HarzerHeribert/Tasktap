@@ -2087,6 +2087,8 @@ export type Calls = {
   "session.adopt": { args: Adopt; result: SessionId; access: "session" };
   "route.hint": { args: Hint; result: Route; access: "device" };
   "route.terms": { args: Empty; result: RouteTerms; access: "device" };
+  "placings.count": { args: Empty; result: number; access: "device" };
+  "placings.clear": { args: Empty; result: null; access: "device" };
   "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "chatgpt.sign_in": { args: Empty; result: string; access: "device" };
   "chatgpt.sign_out": { args: Empty; result: null; access: "device" };

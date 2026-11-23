@@ -156,6 +156,9 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
       return reply(id, 'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&state=fake');
     }
     if (name === 'speech.terms') return reply(id, terms.speech);
+    // The placing record's count, and its clearing (`records.placings`).
+    if (name === 'placings.count') return reply(id, records.placings ?? 0);
+    if (name === 'placings.clear') return (records.placings = 0), reply(id, null);
     const pref = (key, value) => {
       rev++;
       records.prefs = (records.prefs || []).filter((p) => p.id !== key);

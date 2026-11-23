@@ -940,3 +940,129 @@ fn speech_cannot_remove_a_key_the_own_model_uses_and_a_first_set_up_switches_its
     p.w.sync();
     assert_eq!(p.keys(), Vec::<String>::new());
 }
+
+/// What the person does with a decision on its line: Return starts it.
+fn start(p: &mut Placing, id: ThoughtId) {
+    let start = tasktap_proto::Start {
+        id,
+        attempt: tasktap_proto::AttemptId::mint(),
+    };
+    p.w.ok::<call::ThoughtStart>(&start);
+}
+
+/// A key of the decision line, or a place picked: the task goes to that project.
+fn assign(id: ThoughtId, project: ProjectId) -> tasktap_proto::Assign {
+    tasktap_proto::Assign {
+        id,
+        project_id: Some(project),
+        card_id: None,
+        session_id: None,
+    }
+}
+
+#[test]
+fn the_record_keeps_every_task_a_model_placed_with_what_the_person_did_and_goes_in_no_request() {
+    let mut p = Placing::new("own-record");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let said = format!("fix the header, the key is {KEY}");
+    let place = |p: &mut Placing, reply: Value| {
+        p.server.says(Reply::Says(reply.to_string()));
+        let t = p.capture(&said);
+        p.settled(t);
+        t
+    };
+    let sure = |brief: &str| serde_json::from_str::<Value>(&answer("clear", "p2", brief)).unwrap();
+    // The decision stands.
+    let first = place(&mut p, sure("Brief of the first."));
+    start(&mut p, first);
+    // Torn: another choice is taken, on its key.
+    let mut torn = sure("Brief of the second.");
+    torn["confidence"] = "ambiguous".into();
+    torn["candidates"] = json!(["p1", "p2"]);
+    let second = place(&mut p, torn);
+    let other = p.w.model.thought(second).route.as_ref().unwrap().others[0];
+    let tasktap_proto::Place::Project(other) = other else {
+        panic!("a project")
+    };
+    p.w.ok::<call::ThoughtUpdate>(&assign(second, other));
+    // The start is undone.
+    let third = place(&mut p, sure("Brief of the third."));
+    p.w.ok::<call::ThoughtStop>(&tasktap_proto::Ref { id: third });
+    // The task is placed by hand: to the project the model did not choose.
+    let fourth = place(&mut p, sure("Brief of the fourth."));
+    let chosen = p.w.model.thought(fourth).project_id.unwrap();
+    let elsewhere = [p.app, p.folio].into_iter().find(|x| *x != chosen).unwrap();
+    p.w.ok::<call::ThoughtUpdate>(&assign(fourth, elsewhere));
+    p.w.sync();
+
+    let entries = tasktap_core::placings::read(&p.data.0);
+    assert_eq!(entries.len(), 4, "{entries:?}");
+    let did: Vec<_> = entries
+        .iter()
+        .map(|e| (e["did"].as_str().unwrap(), e["choice"].clone()))
+        .collect();
+    let none = Value::Null;
+    assert_eq!(
+        did,
+        [
+            ("stood", none.clone()),
+            ("other", json!(2)),
+            ("undone", none.clone()),
+            ("hand", none)
+        ]
+    );
+    for (n, e) in entries.iter().enumerate() {
+        assert_eq!(
+            (e["placer"].as_str(), e["model"].as_str()),
+            (Some("own"), Some("tiny"))
+        );
+        assert!(e["at"].as_u64().unwrap() > 0 && e["previews"] == 0);
+        // The words as they were sent: what looks like a key is left out.
+        let words = e["words"].as_str().unwrap();
+        assert!(
+            words.starts_with("fix the header") && !words.contains(KEY),
+            "{words}"
+        );
+        let mut names: Vec<_> = (e["candidates"].as_array().unwrap().iter())
+            .map(|c| c["name"].as_str().unwrap())
+            .collect();
+        names.sort_unstable();
+        // The projects, then the sessions a started task left.
+        assert!(
+            names.contains(&"app") && names.contains(&"folio"),
+            "{names:?}"
+        );
+        assert!(e["candidates"][0]["id"].as_str().unwrap().starts_with('p'));
+        let brief = ["first", "second", "third", "fourth"][n];
+        assert!(
+            e["answer"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("Brief of the {brief}."))
+        );
+    }
+    let text = std::fs::read_to_string(tasktap_core::placings::file(&p.data.0)).unwrap();
+    assert!(!text.contains(KEY));
+    // The record is in no request: not what was done, nor an earlier answer.
+    let asked = p.server.asked();
+    assert_eq!(asked.len(), 4);
+    for (n, a) in asked.iter().enumerate() {
+        let body = a.body.to_string();
+        assert!(
+            !body.contains("placings") && !body.contains("\"did\""),
+            "{body}"
+        );
+        for earlier in ["first", "second", "third", "fourth"].iter().take(n) {
+            assert!(
+                !body.contains(&format!("Brief of the {earlier}.")),
+                "request {n} holds an earlier answer"
+            );
+        }
+    }
+    // Its count, and its end.
+    assert_eq!(p.w.ok::<call::PlacingsCount>(&Empty {}), 4);
+    p.w.ok::<call::PlacingsClear>(&Empty {});
+    assert_eq!(p.w.ok::<call::PlacingsCount>(&Empty {}), 0);
+    assert!(tasktap_core::placings::read(&p.data.0).is_empty());
+}

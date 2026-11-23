@@ -268,6 +268,20 @@ export function Placing() {
   );
 }
 
+/** Settings › Placing, under the placers: how many placings the private record holds (core placings.rs), and
+ *  the way to clear it. */
+export function Recorded() {
+  const [n, setN] = useState<number | null>(null);
+  useEffect(() => void call('placings.count', {}).then(setN, () => {}), []);
+  const clear = () => void call('placings.clear', {}).then(() => setN(0), fail);
+  return (
+    <Row name="Placing record" hint={`The placing record stays on ${HERE} and helps Tasktap learn where your tasks go.`}>
+      <span class="v">{n === null ? '' : n === 1 ? '1 entry' : `${n.toLocaleString('en-US')} entries`}</span>
+      <button type="button" class="btn" disabled={!n} onClick={clear}>Clear</button>
+    </Row>
+  );
+}
+
 /** The one sentence of placing, under its headline, in the welcome and in the sheet. */
 export const PLACING_TITLE = 'Let Tasktap find the project for each task';
 export const PLACING_SAYS = 'A task you do not place yourself is sent with the names of your projects and sessions to the model you choose here.';

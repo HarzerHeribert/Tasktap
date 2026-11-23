@@ -19,6 +19,7 @@ mod isolate;
 mod launch;
 pub mod map;
 pub mod own;
+pub mod placings;
 mod questions;
 mod records;
 pub mod relocate;

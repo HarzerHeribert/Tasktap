@@ -93,6 +93,12 @@ fn handler(name: Name) -> Option<Handler> {
         Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
         Name::RouteHint => |cx, args| now::<call::RouteHint>(cx, args, crate::route::hint),
         Name::RouteTerms => |cx, args| now::<call::RouteTerms>(cx, args, crate::route::terms),
+        Name::PlacingsCount => {
+            |cx, args| now::<call::PlacingsCount>(cx, args, crate::placings::count)
+        }
+        Name::PlacingsClear => {
+            |cx, args| now::<call::PlacingsClear>(cx, args, crate::placings::clear)
+        }
         Name::AgentsDetect => |cx, args| later::<call::AgentsDetect>(cx, args, detect),
         Name::ChatgptSignIn => {
             |cx, args| now::<call::ChatgptSignIn>(cx, args, crate::chatgpt::sign_in)

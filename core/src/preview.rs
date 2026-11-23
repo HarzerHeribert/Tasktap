@@ -161,11 +161,23 @@ pub fn guess(cx: &mut Cx, args: Hint) -> Result<Guess, Error> {
     })
 }
 
+/// Whether a word looks like a key, a token or a password, or the start of
+/// one: one of the openings keys are known by, or 12 characters or more with
+/// both a letter and a digit and neither a slash nor a dot (so a path, a
+/// version or a name is not taken for one).
+fn looks_like_key(word: &str) -> bool {
+    const OPENINGS: [&str; 6] = ["sk-", "ghp_", "gho_", "xox", "AKIA", "eyJ"];
+    OPENINGS.iter().any(|o| word.starts_with(o))
+        || (word.chars().count() >= 12
+            && word.chars().any(char::is_alphabetic)
+            && word.chars().any(|c| c.is_ascii_digit())
+            && !word.contains(['/', '.']))
+}
+
 /// The words without a last word that is still being written and looks like
-/// the start of a key: 12 characters or more without a space that hold a
-/// digit or one of \`-_=:/+.\`. The filter for secrets then judges whole words
-/// only; what is withheld is not sent, and no answer to the rest is kept for
-/// the whole.
+/// the start of a key (`looks_like_key`). The filter for secrets then judges
+/// whole words only; what is withheld is not sent, and the answer to the rest
+/// is said not to be for the whole (`Previewed::whole`).
 fn withheld(text: &str) -> &str {
     if text.ends_with(char::is_whitespace) {
         return text;
@@ -173,11 +185,7 @@ fn withheld(text: &str) -> &str {
     let Some(last) = text.split_whitespace().next_back() else {
         return text;
     };
-    let keyish = last.chars().count() >= 12
-        && last
-            .chars()
-            .any(|c| c.is_ascii_digit() || "-_=:/+.".contains(c));
-    match keyish {
+    match looks_like_key(last) {
         true => text[..text.len() - last.len()].trim_end(),
         false => text,
     }
@@ -248,8 +256,11 @@ fn allowed(core: &mut crate::serve::Core, args: &PreviewWords, page: usize) -> O
 pub fn preview(cx: &mut Cx, args: PreviewWords) -> Option<Control> {
     let (link, id) = (cx.link.clone(), cx.id);
     let page = std::rc::Rc::as_ptr(cx.link) as usize;
-    let reply = move |choices: Vec<Place>| {
-        link.send(&call::RoutePreview::reply(id, Ok(Previewed { choices })));
+    let reply = move |choices: Vec<Place>, whole: bool| {
+        link.send(&call::RoutePreview::reply(
+            id,
+            Ok(Previewed { choices, whole }),
+        ));
     };
     let Some(Asking {
         mut asked,
@@ -261,6 +272,7 @@ pub fn preview(cx: &mut Cx, args: PreviewWords) -> Option<Control> {
             id,
             Ok(Previewed {
                 choices: Vec::new(),
+                whole: true,
             }),
         ));
     };
@@ -280,11 +292,12 @@ pub fn preview(cx: &mut Cx, args: PreviewWords) -> Option<Control> {
             asked.top = tops.unwrap_or_default();
             // Asked again, or a task sent, while the folders were read.
             if core.seams.previews.live != number {
-                return reply(Vec::new());
+                return reply(Vec::new(), whole);
             }
             let p = &mut core.seams.previews;
+            let sent_at = Instant::now();
             p.at(task).sent += 1;
-            p.lately(page).push_back(Instant::now());
+            p.lately(page).push_back(sent_at);
             let (hear, heard) = mpsc::channel();
             p.inflight = Some(hear);
             let text = route::asked(&asked);
@@ -296,7 +309,11 @@ pub fn preview(cx: &mut Cx, args: PreviewWords) -> Option<Control> {
                 // Stopped, or asked again since: nobody waits for this answer,
                 // and a call that was stopped failed for no one's fault.
                 if p.live != number {
-                    return reply(Vec::new());
+                    // It counts toward no limit.
+                    let t = p.at(task);
+                    t.sent = t.sent.saturating_sub(1);
+                    p.lately(page).retain(|at| *at != sent_at);
+                    return reply(Vec::new(), whole);
                 }
                 (p.live, p.inflight) = (0, None);
                 let answer = answer.and_then(Result::ok);
@@ -323,9 +340,46 @@ pub fn preview(cx: &mut Cx, args: PreviewWords) -> Option<Control> {
                         ms,
                     });
                 }
-                reply(choices.into_iter().map(Place::from).collect());
+                reply(choices.into_iter().map(Place::from).collect(), whole);
             });
         },
     );
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_what_looks_like_a_key_is_held_back_never_a_path_a_version_or_a_name() {
+        let held = |text: &str| withheld(text) != text;
+        // A key's opening, or a long word of letters and digits.
+        for word in [
+            "sk-proj-Zq81mXp0",
+            "ghp_abcdef",
+            "gho_x",
+            "xoxb-1",
+            "AKIAIOSFODNN7EXAMPLE",
+            "eyJhbGciOi",
+            "Zq81mXp0aLd7TeSt",
+        ] {
+            assert!(held(&format!("fix the build with {word}")), "{word}");
+        }
+        // A path, a version, a name: sent whole. And a finished word is the filter's to judge.
+        for word in [
+            "src/capture.tsx",
+            "v2.14.1-beta.3",
+            "harbormaster-customer-portal",
+            "refactor_the_authentication",
+            "capture.tsx",
+        ] {
+            assert!(!held(&format!("fix the build in {word}")), "{word}");
+        }
+        assert!(!held("fix the build with sk-proj-Zq81mXp0 "));
+        assert_eq!(
+            withheld("fix the build with sk-proj-Zq81mXp0"),
+            "fix the build with"
+        );
+    }
 }

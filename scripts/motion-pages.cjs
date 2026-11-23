@@ -227,7 +227,11 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     if (name === 'route.preview') {
       (window.__fake.previewed ??= []).push(args);
       const p = (records.livePreviews || {})[args.text];
-      return void setTimeout(() => ((window.__fake.previewedAt ??= []).push(performance.now()), reply(id, { choices: p ? p.choices : [] })), p?.ms || 0);
+      // As the core sends it: a last word still being written that looks like a key's start is held back (core preview.rs
+      // `looks_like_key`), and the answer is then for fewer words (`whole` false).
+      const last = args.text.trim().split(/\s+/).pop() || '', unfinished = !/\s$/.test(args.text);
+      const key = /^(sk-|ghp_|gho_|xox|AKIA|eyJ)/.test(last) || (last.length >= 12 && /[A-Za-z]/.test(last) && /[0-9]/.test(last) && !/[\/.]/.test(last));
+      return void setTimeout(() => ((window.__fake.previewedAt ??= []).push(performance.now()), reply(id, { choices: p ? p.choices : [], whole: !(unfinished && key) })), p?.ms || 0);
     }
     // `hints`: where the router would send a text typed, by the text; else nothing is said.
     if (name === 'route.hint') return reply(id, (records.hints || {})[args.text] ?? null);

@@ -389,7 +389,14 @@ fn every_call_round_trips() {
         view: None,
     };
     let places = vec![Place::Project(id(2)), Place::Session(id(3))];
-    round_trip::<call::RoutePreview>(words, Previewed { choices: places }, seen);
+    round_trip::<call::RoutePreview>(
+        words,
+        Previewed {
+            choices: places,
+            whole: true,
+        },
+        seen,
+    );
     let terms = RouteTerms {
         instructions: "You are the router of Tasktap.".into(),
         sends: vec!["the task, as you said or typed it".into()],

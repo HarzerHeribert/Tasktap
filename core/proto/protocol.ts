@@ -1443,7 +1443,13 @@ current?: SessionId | null, view?: ProjectId | null, };
  * first, or the places it is torn between; none where there is nothing to
  * show (nothing sent, the model had no answer, or it is for the person to say).
  */
-export type Previewed = { choices: Array<Place>, };
+export type Previewed = { choices: Array<Place>,
+/**
+ * The model was asked with exactly the words sent: the choices stand for
+ * them, and Return may take one. False where a last word was held back
+ * (it looked like the start of a key): they stand for fewer words.
+ */
+whole: boolean, };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**

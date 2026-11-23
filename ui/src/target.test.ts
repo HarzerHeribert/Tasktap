@@ -77,6 +77,17 @@ test('Return takes a target only after it has been on show for half a second, an
   assert.equal(t.take(W2, 1000 + SHOWN_FOR, false), null);
 });
 
+test('an answer for fewer words than are in the field stays in the quiet tone and is never taken', () => {
+  const t = new Target();
+  t.set(W2, 0);
+  t.guess(W2, to('a'), 0);
+  t.preview(t.ask(W2), W2, [to('b')], 10, false);
+  t.set(W2, 10 + STAND);
+  assert.deepEqual(t.shown, { place: to('b'), tone: 'provisional', at: 1, of: 1 });
+  assert.equal(t.take(W2, 5000), null);
+  assert.equal(t.next(5000), false);
+});
+
 test('an answer to an older question is dropped, so nothing flickers when answers come out of order', () => {
   const t = new Target();
   t.set(W1, 0);
@@ -124,8 +135,8 @@ test('a torn answer is stepped through on one key, shown at once, as "1 of 3", a
   assert.deepEqual(t.shown, { place: to('a'), tone: 'confirmed', at: 1, of: 3 });
   assert.equal(t.next(1000), true);
   assert.deepEqual(t.shown, { place: to('b'), tone: 'confirmed', at: 2, of: 3 });
-  // The choice just stepped to has been on show for no time at all.
-  assert.equal(t.take(W2, 1000 + 100), null);
+  // A choice the person stepped to is one they have seen: Return takes it at once.
+  assert.equal(t.take(W2, 1000), 1);
   assert.equal(t.take(W2, 1000 + SHOWN_FOR), 1);
   t.next(2000);
   t.next(2000);

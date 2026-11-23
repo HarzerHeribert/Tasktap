@@ -466,6 +466,10 @@ pub struct PreviewWords {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Previewed {
     pub choices: Vec<Place>,
+    /// The model was asked with exactly the words sent: the choices stand for
+    /// them, and Return may take one. False where a last word was held back
+    /// (it looked like the start of a key): they stand for fewer words.
+    pub whole: bool,
 }
 
 /// `thought.update`: sends a thought to a project, or on to a session: a

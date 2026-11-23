@@ -95,9 +95,12 @@ export class Target {
     return ++this.seq;
   }
 
-  /** The model's answer to question `n`, for the words `of` it asked about; an older question's is dropped. */
-  preview(n: number, of: string, choices: Place[], now: number): number | null {
+  /** The model's answer to question `n`, for the words `of` it asked about; an older question's is dropped. `whole`:
+   *  it was asked with exactly those words. An answer for fewer (a last word was held back) is only a guess for them:
+   *  in the quiet tone, and never taken at Return. */
+  preview(n: number, of: string, choices: Place[], now: number, whole = true): number | null {
     if (n !== this.seq || !choices.length) return null;
+    if (!whole) return this.guess(of, choices[0]!, now);
     this.confirmed = { of, choices };
     this.step = 0;
     return this.settle(now);
@@ -133,6 +136,8 @@ export class Target {
     if (!c || c.of !== this.words || c.choices.length < 2) return false;
     this.step = (this.step + 1) % c.choices.length;
     this.show(this.want()!, now);
+    // A choice the person stepped to is one they have seen: Return takes it.
+    this.at = now - SHOWN_FOR;
     this.wait = null;
     return true;
   }

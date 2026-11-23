@@ -120,7 +120,17 @@ const taskId = () => taskOf(speaking(), cap.spoken, () => (cap.task ||= uuid7())
 /** Whether the way the target goes is whole to the eye: "new run", or the start of the session's title. */
 const seenWhole = () => {
   const how = document.querySelector<HTMLElement>('.live .live-l:not(.out) em');
-  return !!how && how.getBoundingClientRect().width >= Math.min(how.scrollWidth, 48);
+  if (!how || how.getBoundingClientRect().width < Math.min(how.scrollWidth, 48)) return false;
+  const place = live.shown?.place;
+  if (!place || !('session' in place) || how.scrollWidth <= how.clientWidth + 0.5) return true;
+  // A session's title that is cut: what is seen of it must tell it from the project's other sessions.
+  const title = sessionName(place.session), project = records.sessions.get(place.session)?.project_id;
+  const st = getComputedStyle(how), ctx = document.createElement('canvas').getContext('2d');
+  if (ctx) ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
+  let n = [...title].length;
+  while (ctx && n > 1 && ctx.measureText(`${[...title].slice(0, n).join('')}…`).width > how.clientWidth) n--;
+  const seen = [...title].slice(0, n).join('');
+  return ![...records.sessions.values()].some((s) => s.id !== place.session && s.project_id === project && sessionName(s.id).startsWith(seen));
 };
 let seen = '', guessing = 0, previewing = 0, standing = 0;
 /** After a change of the words (told on every render, acted on only when they changed): the target starts over for
@@ -143,7 +153,7 @@ function liveSync() {
     if (seen !== words || document.visibilityState !== 'visible' || !previewOn() || !due({ words, asked: live.asked, sent: live.sent })) return;
     const n = live.ask(words);
     void call('route.preview', { task: taskId(), text: words, current: cap.current, ...inView() }).then((r) => {
-      stand(live.preview(n, words, r.choices, performance.now()));
+      stand(live.preview(n, words, r.choices, performance.now(), r.whole));
       redraw();
     }, () => {});
   }, PAUSE);

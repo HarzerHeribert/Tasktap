@@ -79,6 +79,15 @@ impl Record {
         let path = file(data);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("tmp"));
+        // And what was set aside as unreadable: it is the record too.
+        let aside = std::fs::read_dir(data).into_iter().flatten().flatten();
+        for e in aside.filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("placings.unreadable-")
+        }) {
+            let _ = std::fs::remove_file(e.path());
+        }
         self.lines = Some(0);
     }
 
@@ -296,10 +305,12 @@ mod tests {
             .map(|e| e["id"].as_str().unwrap().to_owned())
             .collect();
         assert_eq!(ids, ["1", "2"]);
-        // Clear takes a temporary file that a trim left, too.
+        // Clear takes a temporary file that a trim left, too, and what was set aside.
         std::fs::write(file(&data).with_extension("tmp"), "x").unwrap();
         record.clear(&data);
         assert!(!file(&data).with_extension("tmp").exists() && read(&data).is_empty());
+        let left = std::fs::read_dir(&data).unwrap().flatten().count();
+        assert_eq!(left, 0, "the set-aside file went with the record");
         let _ = std::fs::remove_dir_all(&data);
     }
 }

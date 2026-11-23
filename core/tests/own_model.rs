@@ -1582,3 +1582,95 @@ fn nothing_is_guessed_or_previewed_for_a_task_said_in_the_window_and_a_task_plac
         (Some("hand"), true, 0)
     );
 }
+
+#[test]
+fn a_final_path_is_previewed_whole_and_its_answer_is_reused_at_return() {
+    let mut p = Placing::new("own-preview-path");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    p.server.says(Reply::Says(answer(
+        "clear",
+        "p2",
+        "Brief of the path task.",
+    )));
+    let task = ThoughtId::mint();
+    let said = "fix the layout in src/capture.tsx";
+    let got = p.w.ok::<call::RoutePreview>(&words(task, said));
+    assert!(got.whole && got.choices.len() == 1);
+    assert!(
+        p.server.asked()[0]
+            .body
+            .to_string()
+            .contains("src/capture.tsx")
+    );
+    send(&mut p, task, said, Some(0));
+    assert_eq!(
+        p.settled(task).brief.as_deref(),
+        Some("Brief of the path task.")
+    );
+    assert_eq!(p.server.asked().len(), 1, "no second question");
+    // A last word that looks like a key's start is left out, and the answer is said to be for fewer words.
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    let partial = format!("fix the header on small screens {}", &KEY[..16]);
+    let got =
+        p.w.ok::<call::RoutePreview>(&words(ThoughtId::mint(), &partial));
+    assert!(!got.whole && got.choices.len() == 1);
+}
+
+#[test]
+fn a_preview_that_was_stopped_counts_toward_no_limit() {
+    let mut p = Placing::new("own-preview-stopped-count");
+    let address = p.server.address();
+    p.set_up(&address, "tiny", None);
+    let slow = || Reply::After(4000, Box::new(Reply::Says(answer("clear", "p2", "Slow."))));
+    // One for the task, stopped by a newer one of the same task: it does not count among the four.
+    let task = ThoughtId::mint();
+    p.server.says(slow());
+    let older =
+        p.w.send::<call::RoutePreview>(&words(task, "make the header stay"));
+    while p.server.asked().is_empty() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    let newer =
+        p.w.send::<call::RoutePreview>(&words(task, "make the header stay on"));
+    p.w.replies::<call::RoutePreview>(&[older, newer]);
+    for n in 0..3 {
+        p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+        assert_eq!(
+            preview(&mut p, task, &format!("{WORDS} {n}")).len(),
+            1,
+            "preview {n}"
+        );
+    }
+    p.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    assert!(
+        preview(&mut p, task, "one more of the words").is_empty(),
+        "four counted: the stopped one is not among them"
+    );
+    // And not among the eight of the minute: the stopped one and eight others.
+    let mut q = Placing::new("own-preview-stopped-minute");
+    let address = q.server.address();
+    q.set_up(&address, "tiny", None);
+    q.server.says(slow());
+    let older =
+        q.w.send::<call::RoutePreview>(&words(ThoughtId::mint(), "make the header stay"));
+    while q.server.asked().is_empty() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    q.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+    let newer =
+        q.w.send::<call::RoutePreview>(&words(ThoughtId::mint(), WORDS));
+    q.w.replies::<call::RoutePreview>(&[older, newer]);
+    for n in 0..7 {
+        q.server.says(Reply::Says(answer("clear", "p2", "Brief.")));
+        assert_eq!(
+            preview(&mut q, ThoughtId::mint(), WORDS).len(),
+            1,
+            "preview {n}"
+        );
+    }
+    let before = q.server.asked().len();
+    assert!(preview(&mut q, ThoughtId::mint(), WORDS).is_empty());
+    assert_eq!(q.server.asked().len(), before);
+}

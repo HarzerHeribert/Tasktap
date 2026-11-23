@@ -44,7 +44,7 @@ function records(more = () => ({}), prefs = [CHATGPT, BY()]) {
   const kept = (r.prefs || []).filter((p) => !prefs.some((q) => q.id === p.id) && p.id !== 'route_by');
   // (Setup's preference stored: Tasktap is in use, so Home is the first picture, with no welcome.)
   const used = pref('setup_hidden', true);
-  return { ids, records: { ...r, prefs: [...kept.filter((p) => p.id !== used.id), ...prefs, used], thoughts: [], ...more(ids) } };
+  return { ids, records: { ...r, prefs: [...kept.filter((p) => p.id !== used.id), ...prefs, used], thoughts: [], ...more(ids, r) } };
 }
 const NAMES = { cue: 'cuegrid', field: 'fieldnotes', ledger: 'ledger-api' };
 
@@ -168,8 +168,7 @@ async function main() {
     {
       // The project's name gives way (cut in the middle), the way the task goes never does.
       const long = 'harbormaster-customer-portal-frontend-and-admin';
-      const { page } = await home((i) => ({ liveGuesses: { [WORDS]: { project: i.cue } }, livePreviews: { [WORDS]: { choices: [{ project: i.field }], ms: 0 } },
-        projects: scene('normal').projects.map((p) => (p.id === i.field ? { ...p, name: long } : p)) }));
+      const { page } = await home((i, r) => ({ liveGuesses: { [WORDS]: { project: i.cue } }, livePreviews: { [WORDS]: { choices: [{ project: i.field }], ms: 0 } },        projects: r.projects.map((p) => (p.id === i.field ? { ...p, name: long } : p)) }));
       await page.setViewportSize({ width: 620, height: 700 });
       await type(page, WORDS);
       await until(() => on(page), (v) => v[0]?.tone === 'confirmed');
@@ -180,6 +179,50 @@ async function main() {
       expect((await until(() => sent(page), (v) => !!v))?.taken === 0, 'and Return then takes it');
       await page.context().close();
     }
+    // 2c. What is shown is what was asked: a final path is previewed whole and confirmed; a last word that looks like a
+    // key's start is held back, and the answer for the rest stays in the quiet tone and is never taken.
+    for (const [said, whole] of [['fix the layout in src/capture.tsx', true], ['fix the layout with sk-proj-Zq81mXp0aLd7', false]]) {
+      const { page } = await home((i) => ({ liveGuesses: { [said]: { project: i.cue } }, livePreviews: { [said]: { choices: [{ project: i.field }], ms: 0 } } }));
+      await type(page, said);
+      await until(() => page.evaluate(() => (window.__fake.previewedAt || []).length), (n) => n > 0);
+      await page.waitForTimeout(STAND * 2 + 600);
+      const tone = (await on(page))[0]?.tone;
+      await page.keyboard.press('Enter');
+      const s = await until(() => sent(page), (v) => !!v);
+      expect(whole ? tone === 'confirmed' && s?.taken === 0 : tone === 'provisional' && s?.taken === undefined, `"${said}": ${whole ? 'asked whole, shown confirmed, taken (no second question)' : 'asked without its last word, shown quiet, not taken'} (${tone}, taken ${JSON.stringify(s?.taken)})`);
+      await page.context().close();
+    }
+
+    // 2d. Return right after stepping with the key takes the choice stepped to.
+    {
+      const { page } = await home((i) => ({ liveGuesses: { [WORDS]: { project: i.cue } }, livePreviews: { [WORDS]: { choices: [{ project: i.cue }, { project: i.field }, { project: i.ledger }], ms: 0 } } }));
+      await type(page, WORDS);
+      await until(() => page.evaluate(() => document.querySelector('.live .live-n span')?.textContent), (v) => v === '1 of 3');
+      await page.waitForTimeout(550);
+      await page.keyboard.press('Meta+g');
+      await page.keyboard.press('Enter');
+      const s = await until(() => sent(page), (v) => !!v);
+      expect(s?.taken === 1, `Return right after ⌘G takes the choice stepped to (taken ${JSON.stringify(s?.taken)})`);
+      await page.context().close();
+    }
+
+    // 2e. A session's title that is cut is shown enough only if no other session of the project begins the same.
+    for (const [other, ok] of [['Fix the flaky export test on the rehearsal timer page, the second', false], ['Zulu: another session with a title of its own that is long as well', true]]) {
+      const { page } = await home((i, r) => {
+        const sessions = r.sessions.map((s, n) => (n === 0 ? { ...s, name: 'Fix the flaky export test on the rehearsal timer page, the first' } : n === 1 ? { ...s, name: other } : s));
+        return { sessions, liveGuesses: { [WORDS]: { project: i.cue } }, livePreviews: { [WORDS]: { choices: [{ session: i.session }], ms: 0 } } };
+      });
+      await page.setViewportSize({ width: 400, height: 700 });
+      await type(page, WORDS);
+      await until(() => on(page), (v) => v[0]?.tone === 'confirmed');
+      await page.waitForTimeout(600);
+      const cut = await page.evaluate(() => { const e = document.querySelector('.live-l:not(.out) em'); return e.scrollWidth > e.clientWidth + 0.5; });
+      await page.keyboard.press('Enter');
+      const s = await until(() => sent(page), (v) => !!v);
+      expect(cut && (ok ? s?.taken === 0 : s?.taken === undefined), `a cut session title ${ok ? 'that no other session of the project begins like is taken' : 'that another session of the project begins like is not taken'} (cut: ${cut}, taken ${JSON.stringify(s?.taken)})`);
+      await page.context().close();
+    }
+
     // 3. Answers out of order: the answer to older words, late, changes nothing.
     {
       const older = WORDS, newer = `${WORDS} on small screens`;

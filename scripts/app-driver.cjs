@@ -60,6 +60,12 @@ async function launch({ exe = RELEASE, fixture = false, env = {}, display = 0, p
     const core = path.join(host, 'binaries/fixtures/tasktap');
     if (!fs.existsSync(core)) throw new Error('Build the fixture core first: FIXTURES=1 host/scripts/build-core.sh');
     fs.mkdirSync(path.join(tmp, 'agents'));
+    // A first start is the same on every machine (as smoke.sh gives it): a home of its own with no projects in it, which
+    // the welcome's first step searches by itself, and no agent's history. On a machine with projects in its home a
+    // task left on Auto would be asked about (which of them?) instead of going to the one folder open.
+    fs.mkdirSync(path.join(tmp, 'home'));
+    fs.writeFileSync(path.join(tmp, 'home', '.zshrc'), '');
+    Object.assign(vars, { HOME: path.join(tmp, 'home'), CLAUDE_CONFIG_DIR: path.join(tmp, 'no-history/claude'), CODEX_HOME: path.join(tmp, 'no-history/codex') });
     for (const name of ['fixture-agent', 'fixture']) fs.linkSync(core, path.join(tmp, 'agents', name));
     fs.writeFileSync(path.join(tmp, 'gitconfig'), '[user]\n\tname = Measure\n\temail = measure@example.com\n[init]\n\tdefaultBranch = main\n');
     Object.assign(vars, { PATH: `${path.join(tmp, 'agents')}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: path.join(tmp, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1',

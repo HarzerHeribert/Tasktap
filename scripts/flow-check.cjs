@@ -81,7 +81,7 @@ function judge(level, quiet, flow, failures, timed = true) {
   const s = stats(flow), frame = stats(quiet).median, hitch = Math.max(frame, 1000 / 60), most = has('--app') ? 2 : 3, key = has('--app') ? 4 : 6;
   if (flow.hidden) failures.push(`${level}: the window was covered, so nothing was measured`);
   if (s.keys < 40) failures.push(`${level}: only ${s.keys} keys reached the Composer`);
-  if (!flow.marks.some((m) => /working|done|Started in/.test(m[1]))) failures.push(`${level}: the thought never came to work, so the flow was not measured`);
+  if (!flow.marks.some((m) => /working|done|Started in/.test(m[1]))) failures.push(`${level}: the thought never came to work, so the flow was not measured (Home showed: ${[...new Set(flow.marks.map((m) => m[1]))].slice(0, 6).join(' // ')})`);
   if (timed && s.p95 > frame * 1.2) failures.push(`${level}: the 95th percentile of the frame intervals during the flow is ${r1(s.p95)} ms (${r1(frame * 1.2)} at most, at a frame of ${r1(frame)} ms)`);
   if (timed && s.worst > hitch * most) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(hitch * most)} at most)`);
   if (timed && s.kp95 > frame * 1.8) failures.push(`${level}: the 95th percentile of the delay from a key to its frame is ${r1(s.kp95)} ms (${r1(frame * 1.8)} at most)`);

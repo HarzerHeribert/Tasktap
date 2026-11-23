@@ -105,9 +105,10 @@ id: string,
 name: string,
 /**
  * The program that starts it, as a person types it: what the person's
- * command for it names (the `agent_commands` preference).
+ * command for it names (the `agent_commands` preference). A core of
+ * 2.0.0 names none, and takes no command of the person's.
  */
-program: string,
+program?: string,
 /**
  * It runs on this system. One that does not yet is listed, and runs nothing.
  */
@@ -1665,9 +1666,9 @@ instructions: string,
  */
 sends: Array<string>,
 /**
- * How much of each text is sent, in one sentence.
+ * How much of each text is sent, in one sentence; a core of 2.0.0 says none.
  */
-cuts: string,
+cuts?: string,
 /**
  * The version of these terms, which an agreement names: one to an
  * older version covers nothing.

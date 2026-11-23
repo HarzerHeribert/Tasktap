@@ -85,6 +85,10 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
     const { id, name, args } = call;
     calls.push(name);
     if (name === 'put') puts.push(args);
+    // A core of 2.0.0 (`earlier`), as an update leaves it running: what it does not know it refuses, as it refuses it.
+    const old = welcome.earlier;
+    if (old?.calls.includes(name)) return toCore({ t: 'reply', id, err: { code: 'unknown', message: `no call ${name}` } });
+    if (old && name === 'put' && args.c === 'prefs' && old.prefs.includes(args.id)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: `unknown variant \`${args.id}\`` } });
     if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
@@ -599,7 +603,15 @@ function fakeRuntime({ label, records: records0, welcome, terms, keys: ownKeys }
   };
 }
 
-const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'];
+const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history', 'route.guess', 'route.preview', 'placings.count', 'placings.clear', 'chatgpt.sign_in', 'chatgpt.sign_out', 'own_model.set', 'own_model.remove', 'own_model.list'];
+/** What a core of 2.0.0 does not answer, and the preferences it refuses: the core an update keeps using while its
+ *  terminals run on (host core.rs). `open(…, { earlier: true })` is a page connected to one. */
+const EARLIER = {
+  calls: ['route.guess', 'route.preview', 'placings.count', 'placings.clear', 'chatgpt.sign_in', 'chatgpt.sign_out', 'own_model.set', 'own_model.remove', 'own_model.list'],
+  prefs: ['show_target', 'agent_weights', 'agent_commands', 'chatgpt', 'own_model'],
+};
+/** Records as a core of 2.0.0 sends them: an agent names no program, no ladder and no failing command. */
+const asEarlier = (records) => ({ ...records, agents: (records.agents || []).map(({ program, passes, command_fails, ...a }) => a) });
 // What the core's `route.terms` and `speech.terms` answer: the instructions are the core's own file.
 /** Tasktap's own window's keys and a text field's, as the core has them (core/proto/src/keys.rs, generated into
  *  protocol.ts): the fake host refuses them as the core does (`own_key`). */
@@ -658,7 +670,8 @@ function findCore() {
   return FIND;
 }
 const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0';
-async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions, system, fixed, init, query = '' }) {
+async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions, system, fixed, init, query = '', earlier = false }) {
+  if (earlier) records = asEarlier(records);
   const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: Number(process.env.WIDTH) || 1180, height: 760 });
   if (TEXT !== 'default' && !(records.prefs || []).some((p) => p.id === 'text_size')) records = { ...records, prefs: [...(records.prefs || []), { id: 'text_size', value: TEXT, rev: 1 }] };
   const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}), ...(system === 'windows' ? { userAgent: WINDOWS } : {}) });
@@ -677,7 +690,10 @@ async function open(browser, { label, records = {}, viewport, dpr = 2, url, vide
   page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });
   // `projects.find`, answered by the core's own code when it is built (`findCore`).
   if (fs.existsSync(FIND)) await page.exposeFunction('__coreFind', (asked) => require('node:child_process').execFileSync(FIND, { input: `${asked}\n` }).toString());
-  await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS }, terms: TERMS, keys: OWN_KEYS });
+  const welcome = earlier ? { v: VERSION, calls: CALLS.filter((c) => !EARLIER.calls.includes(c)), earlier: EARLIER } : { v: VERSION, calls: CALLS };
+  // 2.0.0's terms say nothing of what is cut, and list no ChatGPT.
+  const terms = earlier ? { ...TERMS, route: (({ cuts, ...route }) => ({ ...route, tools: route.tools.filter((t) => t.agent !== 'chatgpt') }))(TERMS.route) } : TERMS;
+  await page.addInitScript(fakeRuntime, { label, records, welcome, terms, keys: OWN_KEYS });
   await page.goto(`${url}/${label}.html${query}`);
   if (label === 'notch') await page.evaluate(() => { document.documentElement.style.background = '#3a4048'; });
   await page.waitForTimeout(400); // welcome, sub and first paint

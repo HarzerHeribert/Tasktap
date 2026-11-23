@@ -2,7 +2,7 @@
 // element to focus next, and the words the records are shown in. Each page's bundle has its own.
 import { type AgentHealth, PREF_DEFAULTS, type PlaceTool, type Question, type RouteTerms, type SpeechTerms, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
 import { tauriBridge } from './bridge.ts';
-import { Client, Records, type Where } from './client.ts';
+import { CallError, Client, Records, type Name, type Where } from './client.ts';
 import { type Answering, TALK, answerUsual } from './keys.ts';
 
 export const client = new Client(tauriBridge());
@@ -20,6 +20,8 @@ export const recordsIn = () => ((core.in = true), came());
 /** The page's records will not come (its `sub` failed): what waits for them is given back, never held for ever. */
 export const recordsFailed = (e: unknown) => failed(e);
 export const call: typeof client.call = (name, args) => client.call(name, args);
+/** Whether the core in use answers `name` (client.ts `offers`): a control for what it cannot do is not shown. */
+export const serves = (name: Name) => client.offers(name);
 /** A preference as the core keeps it, or the protocol's default while none is stored. */
 export const pref = <K extends keyof typeof PREF_DEFAULTS>(k: K) => (records.prefs.get(k)?.value ?? PREF_DEFAULTS[k]) as (typeof PREF_DEFAULTS)[K];
 /** The key held to talk: the `talk_key` preference, else the system's usual one (keys.ts TALK). */
@@ -45,6 +47,8 @@ export const page = {
   error: '',
 };
 export const fail = (e: unknown) => {
+  // A call the core in use does not answer (an earlier build's, after an update) is nothing to say.
+  if (e instanceof CallError && e.code === 'unknown') return;
   page.error = e instanceof Error ? e.message : String(e);
   redraw();
 };

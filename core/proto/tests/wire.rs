@@ -1774,3 +1774,28 @@ fn no_recorded_key_is_a_key_of_tasktaps_own_window_nor_one_every_app_has() {
         k(true, false, true, false, "KeyJ")
     );
 }
+
+/// A page of this build is connected to a core of 2.0.0 while the terminals it keeps run on (an update). What that
+/// core sends, without the fields that came after it, is read: an agent names no program (and takes no command of
+/// the person's), and the terms say nothing of what is cut.
+#[test]
+fn what_a_core_of_2_0_0_answers_is_read_without_the_fields_that_came_after_it() {
+    let agent = json!({
+        "id": "claude", "name": "Claude Code", "supported": true, "rev": 4, "checked": 1_790_000_000_000u64,
+        "own": false, "note": null, "checks": true,
+        "options": [{"id": "web", "name": "Web search", "allows": "Searches the web"}],
+        "installed": true, "version": "2.4.1", "signed_in": true, "identity": null, "stale": false,
+        "limited": null, "events": true, "resume": true, "permissions": "core", "questions": "core"
+    });
+    let read: AgentHealth = serde_json::from_value(agent).unwrap();
+    assert_eq!(
+        (read.program.as_str(), read.command_fails, read.passes),
+        ("", None, None)
+    );
+    let terms = json!({
+        "instructions": "You are the router of Tasktap.", "sends": ["the task, as you said or typed it"],
+        "terms": 3, "tools": [{"agent": "claude", "model": "haiku", "pays": "plan", "ms": 3700}]
+    });
+    let read: RouteTerms = serde_json::from_value(terms).unwrap();
+    assert_eq!((read.cuts.as_str(), read.terms), ("", 3));
+}

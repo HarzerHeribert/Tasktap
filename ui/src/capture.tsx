@@ -24,7 +24,7 @@ import { WEIGHT_KEY, WeightControl, WeightList, open as openWeights, shows as we
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, Glyph, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { PAUSE, QUIET_WORDS, type Shown, Target, due, keyOf, taskOf } from './target.ts';
-import { QUIET, terms, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, loadTerms, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { QUIET, serves, terms, agent, agentName, byPerson, call, core, coreIn, fail, focus, keyTimes, loadTerms, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, decided, first, hold, laterWhy, leave, middle, type Names, offers, onWay, placed, placeOf, placing, step, waits, wholeHold } from './way.ts';
 
 /** The line in the empty field (lines.ts), one for every Composer of the page, and the one owner of its timer: the
@@ -109,9 +109,9 @@ export const live = new Target();
 const DIRECT = ['chatgpt', 'own'];
 /** A target is shown while the chip says Auto, a model places the task, and the task is not said in Tasktap's window
  *  (a session or a workspace in view: the names decide there). */
-const liveOn = () => core.in && modelPlaces() && !cap.current && !cap.usual && where().why === 'model';
+const liveOn = () => core.in && serves('route.guess') && modelPlaces() && !cap.current && !cap.usual && where().why === 'model';
 /** A preview is sent only where the person allowed it, and the first placer is one that makes a direct call. */
-const previewOn = () => liveOn() && pref('show_target') && DIRECT.includes(first(pref('route_by'), placers()) ?? '');
+const previewOn = () => liveOn() && serves('route.preview') && pref('show_target') && DIRECT.includes(first(pref('route_by'), placers()) ?? '');
 /** The words the target is for: those in the field, or those heard so far of a thought being spoken. */
 const liveWords = () => (speaking() ? mine()?.text ?? '' : cap.draft).trim();
 /** The id a preview of the words is made for: the thought a spoken one becomes, else the task in the field. */

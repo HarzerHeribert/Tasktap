@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { Glyph, I } from '../ui.tsx';
 import { AGAIN, type Rank, ownMark, agreement, chatgptOffer, chatgptRow, moved, ownOffer, placeWhy, places, placing, ranked } from '../way.ts';
-import { CHATGPT, OWN, agentName, call, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
+import { CHATGPT, OWN, agentName, call, fail, loadTerms, open, serves, placers, pref, records, redraw, terms } from './model.ts';
 import { Row, Switch, setPref } from './form.tsx';
 import { toPlacing } from '../question.tsx';
 import { type Act, Frame } from './sheets.tsx';
@@ -114,7 +114,7 @@ let signing = false;
  *  browser is waited for, and why the last sign-in did not finish, in the row itself. */
 export function SignIn() {
   const c = chatgptRow(pref('chatgpt'));
-  if (c.state === 'in') return null;
+  if (c.state === 'in' || !serves('chatgpt.sign_in')) return null;
   return (
     <div class="line rank sign off" role="listitem" aria-label={`ChatGPT, not signed in${c.says ? `. ${c.says}` : ''}`}>
       <span class="n" />
@@ -166,7 +166,7 @@ export function openOwn(address?: string) {
 /** A server answers on this machine at Ollama's usual address, and no own model is set up. */
 export const foundOllama = () => !pref('own_model') && !!own.found;
 /** Looks for one, once, as the page that offers it appears. */
-export const useFound = () => useEffect(() => void (pref('own_model') || detect()), [!!pref('own_model')]);
+export const useFound = () => useEffect(() => void (pref('own_model') || !serves('own_model.list') || detect()), [!!pref('own_model')]);
 
 const setUp = (then?: () => void) => {
   const address = trimmed(), model = own.model.trim();
@@ -208,6 +208,7 @@ export function OwnFields({ then }: { then?: () => void }) {
 export function OwnRow({ then }: { then?: () => void }) {
   useFound();
   const found = foundOllama();
+  if (!serves('own_model.set')) return null;
   return (
     <>
       {!pref('own_model') && (
@@ -256,7 +257,7 @@ export function Placing() {
     <>
       <Row name={MASTER} hint={on ? `Tasks you do not place go where they belong: ${names.length > 1 ? 'the first of these to answer' : names[0]} decides from earlier tasks and what your agents last answered.`
         : state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
-          : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', until you turn placing on' : terms.route ? ', until you sign in with ChatGPT, set up your own model, or set up an agent under Agents' : ''}.`}>
+          : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', until you turn placing on' : terms.route ? serves('chatgpt.sign_in') ? ', until you sign in with ChatGPT, set up your own model, or set up an agent under Agents' : ', until you set up an agent under Agents' : ''}.`}>
         <Switch on={on} name={MASTER} set={turn} />
         {state === 'again' && <span class="v warn">{AGAIN}</span>}
       </Row>
@@ -281,7 +282,7 @@ toPlacing.go = () => open({ kind: 'settings', at: 'placing' });
  *  only the target Tasktap works out on this Mac shows. */
 export function Targeting() {
   const { state } = useRanks();
-  if (state !== 'on') return null;
+  if (state !== 'on' || !serves('route.preview')) return null;
   const name = 'Show the target while you write';
   return (
     <Row name={name} hint={`While you write or speak a task, the words so far are sent to find the target before you send the task. Off: only the target Tasktap works out on ${HERE} shows, and nothing is sent.`}>
@@ -294,8 +295,10 @@ export function Targeting() {
  *  the way to clear it. */
 export function Recorded() {
   const [n, setN] = useState<number | null>(null);
-  useEffect(() => void call('placings.count', {}).then(setN, () => {}), []);
+  const kept = serves('placings.count');
+  useEffect(() => void (kept && call('placings.count', {}).then(setN, () => {})), [kept]);
   const clear = () => void call('placings.clear', {}).then(() => setN(0), fail);
+  if (!kept) return null;
   return (
     <Row name="Placing record" hint={`The placing record stays on ${HERE} and helps Tasktap learn where your tasks go.`}>
       <span class="v">{n === null ? '' : n === 1 ? '1 entry' : `${n.toLocaleString('en-US')} entries`}</span>
@@ -337,7 +340,7 @@ export function Instructions() {
   return (
     <>
       <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
-      {reads && (t ? <><p class="hint">{t.cuts}</p><pre class="instr" tabIndex={0}>{t.instructions}</pre></> : <p>Asking what is sent…</p>)}
+      {reads && (t ? <>{t.cuts && <p class="hint">{t.cuts}</p>}<pre class="instr" tabIndex={0}>{t.instructions}</pre></> : <p>Asking what is sent…</p>)}
     </>
   );
 }

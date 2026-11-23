@@ -582,7 +582,10 @@ pub struct AgentHealth {
     /// Its name, as every sentence about it says it.
     pub name: String,
     /// The program that starts it, as a person types it: what the person's
-    /// command for it names (the `agent_commands` preference).
+    /// command for it names (the `agent_commands` preference). A core of
+    /// 2.0.0 names none, and takes no command of the person's.
+    #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<String>", optional))]
     pub program: String,
     /// It runs on this system. One that does not yet is listed, and runs nothing.
     pub supported: bool,
@@ -894,7 +897,9 @@ pub struct RouteTerms {
     pub instructions: String,
     /// What is sent with them, one line for each kind of field.
     pub sends: Vec<String>,
-    /// How much of each text is sent, in one sentence.
+    /// How much of each text is sent, in one sentence; a core of 2.0.0 says none.
+    #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<String>", optional))]
     pub cuts: String,
     /// The version of these terms, which an agreement names: one to an
     /// older version covers nothing.

@@ -30,6 +30,7 @@
 /* Who finds the project: three large options side by side, each with its one action. */
 .wc-o{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp3);width:100%}
 .wc-o[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+.wc-o[data-n="1"]{grid-template-columns:minmax(0,1fr)}
 /* A card is one target, on the Composer's raised material: under the pointer or with the keyboard it is a shade
    brighter and its rim is the lit edge (window.css .capture.raised). Nothing moves. */
 .wc-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:var(--sp3);min-width:0;min-height:196px;padding:var(--sp4) var(--sp3);border-radius:var(--r3);background:var(--surface);box-shadow:var(--surface-edge);color:var(--fg);text-align:center;cursor:pointer;transition:background var(--t-fast)}

@@ -235,6 +235,9 @@ export class Client {
   /** Frames of a transaction marked `more`, applied whole with its last. */
   private partial: RowSet[] = [];
   private records: Records | null = null;
+  /** The calls the core answers, as its welcome lists them. A core of an earlier build lists fewer: the one an update
+   *  keeps using while its terminals run on (host core.rs). */
+  private calls: ReadonlySet<string> = new Set();
 
   readonly bridge: Bridge;
 
@@ -246,6 +249,12 @@ export class Client {
 
   call<N extends Name>(name: N, args: Args<N>): Promise<Result<N>> {
     return this.request(name, args, (v) => v as Result<N>);
+  }
+
+  /** Whether the core answers `name`, as its welcome said; nothing before the welcome. What only a newer core does is
+   *  not offered while an earlier one is in use: no control for it, and nothing asked of it. */
+  offers(name: Name): boolean {
+    return this.calls.has(name);
   }
 
   /** Subscribes `records` to `collections`: the snapshot, then every change in order. */
@@ -318,6 +327,7 @@ export class Client {
     const c = JSON.parse(frame) as Control;
     switch (c.t) {
       case 'welcome':
+        this.calls = new Set(c.calls);
         if (c.v === VERSION) this.greeted?.ok(c);
         else this.greeted?.no(new Error(`the core speaks version ${c.v}, this page ${VERSION}`));
         return;

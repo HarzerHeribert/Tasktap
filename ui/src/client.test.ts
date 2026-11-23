@@ -155,3 +155,12 @@ test('the agents collection is held like any other, in the order the core lists 
   push({ t: 'change', rev: 4, snap: true, sets: [{ c: 'agents', put: [agent('codex', 4, false)] }] });
   assert.deepEqual([...records.agents.keys()], ['codex']);
 });
+
+test('the page offers only what the core answers: a core of an earlier build lists fewer calls in its welcome', () => {
+  const { client, push } = fake(false);
+  assert.equal(client.offers('sub'), false, 'nothing is known before the welcome');
+  push({ ...welcome, calls: ['sub', 'put', 'thought.capture'] });
+  assert.equal(client.offers('thought.capture'), true);
+  assert.equal(client.offers('route.preview'), false, 'a call 2.0.0 does not answer is not offered');
+  assert.equal(client.offers('chatgpt.sign_in'), false);
+});

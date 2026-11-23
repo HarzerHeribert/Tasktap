@@ -23,7 +23,7 @@ import { canSignIn, signInTo } from './agents.tsx';
 import { OLLAMA, OwnFields, PLACING_SAYS, PLACING_TITLE, Sent, foundOllama, openOwn, serviceName, signInWithChatGPT, useFound, useRanks } from './consent.tsx';
 import { Choice, Row, Switch, setPref } from './form.tsx';
 import { Light, useLight } from './light.tsx';
-import { CHATGPT, OWN, agent, agentName, call, core, dismiss, fail, loadTerms, page, placers, pref, records, redraw, runs, ui } from './model.ts';
+import { CHATGPT, OWN, agent, agentName, call, core, dismiss, fail, loadTerms, page, placers, pref, records, redraw, runs, serves, ui } from './model.ts';
 import { searchInFolder, seen, useFirstSearch } from './projects.tsx';
 import './welcome.css';
 
@@ -199,15 +199,19 @@ function Placing() {
   const asked = rows.filter((r) => r.agent !== CHATGPT && r.agent !== OWN && tools.some((x) => x.agent === r.agent));
   useFound();
   const here = foundOllama();
+  // A core that does not sign in with ChatGPT (an earlier build's, after an update): the person's agents lead.
+  const gpt = serves('chatgpt.sign_in'), mine = { label: 'Use my agents', do: () => agree((a) => a !== CHATGPT && a !== OWN), off: !t || !asked.length };
   return (
     <Page title={PLACING_TITLE} says={PLACING_SAYS}
-      primary={{ ...(signed ? { label: 'Use ChatGPT', do: () => agree((a) => a === CHATGPT), off: !t } : { label: 'Sign in with ChatGPT', do: signInWithChatGPT, off: waiting }), card: true }}>
-      <div class="wc-o" role="group" aria-label="Who finds the project" data-n={here ? 3 : 2}>
-        <Card id="wc-go" title="ChatGPT" off={signed ? !t : waiting} go={signed ? () => agree((a) => a === CHATGPT) : signInWithChatGPT} primary action={signed ? 'Use ChatGPT' : 'Sign in with ChatGPT'}>
-          <Glyph agent={CHATGPT} size={40} />
-          {(signed || waiting) && <span class="x">{signed ? 'Signed in' : 'Waiting for your browser'}</span>}
-        </Card>
-        <Card title="Your agents" off={!t || !asked.length} go={() => agree((a) => a !== CHATGPT && a !== OWN)} action="Use my agents">
+      primary={{ ...(!gpt ? mine : signed ? { label: 'Use ChatGPT', do: () => agree((a) => a === CHATGPT), off: !t } : { label: 'Sign in with ChatGPT', do: signInWithChatGPT, off: waiting }), card: true }}>
+      <div class="wc-o" role="group" aria-label="Who finds the project" data-n={(gpt ? 2 : 1) + (here ? 1 : 0)}>
+        {gpt && (
+          <Card id="wc-go" title="ChatGPT" off={signed ? !t : waiting} go={signed ? () => agree((a) => a === CHATGPT) : signInWithChatGPT} primary action={signed ? 'Use ChatGPT' : 'Sign in with ChatGPT'}>
+            <Glyph agent={CHATGPT} size={40} />
+            {(signed || waiting) && <span class="x">{signed ? 'Signed in' : 'Waiting for your browser'}</span>}
+          </Card>
+        )}
+        <Card id={gpt ? undefined : 'wc-go'} title="Your agents" off={mine.off} go={mine.do} primary={!gpt} action={mine.label}>
           <span class="wc-q">{asked.slice(0, 4).map((r) => <Glyph key={r.agent} agent={r.agent} size={32} />)}</span>
           <span class="x">{asked.map((r) => agentName(r.agent)).join(', ')}</span>
         </Card>

@@ -206,7 +206,7 @@ export function AgentsPane() {
               );
             })}
             {on && a.note && <Row name="Note"><span class="v">{a.note}</span></Row>}
-            {!a.own && a.supported && <Start key={a.id} a={a} />}
+            {!a.own && a.supported && a.program && <Start key={a.id} a={a} />}
             {!a.own && a.supported && a.passes && <Ladder key={`${a.id}.ladder`} a={a} />}
           </div>
         )}

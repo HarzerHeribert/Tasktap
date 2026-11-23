@@ -238,7 +238,7 @@ export const MOVES = `${mac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓'} or a drag mov
 
 /** What the group is called, in Settings › Placing and About. */
 export const FINDING = 'Finding the project for a task';
-const MASTER = 'Tasks you do not place yourself';
+const MASTER = 'Find the project for each task';
 
 /** Settings › Placing: the switch that is the agreement (on, a model finds the project of each task the person did not
  *  place; off, Tasktap asks), under it the placers as rows, always, and what is sent and the instructions in place.
@@ -255,7 +255,7 @@ export function Placing() {
     <>
       <Row name={MASTER} hint={on ? `Tasks you do not place go where they belong: ${names.length > 1 ? 'the first of these to answer' : names[0]} decides from earlier tasks and what your agents last answered.`
         : state === 'again' ? 'Until you agree again, only tasks that name their project are placed; Tasktap asks you about the rest.'
-          : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you turn this on' : terms.route ? ', until you sign in with ChatGPT, set up your own model, or set up an agent under Agents' : ''}.`}>
+          : `A task that names its project goes there; for the rest Tasktap asks you${tools.length ? ', until you turn placing on' : terms.route ? ', until you sign in with ChatGPT, set up your own model, or set up an agent under Agents' : ''}.`}>
         <Switch on={on} name={MASTER} set={turn} />
         {state === 'again' && <span class="v warn">{AGAIN}</span>}
       </Row>

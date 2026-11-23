@@ -194,7 +194,7 @@ async function main() {
     await settle(page, 800);
     const surface = await page.locator('.sheet').innerText();
     expect(!/included in your subscription|billed by your provider|drag moves a row|Antigravity keeps/.test(surface) && !surface.includes('·') && await page.locator('.sheet .sends').count() === 0, 'Settings › Placing has none of the five-line list, the subscription words, the key hints or the Antigravity paragraph on its surface');
-    expect(/Tasks you do not place yourself/.test(surface) && /Sign in with ChatGPT/.test(surface) && /The instructions they follow/.test(surface) && /What is sent/.test(surface), 'it has the switch, "Sign in with ChatGPT", "What is sent" and "The instructions they follow"');
+    expect(/Find the project for each task/.test(surface) && /Sign in with ChatGPT/.test(surface) && /The instructions they follow/.test(surface) && /What is sent/.test(surface), 'it has the switch, "Sign in with ChatGPT", "What is sent" and "The instructions they follow"');
     await page.locator('.set-pane .rank[tabindex="0"]').first().focus();
     await settle(page, 200);
     expect(/moves a row/.test(await page.locator('.sh-hint').textContent()), 'the key hints are in the foot while a row has the keyboard');

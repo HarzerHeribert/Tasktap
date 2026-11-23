@@ -45,7 +45,7 @@ async function fits(page, what) {
 /** Settings, at Placing. */
 const placingAt = async (page) => (await page.evaluate(() => window.__ws.open({ kind: 'settings', at: 'placing' })), page.waitForTimeout(500));
 /** The switch that is the agreement: whether it is on. */
-const master = (page) => page.evaluate(() => document.querySelector('.settings [role=switch][aria-label="Tasks you do not place yourself"]')?.getAttribute('aria-checked'));
+const master = (page) => page.evaluate(() => document.querySelector('.settings [role=switch][aria-label="Find the project for each task"]')?.getAttribute('aria-checked'));
 const visible = (page, sel) => page.evaluate((q) => { const e = document.querySelector(q); return !!e && e.getBoundingClientRect().height > 0; }, sel);
 
 async function main(out, dist) {
@@ -91,7 +91,7 @@ async function main(out, dist) {
     await page.getByRole('button', { name: 'The instructions they follow' }).click();
     // The switch is the agreement: Tasktap's order, each on, written with the terms of now; the places follow.
     expect(await stored(page) === 'null', 'nothing is stored before the switch is turned on');
-    await page.locator('.settings [role=switch][aria-label="Tasks you do not place yourself"]').click();
+    await page.locator('.settings [role=switch][aria-label="Find the project for each task"]').click();
     await page.waitForTimeout(300);
     const agreed = '{"agents":[{"agent":"claude","model":"haiku","on":true},{"agent":"codex","model":"gpt-6-luna","on":true},{"agent":"agy","model":"gemini-3.8-flash-low","on":true}],"terms":4}';
     expect(await stored(page) === agreed, `the switch writes the agreement, in Tasktap's order: ${await stored(page)}`);
@@ -140,7 +140,7 @@ async function main(out, dist) {
     expect(await rows(page) === '1Claude Code, 2Antigravity, 3Codex', `a row dragged to the top: ${await rows(page)}`);
     expect(JSON.parse(await stored(page)).agents.map((a) => a.agent).join(' ') === 'claude agy codex', 'and it is written');
     // Turned off again: the answer is kept as No, and every row is off.
-    await page.locator('.settings [role=switch][aria-label="Tasks you do not place yourself"]').click();
+    await page.locator('.settings [role=switch][aria-label="Find the project for each task"]').click();
     await page.waitForTimeout(300);
     expect(await stored(page) === 'null' && await master(page) === 'false' && await rows(page) === 'Claude Code off, Codex off, Antigravity off', `off again: stored ${await stored(page)}, ${await rows(page)}`);
     // A switch turned on with the agreement off is the agreement for that row alone.
@@ -177,7 +177,7 @@ async function main(out, dist) {
     expect(await rows(page) === 'Claude Code off, Codex off, Antigravity off', `with every row off: ${await rows(page)}`);
     await fits(page, 'Placing, asked again');
     await shoot(page, out, 'placing-again');
-    await page.locator('.settings [role=switch][aria-label="Tasks you do not place yourself"]').click();
+    await page.locator('.settings [role=switch][aria-label="Find the project for each task"]').click();
     await page.waitForTimeout(300);
     expect(JSON.parse(await stored(page)).terms === 4 && await master(page) === 'true', 'agreed again, to these terms');
     for (const e of page.errors) failures.push(`page: ${e}`);
@@ -249,7 +249,7 @@ async function main(out, dist) {
     await placingAt(page);
     const alone = await page.evaluate(() => ({ rows: document.querySelectorAll('.settings .rank:not(.sign)').length, sign: document.querySelector('.settings .rank.sign:not(.mine) .btn')?.textContent, own: document.querySelector('.settings .rank.mine .btn')?.textContent }));
     expect(alone.rows === 0 && alone.sign === 'Sign in with ChatGPT' && alone.own === 'Set up…' && await master(page) === 'false', `ChatGPT and the own model alone: ${JSON.stringify(alone)}`);
-    await page.locator('.settings [role=switch][aria-label="Tasks you do not place yourself"]').click();
+    await page.locator('.settings [role=switch][aria-label="Find the project for each task"]').click();
     await page.waitForTimeout(200);
     expect(await stored(page) === 'null' && await master(page) === 'false', 'the switch writes no agreement where nothing can place');
     await fits(page, 'Placing with nobody signed in');

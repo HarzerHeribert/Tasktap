@@ -4,7 +4,8 @@
 #   - a core ten seconds slow to start: quitting while it starts leaves nothing running (a launch of its own, first),
 #     and the window does not wait for it (the main launch, whose page has the core once it is there);
 #   - the core starting and the host reaching it over its pipe, the workspace page running and having the core's
-#     records through the bridge, the first start's Setup sheet coming down by itself and Not now putting it away, a
+#     records through the bridge, the first start's welcome coming by itself, its four steps walked and Escape leaving
+#     it for Home with Finish setup, a
 #     folder becoming a workspace, a terminal with the system's shell answering what is typed into it; closing a
 #     terminal: a program running in it named in the sheet that asks, an idle shell closed without a question;
 #   - a thought end to end: typed on Home and sent, placed in the open folder, the fixture agent working in a
@@ -192,24 +193,38 @@ try {
     $project = $null
     if ($page -eq 'object') {
         if (Has "String(__ws.records.prefs !== undefined && __ws.records.projects !== undefined)" 'true' 6) { Pass 'the page has the core''s records through the bridge' } else { Fail "the page has the core's records (it said: $last)" }
-        # First start (design/ui-directions/NOTES.md §13), as smoke.sh tries it but for where things stand on the
-        # screen: Setup's first step comes down by itself as a sheet, "Choose where your projects are", three facts,
-        # and behind "What exactly is read" all it would read and what a model would get. Not now is an answer; Home is
-        # then the Composer, its key the metal one, and Setup under it with nothing else. (Compared in the page: what
-        # the app prints is read here in the console's code page, which has no middle dot.)
-        $chip = "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' \u00b7 ') === 'No projects yet \u00b7 saved for later'"
-        $first = (Has (Text '.sheet') 'Choose where your projects are' 8) -and "$(Js "String(__ws.ui.sheet?.kind === 'setup' && __ws.ui.sheet.auto === true && document.querySelectorAll('.sheet .facts > li').length <= 3)" 2)" -eq 'true'
-        $null = Js "(document.querySelector('.sheet .more-l')?.click(), 1)"
-        $all = if ($first -and (Has (Text '.sheet .facts-all') 'first lines of its README' 4)) { $last } else { "$last" }
-        if ($first -and $all.Contains('asks Git for its first commit') -and $all.Contains('up to 8 likely projects') -and "$(Js "String($chip)" 2)" -eq 'true') {
-            Pass 'the first start brings down Setup''s first sheet by itself: where the projects are, in three facts, and behind one line all it would read and what a model would get'
-        } else { Fail 'the first start''s sheet' "is it Setup's, by itself: $first; behind the line: $all" }
-        $null = Js "([...document.querySelectorAll('.sheet .sh-f .act')].find(b => b.textContent.includes('Not now'))?.click(), 1)"
+        # First start (ui/src/workspace/welcome.tsx), as smoke.sh tries it: with no agent's history to offer, the welcome
+        # comes by itself in place of Home, one step in view (the projects, the agents, who finds the project for a
+        # task, talking instead of typing), each of which can be skipped; after the last, Home shows with "Finish
+        # setup" under the Composer, which comes back to a step left open; Escape leaves the welcome for Home, the
+        # keyboard in the Composer. (Compared in the page: what the app prints is read here in the console's code page.)
+        $stepnow = "(w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + '|' + w.querySelector('h1').childNodes[0].textContent : 'none')(document.querySelector('.welcome .wc'))"
+        $firstStep = "(w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + ' ' + /^(Your projects|No projects found)/.test(w.querySelector('h1').textContent) + ' ' + !document.querySelector('.home') + ' ' + String(__ws.ui.sheet) + ' ' + __ws.records.prefs.get('setup_hidden')?.value : 'none')(document.querySelector('.welcome .wc'))"
+        if (Has $firstStep 'Step 1 of 4 true true null false' 10) {
+            Pass 'with no agent''s history, the first start shows the welcome by itself in place of Home: its first step, the projects, no sheet over it, and that the first start was seen is written down'
+        } else { Fail 'the first start''s welcome' "it said: $last" }
+        $walked = $true
+        foreach ($want in 'Step 2 of 4|Your agents', 'Step 3 of 4|Let Tasktap find the project for each task', 'Step 4 of 4|Talk instead of typing') {
+            $null = Js "(document.querySelector('.welcome .wc-skip')?.click(), 1)"
+            if (-not (Has $stepnow $want 5)) { $walked = $false; Fail 'the welcome''s four steps are walked' "it did not reach $want; it said: $last"; break }
+        }
+        if ($walked) {
+            $null = Js "(document.querySelector('.welcome .wc-skip')?.click(), 1)"
+            if (Has "String(!document.querySelector('.welcome')) + ' ' + document.querySelector('.home .finish')?.textContent" 'true Finish setup' 5) {
+                Pass 'the welcome''s four steps are walked, the agents, who finds the project and talking instead of typing, and after the last Home shows with Finish setup'
+            } else { Fail 'Home shows Finish setup after the welcome''s last step' "it said: $last" }
+        }
+        $null = Js "(document.querySelector('.home .finish')?.click(), 1)"
+        $leaves = "(document.querySelector('.welcome .wc')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)"
+        if (Has "String(!!document.querySelector('.welcome .wc')) + ' ' + String(!document.querySelector('.home'))" 'true true' 5) { $null = Js $leaves }
+        if (Has "String(!document.querySelector('.welcome')) + ' ' + document.activeElement?.id + ' ' + document.querySelector('.home .finish')?.textContent" 'true capture-input Finish setup' 5) {
+            Pass 'Finish setup brings the welcome back at a step still open, and Escape leaves it for Home: the keyboard in the Composer, Finish setup still under it'
+        } else { Fail 'Escape leaves the welcome for Home' "it said: $last" }
         $metal = "(k => /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)')(document.querySelector('.home .cap-row .key'))"
-        $composed = "String($chip && $metal && (b => b.textContent === 'Save for later' && b.disabled)(document.querySelector('.home .cap-row .key')) && !document.querySelector('.hx.first > :not(.capture, .setup, .cols)') && /0 of [23] done/.test(document.querySelector('.setup .setup-n')?.textContent))"
-        if ((Has "String(!__ws.ui.sheet && !!document.querySelector('.home .setup'))" 'true' 5) -and "$(Js $composed 2)" -eq 'true') {
-            Pass 'after Not now, Home is the Composer, its place saying No projects yet, saved for later, its key the metal key that Return saves for later with, and Setup under it with nothing else'
-        } else { Fail 'Home after the first start''s Not now' "no sheet, Setup on Home: $last; the rest: $(Js $composed 2); under the Composer: $(Js (Text '.home .hx') 2)" }
+        $composed = "String([...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' ') === 'Auto' && $metal && (b => b.textContent === 'Start' && b.disabled)(document.querySelector('.home .cap-row .key')) && !document.querySelector('.hx.first > :not(.capture, .finish, .cols)'))"
+        if ((Has "String(!__ws.ui.sheet && !!document.querySelector('.home .finish'))" 'true' 5) -and "$(Js $composed 2)" -eq 'true') {
+            Pass 'after the welcome, Home is the Composer, its place saying Auto, its key the metal key that Return starts with, and Finish setup under it with nothing else'
+        } else { Fail 'Home after the first start''s welcome' "no sheet, Finish setup on Home: $last; the rest: $(Js $composed 2); under the Composer: $(Js (Text '.home .hx') 2)" }
         # A core built with its fixtures detects its agents when asked, as a normal one does at start.
         Call 'put' '{"c":"prefs","id":"agent","patch":"fixture"}'
         Call 'put' '{"c":"prefs","id":"hold","patch":2}'

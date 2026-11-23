@@ -564,6 +564,12 @@ fn route(
             }
         }
     };
+    // What the question carries beside a model's choices, found with every
+    // project in view, not the few a model is shown.
+    let finds = match picked {
+        Some(_) => Vec::new(),
+        None => crate::route::finds(&asked),
+    };
     let folders: Vec<_> = (asked.projects.iter())
         .filter(|_| picked.is_none())
         .map(|p| (p.to, p.folder.clone()))
@@ -573,6 +579,7 @@ fn route(
         current,
         asked,
         otherwise,
+        finds,
         home,
         alive: tools.len(),
         picked: picked.is_some(),
@@ -647,6 +654,9 @@ struct Chain {
     /// fit: the question the names ask ([`crate::route::unsure`]), or the
     /// place the person picked. Nothing starts by a model's silence.
     otherwise: Route,
+    /// The places the task's own words name or describe ([`crate::route::finds`]):
+    /// what a question the model leaves carries after the model's own choices.
+    finds: Vec<crate::state::Candidate>,
     /// Where a new project a model proposes goes ([`crate::route::home`]).
     home: Option<std::path::PathBuf>,
     /// How many of the agreed tools still offer their model: none left, no
@@ -833,13 +843,37 @@ fn answered(
     chain: Chain,
     who: (&'static str, String),
     answer: &str,
-    (route, found): (Route, Routing),
+    (mut route, found): (Route, Routing),
     (ms, taken): (Option<u32>, Option<u8>),
 ) {
     let id = chain.id;
-    if matches!(route, Route::Clear { .. } | Route::Torn { .. }) {
-        record(core, id, &chain.asked, (who.0, &who.1), answer);
+    // Where the model leaves the question to the person, its places are the
+    // model's, then what Tasktap finds itself.
+    if let Route::Torn { candidates, .. } = &mut route {
+        crate::route::fill(candidates, &chain.finds);
     }
+    let route = match route {
+        Route::Unknown => chain.otherwise.clone(),
+        route @ Route::Create { .. } => {
+            let known = |folder: &std::path::Path| {
+                let folder = folder.to_string_lossy();
+                let known = |tx: &crate::store::Tx| {
+                    let card = tx.cards()?.iter().any(|c| c.folder == folder && !c.hidden);
+                    Ok(card || tx.project_by_folder(&folder)?.is_some())
+                };
+                read(core, known).unwrap_or(false)
+            };
+            crate::route::create(route, chain.home.as_deref(), &chain.otherwise, known)
+        }
+        route => route,
+    };
+    let offered = match &route {
+        Route::Torn { candidates, .. }
+        | Route::Ambiguous { candidates, .. }
+        | Route::Create { candidates, .. } => candidates.as_slice(),
+        _ => &[],
+    };
+    record(core, id, &chain.asked, (who.0, &who.1), answer, offered);
     core.seams.previews.forget(id);
     let (route, rest) = match (route, taken) {
         (
@@ -862,21 +896,6 @@ fn answered(
             )
         }
         (route, _) => (route, None),
-    };
-    let route = match route {
-        Route::Unknown => chain.otherwise.clone(),
-        route @ Route::Create { .. } => {
-            let known = |folder: &std::path::Path| {
-                let folder = folder.to_string_lossy();
-                let known = |tx: &crate::store::Tx| {
-                    let card = tx.cards()?.iter().any(|c| c.folder == folder && !c.hidden);
-                    Ok(card || tx.project_by_folder(&folder)?.is_some())
-                };
-                read(core, known).unwrap_or(false)
-            };
-            crate::route::create(route, chain.home.as_deref(), &chain.otherwise, known)
-        }
-        route => route,
     };
     // The other vehicle beside the one it chose, on a key of the decision
     // line: a new run for a follow-up, and back; or the places it was torn
@@ -955,6 +974,7 @@ fn record(
     asked: &crate::route::Request,
     (placer, model): (&str, &str),
     answer: &str,
+    offered: &[crate::state::Candidate],
 ) {
     use crate::route::{redact, shown};
     // A task the person placed by hand was asked about only for its brief:
@@ -962,7 +982,7 @@ fn record(
     if asked.picked.is_some() {
         let entry = json!({
             "at": core.seams.now().get(), "placer": "hand", "model": null,
-            "words": redact(&asked.text), "candidates": [], "answer": "",
+            "words": redact(&asked.text), "candidates": [], "answer": "", "offered": [],
             "previews": core.seams.previews.sent(id),
         });
         let data = core.terminals.data().to_owned();
@@ -975,9 +995,16 @@ fn record(
         .into_iter()
         .map(|(id, name)| json!({ "id": id, "name": name }))
         .collect();
+    // The places a question the answer led to carries, as the person sees them.
+    let offered: Vec<_> = (offered.iter())
+        .map(
+            |c| json!({ "name": redact(&crate::route::cut(&c.label, 100)), "why": redact(&c.why) }),
+        )
+        .collect();
     let entry = json!({
         "at": core.seams.now().get(), "placer": placer, "model": model,
         "words": redact(&asked.text), "candidates": candidates, "answer": redact(answer),
+        "offered": offered,
         "previews": core.seams.previews.sent(id),
     });
     let data = core.terminals.data().to_owned();

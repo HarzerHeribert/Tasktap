@@ -9,8 +9,8 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 use tasktap_core::route::{
-    CHOICES, Followed, Lexicon, Named, Request, accept, by_names, local, offered, order, ranked,
-    request, same, short, unsure,
+    CHOICES, Followed, Lexicon, Named, Request, accept, by_names, fill, finds, likely, local,
+    offered, order, ranked, request, same, short, unsure,
 };
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_core::store::Store;
@@ -676,14 +676,15 @@ fn a_question_offers_only_projects_the_words_name_or_clearly_describe() {
     // Nothing is offered, and the person is asked all the same.
     let his = "i need a new satisfactory server for a little project";
     assert_eq!(offered(his), []);
-    assert_eq!(
-        local(&request(his)),
-        Route::Ambiguous {
-            prompt: "Which project is this task for?".into(),
-            candidates: Vec::new(),
-            brief: None,
-        }
-    );
+    let Route::Ambiguous { candidates, .. } = local(&request(his)) else {
+        panic!("asked")
+    };
+    // Nothing the words name or clearly describe, but what the finder gives
+    // for them (`projects.find`) fills the question.
+    let found: Vec<_> = (candidates.iter())
+        .map(|c| (c.label.as_str(), c.why.as_str()))
+        .collect();
+    assert_eq!(found, [("earshot", "server")]);
     // Recency alone offers nothing.
     assert_eq!(offered("buy milk"), []);
     // Named as written: the name is the reason; a letter off, said so.
@@ -2486,7 +2487,8 @@ fn german_function_words_describe_no_project() {
 }
 
 #[test]
-fn the_evals_tasks_that_mean_no_project_are_offered_none() {
+fn the_evals_tasks_that_mean_no_project_are_offered_none_by_name_and_the_finders_places_fill_the_question()
+ {
     let projects = eval_projects(306, true, true);
     for text in [
         "look at ~/Downloads/invoice.pdf and pay it",
@@ -2501,7 +2503,15 @@ fn the_evals_tasks_that_mean_no_project_are_offered_none() {
         let Route::Ambiguous { candidates, .. } = unsure(&r) else {
             panic!("{text}: asked")
         };
-        assert_eq!(candidates, [], "{text}");
+        // The question still offers no place the words only almost name:
+        // what it carries is what the finder gives, no more and no other.
+        let found: Vec<_> = (likely(&r, CHOICES).into_iter())
+            .map(|(p, why)| (p.name.clone(), why))
+            .collect();
+        let carried: Vec<_> = (candidates.iter())
+            .map(|c| (c.label.clone(), c.why.clone()))
+            .collect();
+        assert_eq!(carried, found, "{text}");
     }
     // And the static site generator is still described by its two words.
     let r = Request {
@@ -4052,4 +4062,139 @@ fn a_persons_own_tasks_come_first_among_a_projects_earlier_tasks_and_a_seeded_on
     let recent = asked["recent"].as_array().unwrap();
     let said_all = serde_json::to_string(&[sessions, recent]).unwrap();
     assert!(!said_all.contains("Plan the release") && !said_all.contains("Add a menu"));
+}
+
+fn place(name: &str) -> Candidate {
+    Candidate {
+        label: name.into(),
+        to: Destination::New(ProjectId::mint()),
+        why: String::new(),
+    }
+}
+
+#[test]
+fn a_question_is_filled_up_to_three_places_with_the_finders_the_models_first() {
+    let (a, b, c, d) = (
+        place("harbormaster"),
+        place("tide-notes"),
+        place("kelp"),
+        place("reef"),
+    );
+    let mut found = [b.clone(), c.clone(), d.clone()].map(|mut p| {
+        p.why = "matches “tide”".into();
+        p
+    });
+    // None from the model: the finder's, in its order.
+    let mut got = Vec::new();
+    fill(&mut got, &found);
+    assert_eq!(got, found);
+    // One: it stays first, the finder's follow, three in all.
+    let mut got = vec![a.clone()];
+    fill(&mut got, &found);
+    assert_eq!(got, [a.clone(), found[0].clone(), found[1].clone()]);
+    // Three: nothing is added.
+    let mut three = vec![a.clone(), d.clone(), place("moss")];
+    let before = three.clone();
+    fill(&mut three, &found);
+    assert_eq!(three, before);
+    // A found place equal to the model's choice is there once, in the model's place.
+    found[0].to = a.to;
+    let mut got = vec![a.clone(), d.clone()];
+    fill(&mut got, &found);
+    assert_eq!(got, [a.clone(), d, found[1].clone()]);
+    // Nothing found: the question stays as it was.
+    let mut got = vec![a.clone()];
+    fill(&mut got, &[]);
+    assert_eq!(got, [a]);
+}
+
+#[test]
+fn the_finders_places_are_the_projects_the_thoughts_words_name_or_describe() {
+    let named = |name: &str, about: &str| Named {
+        about: about.into(),
+        ..Named::open(ProjectId::mint(), name, &[])
+    };
+    let r = Request {
+        text: "the harbormaster tide chart is wrong".into(),
+        projects: vec![
+            named("harbormaster", "Berth plans and tide charts"),
+            named("tide-notes", "Notes on tides"),
+            named("quarry", "Stone counts"),
+        ],
+        words: fixture_words(),
+        ..Request::default()
+    };
+    let found = finds(&r);
+    let said: Vec<_> = (likely(&r, CHOICES).into_iter())
+        .map(|(p, why)| (p.name.clone(), why))
+        .collect();
+    assert!(!found.is_empty() && found.len() <= CHOICES);
+    assert_eq!(
+        found
+            .iter()
+            .map(|c| (c.label.clone(), c.why.clone()))
+            .collect::<Vec<_>>(),
+        said,
+        "one finder, one order"
+    );
+    let Route::Ambiguous { candidates, .. } = unsure(&r) else {
+        panic!("asked")
+    };
+    assert!(candidates.iter().any(|c| c.label == "harbormaster"));
+    // Words that point at nothing find nothing, and the question has no places.
+    let r = Request {
+        text: "zzz qqq".into(),
+        ..r
+    };
+    assert_eq!(finds(&r), []);
+}
+
+#[test]
+fn a_model_torn_or_unknowing_leaves_a_question_filled_with_the_places_the_words_name() {
+    let said = "move the folio header and the app menu down";
+    let mut a = Asking::new("fills");
+    a.consent("fixture");
+    // Torn on one place: it stands first, the project the words also name beside it.
+    let mut torn = answer("ambiguous", "", "Move both.");
+    torn["candidates"] = json!(["p1"]);
+    a.answers(&torn);
+    let t = a.capture(said, None);
+    let th = a.settled(t);
+    let first = th.project_id.expect("placed in the first");
+    let others = th.route.as_ref().unwrap().others.clone();
+    let other = if first == a.app { a.folio } else { a.app };
+    assert_eq!(others, [tasktap_proto::Place::Project(other)]);
+    // Unknown: the question carries both, each with the finder's reason.
+    a.answers(&answer("unknown", "", ""));
+    let u = a.capture(said, None);
+    a.w.until("asked", |m| m.thought(u).status == Status::NeedsYou);
+    let q = (a.w.model.questions.values())
+        .find(|q| q.thought_id == Some(u))
+        .expect("asked");
+    let mut places = q.places.clone().unwrap();
+    places.sort_by_key(|p| format!("{p:?}"));
+    let mut both = vec![
+        tasktap_proto::Place::Project(a.app),
+        tasktap_proto::Place::Project(a.folio),
+    ];
+    both.sort_by_key(|p| format!("{p:?}"));
+    assert_eq!(places, both);
+    assert_eq!(q.notes.as_ref().map(Vec::len), Some(2));
+    // The record keeps the question: what it offered, then the row taken by its key.
+    let q = q.clone();
+    a.w.ok::<call::QuestionAnswer>(&tasktap_proto::AnswerQuestion {
+        id: q.id,
+        response: Response::Choice { choice: 1 },
+    });
+    a.w.sync();
+    let entries = tasktap_core::placings::read(&a.data.0);
+    let e = entries
+        .iter()
+        .find(|e| e["id"] == u.uuid().to_string())
+        .expect("the question is in the record");
+    assert_eq!(e["offered"].as_array().map(Vec::len), Some(2), "{e}");
+    assert_eq!(
+        (e["did"].as_str(), e["choice"].as_u64()),
+        (Some("row"), Some(2))
+    );
 }

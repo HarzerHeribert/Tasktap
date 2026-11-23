@@ -1484,6 +1484,18 @@ impl Machine<'_, '_> {
         }
         // Picked while the router's question was still open: that question is moot.
         let id = t.id;
+        if placed == Placed::Picked
+            && t.route.as_ref().is_some_and(|r| r.by != LOCAL)
+            && (self.tx.open_questions()?.iter())
+                .any(|q| q.thought_id == Some(id) && q.source == QuestionSource::Router)
+        {
+            let scratch = match project {
+                Some(p) => (self.tx.project(p)?).is_some_and(|p| p.kind == ProjectKind::Scratch),
+                None => false,
+            };
+            let did = if scratch { Did::Scratch } else { Did::Hand };
+            self.effects.push(Effect::Did(id, did));
+        }
         self.close(
             |q| q.thought_id == Some(id) && q.source == QuestionSource::Router,
             Q::Withdrawn,
@@ -1570,6 +1582,14 @@ impl Machine<'_, '_> {
             // Declining every candidate keeps the thought as an idea, as `unknown` does.
             _ => None,
         };
+        // The person's answer goes in the placing record, where a model's answer led here.
+        if t.route.as_ref().is_some_and(|r| r.by != LOCAL) {
+            let did = match &response {
+                Response::Choice { choice } => Did::Row(*choice as usize + 1),
+                _ => Did::Later,
+            };
+            self.effects.push(Effect::Did(t.id, did));
+        }
         self.store_answer(q.id, response, device)?;
         let brief = restore(&mut t, to);
         match to {

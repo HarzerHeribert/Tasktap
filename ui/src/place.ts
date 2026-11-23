@@ -78,6 +78,8 @@ export const short = (text: string) => ([...text].length <= 300 ? text : `${[...
 export const routerArgs = (why: Why, current: string | null | undefined, view: string | undefined, chosen: boolean) =>
   ({ current, ...(view ? { view } : {}), ...(chosen && why === 'model' && (current || view) ? { auto: true } : {}) });
 
+const OPEN_FOLDER = 'Open or create a folder…';
+
 /** A row of the question Tasktap asks when Auto cannot place a task: `at` is a place's index among the question's own
  *  (`places`, `notes`), which answering with it chooses; the person's own answers have none. `dim`: why it is
  *  offered, in the dim tone after its name (nothing for a name the task says); `title`: what sending it there does. */
@@ -101,8 +103,17 @@ export function asked(o: { places: { name: string; why: string; fresh: boolean; 
     ...(c ? [{ does: 'create' as const, name: c.exists ? c.name : `New project ${c.name}`, mark: (c.exists ? 'folder' : 'plus') as Icon, dim: `in ${c.place}`,
       title: c.exists ? `Sending the task opens the folder ${c.name} in ${c.place}.` : `Sending the task makes the folder ${c.name} in ${c.place} and starts the task there.` }] : []),
   ];
-  if (!o.places.length) return [...lead, { does: 'folder', name: 'Open or create a folder…', mark: 'plus', dim: '' }, own[0]!, ...(o.known ? [other] : []), own[1]!];
+  if (!o.places.length) return [...lead, { does: 'folder', name: OPEN_FOLDER, mark: 'plus', dim: '' }, own[0]!, ...(o.known ? [other] : []), own[1]!];
   const places = o.places.map((p, at): Asked => ({ does: p.session ? 'session' : 'place', name: p.name, mark: p.session ? 'term' : 'folder', dim: p.why, at,
     ...(p.fresh ? { title: `Sending the task opens ${p.name}.` } : {}) }));
   return [...lead, ...places.slice(0, 6 - lead.length), other, ...own];
+}
+
+/** The rows of "Another project…", each on its number from 1: the projects its field finds (with nothing typed, those the
+ *  task's own words found, less the places the question already showed: `shown`, by their keys), and, last in every
+ *  case, "Open or create a folder…", so a project Tasktap does not know is reached from the field. */
+export type Else<T> = { does: 'place'; name: string; found: T } | { does: 'folder'; name: string };
+export function elsewhere<T extends { key: string; name: string }>(o: { found: T[]; shown: string[]; typed: boolean }): Else<T>[] {
+  const left = o.found.filter((f) => o.typed || !o.shown.includes(f.key));
+  return [...left.map((found): Else<T> => ({ does: 'place', name: found.name, found })), { does: 'folder', name: OPEN_FOLDER }];
 }

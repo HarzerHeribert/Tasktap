@@ -6,7 +6,7 @@ import type { AnswerQuestion, Found, Question } from '../../core/proto/protocol.
 import { useEffect, useState } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { keyName } from './keys.ts';
-import { type Asked, asked, short } from './place.ts';
+import { type Asked, asked, elsewhere, short } from './place.ts';
 import { talkKey } from './page.ts';
 import { agentName, call, fail, focus, openQuestions, placeArgs, placers, pref, projectName, records, redraw, sessionName } from './page.ts';
 import { control, mine, talk } from './speech/record.ts';
@@ -213,10 +213,12 @@ function Elsewhere({ q, thought }: { q: Question; thought: string }) {
   }, [text]);
   useEffect(() => void focus(`[data-question="${q.id}"] .elsewhere input`), []);
   const send = (f: Found) => {
-    const to = 'project' in f.to ? f.to.project : 'card' in f.to ? f.to.card : '';
     other.thought = '';
-    void call('thought.update', { id: thought, ...placeArgs(to) }).catch(fail);
+    void call('thought.update', { id: thought, ...placeArgs(idOf(f.to)) }).catch(fail);
   };
+  // The places the question showed are not found again with nothing typed; the folder panel is always the last row.
+  const rows = elsewhere({ found: found.map((f) => ({ ...f, key: idOf(f.to) })), shown: (q.places ?? []).map(idOf), typed: !!text.trim() });
+  const take = (r: (typeof rows)[number]) => (r.does === 'folder' ? void openFolder(thought) : send(r.found));
   // Back to the choices, and the keyboard to where it was: the Composer's field, for a question asked at it.
   const back = () => {
     other.thought = '';
@@ -227,22 +229,26 @@ function Elsewhere({ q, thought }: { q: Question; thought: string }) {
   return (
     <div class="qa elsewhere" onKeyDown={(e) => {
       if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), back());
-      if (e.key === 'Enter' && !e.isComposing && found[0] && (e.target as HTMLElement).matches('input')) return (e.preventDefault(), send(found[0]));
+      const first = rows[0];
+      if (e.key === 'Enter' && !e.isComposing && first?.does === 'place' && (e.target as HTMLElement).matches('input')) return (e.preventDefault(), take(first));
       const n = Number(e.key);
-      if (n >= 1 && n <= found.length && !(e.target as HTMLElement).matches('input')) return (e.preventDefault(), send(found[n - 1]!));
+      if (n >= 1 && n <= rows.length && !(e.target as HTMLElement).matches('input')) return (e.preventDefault(), take(rows[n - 1]!));
     }}>
       <label class="reply">
         <I n="search" />
         <input aria-label="Find a project" placeholder="Find a project" autocomplete="off" spellcheck={false} value={text} onInput={(e) => setText(e.currentTarget.value)} />
         <Key k="esc" cap />
       </label>
-      {found.map((f, i) => (
-        <Answer k={String(i + 1)} label={f.name} lead={<I n="folder" />} more={[f.why, 'card' in f.to ? 'not open yet' : f.folder].filter(Boolean).join(' · ')} onClick={() => send(f)} />
-      ))}
-      {!found.length && text.trim() && <span class="q-detail">No project by that name.</span>}
+      {rows.map((r, i) => r.does === 'folder'
+        ? <Answer k={String(i + 1)} label={r.name} lead={<I n="plus" />} onClick={() => take(r)} />
+        : <Answer k={String(i + 1)} label={r.name} lead={<I n="folder" />} more={[r.found.why, 'card' in r.found.to ? 'not open yet' : r.found.folder].filter(Boolean).join(' · ')} onClick={() => take(r)} />)}
+      {rows.length === 1 && text.trim() && <span class="q-detail">No project by that name.</span>}
     </div>
   );
 }
+
+/** A place's id, as a field's finding and a question's places say it. */
+const idOf = (p: Found['to']) => ('project' in p ? p.project : 'card' in p ? p.card : p.session);
 
 /** The thought whose router question shows "Another project…" as a field, while it does. */
 const other = { thought: '' };

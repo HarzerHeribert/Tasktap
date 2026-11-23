@@ -4,8 +4,9 @@
 //! helps Tasktap learn where the person's tasks go (`route-lab` reads it, so
 //! placings can be replayed and scored).
 //!
-//! One JSON object a line, appended: an entry when a model's answer is taken,
-//! and a line of what the person did when they do it. Reading folds the
+//! One JSON object a line, appended: an entry when a model's answer is taken
+//! (or leads to a question, with what was offered: `offered`), and a line of
+//! what the person did when they do it. Reading folds the
 //! second into the first. Nothing here may fail a placing: a record that
 //! cannot be written is left unwritten.
 
@@ -36,8 +37,15 @@ pub enum Did {
     Other(usize),
     /// The start was undone.
     Undone,
-    /// The task was placed by hand afterwards.
+    /// The task was placed by hand afterwards: another project, or a folder.
     Hand,
+    /// The model's answer led to a question, and a row of it was taken, by its
+    /// key (1 is the first row).
+    Row(usize),
+    /// The question was answered with the Scratchpad.
+    Scratch,
+    /// The question was answered with keeping the task for later.
+    Later,
 }
 
 impl Did {
@@ -47,6 +55,9 @@ impl Did {
             Did::Other(key) => ("other", Some(key)),
             Did::Undone => ("undone", None),
             Did::Hand => ("hand", None),
+            Did::Row(key) => ("row", Some(key)),
+            Did::Scratch => ("scratch", None),
+            Did::Later => ("later", None),
         };
         json!({ "k": "did", "id": id, "did": did, "choice": choice })
     }
@@ -62,7 +73,7 @@ pub struct Record {
 impl Record {
     /// An entry: a model placed the task `id`. `entry` holds the fields the
     /// record keeps (`at`, `placer`, `model`, `words`, `candidates`,
-    /// `answer`, `previews`).
+    /// `answer`, `offered`, `previews`).
     pub fn placed(&mut self, data: &Path, id: &str, mut entry: Value) {
         entry["k"] = "placed".into();
         entry["id"] = id.into();

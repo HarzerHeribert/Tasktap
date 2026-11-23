@@ -1278,12 +1278,12 @@ send "key notch Escape"
 says "print:error:the model is overloaded"
 home_says "the footer in project is still too tall for my taste, I said it before and I say it again, please make it a good deal shorter than it is now, about half, and leave everything else on the page exactly as it is"
 # The question card is what is asked when no model could decide (here, one that failed): the person's words first, then the
-# question, the folder the words name first with the others one under another, Another project…, the Scratchpad and Keep
-# for later, every row on its number, as the question stands at the Composer; not also in Needs you, nor a decision line.
+# question, the folder the words name first with what else Tasktap finds for the words under it, Another project…, the
+# Scratchpad and Keep for later, every row on its number, as the question stands at the Composer; not also in Needs you, nor a decision line.
 until_has workspace "text .home .cap-ask" 10 "Which project is this task for?" && asked="$(ask workspace "text .home .cap-ask")" \
   && echo "$asked" | grep -q "the footer in project is still too tall for my taste" && echo "$asked" | grep -q "Keep for later" \
-  && [ "$(js workspace "[...document.querySelectorAll('.cap-ask .ans span')].map(s => s.textContent).join('|')")" = "project|Another project…|Scratchpad|Keep for later" ] \
-  && [ "$(js workspace "[...document.querySelectorAll('.cap-ask kbd.keycap')].filter(k => k.offsetParent).map(k => k.textContent).join(' ')")" = "1 2 3 4" ] \
+  && [ "$(js workspace "(r => String(r[0] === 'project' && r.slice(-3).join('|') === 'Another project…|Scratchpad|Keep for later'))([...document.querySelectorAll('.cap-ask .ans span')].map(s => s.textContent))")" = true ] \
+  && [ "$(js workspace "(n => String([...document.querySelectorAll('.cap-ask kbd.keycap')].filter(k => k.offsetParent).map(k => k.textContent).join(' ') === Array.from({ length: n }, (_, i) => i + 1).join(' ')))(document.querySelectorAll('.cap-ask .ans').length)")" = true ] \
   && [ "$(js workspace "(q => String(!!(q.querySelector('.q-words').compareDocumentPosition(q.querySelector('.q-asks')) & 4) && q.getAttribute('aria-label').startsWith('Which project is this task for? the footer in project')))(document.querySelector('.cap-ask'))")" = true ] \
   && [ "$(js workspace "String(!document.querySelector('.home .way') && !document.querySelector('.home .needs [data-question]') && document.activeElement?.id === 'capture-input')")" = true ] \
   && pass "when the model could not be used nothing is placed by name and no decision is shown: the person is asked at the Composer, its keys the field's, the words first, then the question, the folder the task names, Another project…, the Scratchpad and Keep for later, every row on its number" || fail "the question after the model failed" "$(js workspace "JSON.stringify([[...document.querySelectorAll('.cap-ask .ans span')].map(s => s.textContent), [...document.querySelectorAll('.cap-ask kbd.keycap')].filter(k => k.offsetParent).map(k => k.textContent), document.querySelector('.cap-ask')?.getAttribute('aria-label'), !!document.querySelector('.home .way'), !!document.querySelector('.home .needs [data-question]'), document.activeElement?.id])")"

@@ -1054,6 +1054,7 @@ pub fn unsure(r: &Request) -> Route {
         candidates.insert(0, Candidate { label, to, why });
         candidates.truncate(CHOICES);
     }
+    fill(&mut candidates, &finds(r));
     let prompt = match r.projects.is_empty() {
         true => WORK,
         false => WHERE,
@@ -1099,6 +1100,29 @@ pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
         add(p, String::new(), &mut out);
     }
     out
+}
+
+/// What Tasktap finds by itself for the question of where a task goes: the
+/// projects the task's words name or describe, [`CHOICES`] at most, the
+/// list `projects.find` gives for a thought ([`likely`]).
+pub fn finds(r: &Request) -> Vec<Candidate> {
+    (likely(r, CHOICES).into_iter())
+        .map(|(p, why)| Candidate {
+            label: p.name.clone(),
+            to: p.to,
+            why,
+        })
+        .collect()
+}
+
+/// `candidates` filled up to [`CHOICES`] with `finds`: what was there first
+/// stays in its order, found places follow in the finder's, none twice.
+pub fn fill(candidates: &mut Vec<Candidate>, finds: &[Candidate]) {
+    for f in finds {
+        if candidates.len() < CHOICES && !candidates.iter().any(|c| c.to == f.to) {
+            candidates.push(f.clone());
+        }
+    }
 }
 
 /// The projects a capture points at by its own words, at most `most`,

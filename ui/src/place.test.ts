@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project } from '../../core/proto/protocol.ts';
 import { Records } from './client.ts';
-import { asked, routerArgs, rows, says, short, type Why } from './place.ts';
+import { asked, elsewhere, routerArgs, rows, says, short, type Why } from './place.ts';
 
 const K = { key: '⌘K' };
 const AUTO = 'Auto: Tasktap sends the task to the project the task names, and asks you when the task names none. Click (or ⌘K) to choose the place yourself.';
@@ -166,4 +166,16 @@ test('the built-in project reads Scratchpad by its kind, whatever name is stored
   assert.equal(records.projects.get('s')?.name, 'Scratchpad');
   // A folder the person named so keeps the name.
   assert.equal(records.projects.get('f')?.name, 'Scratch');
+});
+
+test('"Another project…" lists what its field finds and always ends with the folder panel on its own number', () => {
+  const f = (key: string, name: string) => ({ key, name });
+  const found = [f('a', 'harbormaster'), f('b', 'tide-notes'), f('c', 'kelp')];
+  const names = (o: Parameters<typeof elsewhere>[0]) => elsewhere(o).map((r) => `${r.does}:${r.name}`);
+  // Nothing typed: the places the question showed are left out; the folder panel is last.
+  assert.deepEqual(names({ found, shown: ['a', 'b'], typed: false }), ['place:kelp', 'folder:Open or create a folder…']);
+  assert.deepEqual(names({ found, shown: ['a', 'b', 'c'], typed: false }), ['folder:Open or create a folder…']);
+  // Typed: what the field finds by name, shown or not.
+  assert.deepEqual(names({ found, shown: ['a'], typed: true }), ['place:harbormaster', 'place:tide-notes', 'place:kelp', 'folder:Open or create a folder…']);
+  assert.deepEqual(names({ found: [], shown: [], typed: true }), ['folder:Open or create a folder…']);
 });

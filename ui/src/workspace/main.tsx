@@ -355,10 +355,11 @@ records.onchange = () => {
 };
 /** The capture key while this window is in front, or brought there for it (docs/rebuild-plan.md, "Where Tasktap
  *  shows itself", rule 1). Home has a field for a thought already, and so has New Task while it is open: the caret
- *  goes there. Anywhere else New Task opens over what the window shows. The host chose the same by the same rule from
+ *  goes there. Anywhere else New Task opens over what the window shows: also over the first start's welcome, which
+ *  stands in Home's place and has no field. The host chose the same by the same rule from
  *  what this page told it the window shows (`tellShows`); what the page shows now decides a race between the two. */
 function captureKey() {
-  if (ui.sheet?.kind === 'capture' || (ui.view === 'home' && !ui.sheet)) {
+  if (ui.sheet?.kind === 'capture' || (ui.view === 'home' && !ui.sheet && !welcome.on)) {
     page.focus = '#capture-input';
     return redraw();
   }
@@ -400,7 +401,7 @@ function arrive(at: string) {
  *  to the host when it changes; the reply is where Tasktap is. */
 let told = '';
 function tellShows(project: string | null) {
-  const shows = ui.sheet ? (ui.sheet.kind === 'capture' ? 'new-task' : 'elsewhere') : ui.view === 'home' ? 'home' : project ? 'terminals' : 'elsewhere';
+  const shows = ui.sheet ? (ui.sheet.kind === 'capture' ? 'new-task' : 'elsewhere') : ui.view === 'home' && !welcome.on ? 'home' : project ? 'terminals' : 'elsewhere';
   const terminals = shows === 'terminals' && project
     ? L.panes(layout(project)).flatMap((p) => (p.active ? [sessionOf(p.active)?.id ?? p.active] : []))
     : [];

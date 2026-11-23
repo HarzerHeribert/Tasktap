@@ -199,7 +199,7 @@ try {
         # setup" under the Composer, which comes back to a step left open; Escape leaves the welcome for Home, the
         # keyboard in the Composer. (Compared in the page: what the app prints is read here in the console's code page.)
         $stepnow = "(w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + '|' + w.querySelector('h1').childNodes[0].textContent : 'none')(document.querySelector('.welcome .wc'))"
-        $firstStep = "(w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + ' ' + /^(Your projects|No projects found)/.test(w.querySelector('h1').textContent) + ' ' + !document.querySelector('.home') + ' ' + String(__ws.ui.sheet) + ' ' + __ws.records.prefs.get('setup_hidden')?.value : 'none')(document.querySelector('.welcome .wc'))"
+        $firstStep = "(w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + ' ' + /^(Your projects|No projects found)/.test(w.querySelector('h1').textContent) + ' ' + !document.querySelector('.home:not(.row)') + ' ' + String(__ws.ui.sheet) + ' ' + __ws.records.prefs.get('setup_hidden')?.value : 'none')(document.querySelector('.welcome .wc'))"
         if (Has $firstStep 'Step 1 of 4 true true null false' 10) {
             Pass 'with no agent''s history, the first start shows the welcome by itself in place of Home: its first step, the projects, no sheet over it, and that the first start was seen is written down'
         } else { Fail 'the first start''s welcome' "it said: $last" }
@@ -216,7 +216,7 @@ try {
         }
         $null = Js "(document.querySelector('.home .finish')?.click(), 1)"
         $leaves = "(document.querySelector('.welcome .wc')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)"
-        if (Has "String(!!document.querySelector('.welcome .wc')) + ' ' + String(!document.querySelector('.home'))" 'true true' 5) { $null = Js $leaves }
+        if (Has "String(!!document.querySelector('.welcome .wc')) + ' ' + String(!document.querySelector('.home:not(.row)'))" 'true true' 5) { $null = Js $leaves }
         if (Has "String(!document.querySelector('.welcome')) + ' ' + document.activeElement?.id + ' ' + document.querySelector('.home .finish')?.textContent" 'true capture-input Finish setup' 5) {
             Pass 'Finish setup brings the welcome back at a step still open, and Escape leaves it for Home: the keyboard in the Composer, Finish setup still under it'
         } else { Fail 'Escape leaves the welcome for Home' "it said: $last" }

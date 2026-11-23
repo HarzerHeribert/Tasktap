@@ -84,7 +84,7 @@ section "The capture flow keeps its pace (the built app with the fixture agent, 
 out="$(node "$root/scripts/flow-check.cjs" --app --debug --short ${FRONT:+--front} 2>&1)"
 if [ $? = 0 ]; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"
 elif echo "$out" | grep -q "nothing can be measured\|nothing drawn on it can be measured"; then pass "the capture flow was not timed: $(echo "$out" | grep -o 'The [^:]*: nothing[^.]*' | head -1)"
-else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace"; fi
+else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace" "$(echo "$out" | grep -q '^FAIL' || echo "$out" | tail -4 | tr '\n' '|' | cut -c1-400)"; fi
 
 section "One type system (headless, every state of both pages)"
 if out="$(node "$root/scripts/type-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the type scale"; fi
@@ -107,7 +107,7 @@ if out="$(node "$root/scripts/speech-check.cjs" 2>&1)"; then pass "$(echo "$out"
 
 section "Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"
 out="$(node "$root/scripts/speech-app-check.cjs" ${SPEECH_MODEL:+--model "$SPEECH_MODEL"} 2>&1)"
-if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app"; fi
+if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app" "$(echo "$out" | grep -q '^FAIL' || echo "$out" | tail -4 | tr '\n' '|' | cut -c1-400)"; fi
 
 if [ -n "${SPEECH_MODEL:-}" ]; then
   section "Speech on this Mac is written in the language it is said in (the real helper and model; the Mac's voices in files)"
@@ -310,7 +310,7 @@ shot home workspace
 # leaves the welcome for Home, the keyboard in the Composer.
 welcome="document.querySelector('.welcome .wc')"
 stepnow="eval (w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + '|' + w.querySelector('h1').childNodes[0].textContent : 'none')($welcome)"
-until_has workspace "eval (w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + ' ' + /^(Your projects|No projects found)/.test(w.querySelector('h1').textContent) + ' ' + !document.querySelector('.home') + ' ' + String(__ws.ui.sheet) + ' ' + __ws.records.prefs.get('setup_hidden')?.value : 'none')($welcome)" 10 "Step 1 of 4 true true null false" \
+until_has workspace "eval (w => w ? w.querySelector('.wc-m').getAttribute('aria-label') + ' ' + /^(Your projects|No projects found)/.test(w.querySelector('h1').textContent) + ' ' + !document.querySelector('.home:not(.row)') + ' ' + String(__ws.ui.sheet) + ' ' + __ws.records.prefs.get('setup_hidden')?.value : 'none')($welcome)" 10 "Step 1 of 4 true true null false" \
   && pass "with no agent's history, the first start shows the welcome by itself in place of Home: its first step, the projects, no sheet over it, and that the first start was seen is written down" || fail "the first start's welcome" "$(ask workspace "$stepnow")"
 walked=yes
 for want in "Step 2 of 4|Your agents" "Step 3 of 4|Let Tasktap find the project for each task" "Step 4 of 4|Talk instead of typing"; do
@@ -321,7 +321,7 @@ done
   && until_has workspace "eval String(!document.querySelector('.welcome')) + ' ' + document.querySelector('.home .finish')?.textContent" 5 "true Finish setup" \
   && pass "the welcome's four steps are walked, the agents, who finds the project and talking instead of typing, and after the last Home shows with Finish setup" || fail "walking the welcome" "$walked"
 js workspace "(document.querySelector('.home .finish')?.click(), 1)" >/dev/null
-until_has workspace "eval String(!!document.querySelector('.welcome .wc')) + ' ' + String(!document.querySelector('.home'))" 5 "true true" \
+until_has workspace "eval String(!!document.querySelector('.welcome .wc')) + ' ' + String(!document.querySelector('.home:not(.row)'))" 5 "true true" \
   && js workspace "(document.querySelector('.welcome .wc').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)" >/dev/null \
   && until_has workspace "eval String(!document.querySelector('.welcome')) + ' ' + document.activeElement?.id + ' ' + document.querySelector('.home .finish')?.textContent" 5 "true capture-input Finish setup" \
   && pass "Finish setup brings the welcome back at a step still open, and Escape leaves it for Home: the keyboard in the Composer, Finish setup still under it" || fail "Escape leaves the welcome for Home"
@@ -909,9 +909,9 @@ more="document.querySelector('.set-pane').dataset.more"
 at="__ws.ui.sheet?.at + ' ' + document.querySelector('.set-nav [aria-selected=true]')?.textContent.replace(/[^A-Za-z]/g, '') + ' ' + document.activeElement?.id"
 press workspace ".sheet" 2 true >/dev/null
 until_has workspace "eval $at" 3 "agents Agents" && js workspace "(document.querySelector('#set-tab-agents').focus(), 1)" >/dev/null && press workspace "#set-tab-agents" ArrowDown >/dev/null \
-  && until_has workspace "eval $at" 3 "projects Projects set-tab-projects" \
+  && until_has workspace "eval $at" 3 "placing Placing set-tab-placing" \
   && [ "$(js workspace "(s => String(__ws.ui.sidebar && Math.abs((s.left + s.right) / 2 - innerWidth / 2) <= 0.5 && !document.querySelector('.wake canvas')))(document.querySelector('.sheet').getBoundingClientRect())")" = true ] \
-  && pass "Settings is one sheet on the window's centre, the sidebar open: ⌘2 shows Agents, the arrows move through its sections with the keyboard (Projects follows), and no glyphs are shed as it comes" || fail "Settings' sections" "$(js workspace "$at")"
+  && pass "Settings is one sheet on the window's centre, the sidebar open: ⌘2 shows Agents, the arrows move through its sections with the keyboard (Placing follows), and no glyphs are shed as it comes" || fail "Settings' sections" "$(js workspace "$at")"
 shot settings-projects workspace
 js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "eval String(__ws.ui.sheet)" 3 "null" && pass "⌘W closes the sheet in front" || fail "⌘W with a sheet open"
@@ -1738,8 +1738,11 @@ sleep 1
 # What a terminal of the workspace shows, to be found again where the workspace goes: the first line of its screen, in base64 (it
 # may hold any character), asked of whichever page shows it.
 cur="$(js workspace "[...__ws.engines].find(([id, e]) => e.element.isConnected && !e.element.hidden && __ws.records.terminals.get(id)?.project_id === '$project')?.[0] ?? ''")"
-want="$(js workspace "btoa(unescape(encodeURIComponent((__ws.text('$cur') ?? '').split('\\n').find((l) => l.trim())?.trim().slice(0, 40) ?? '')))")"
-screen_has() { echo "eval String((w => (__ws.text('$cur') ?? '').includes(decodeURIComponent(escape(atob(w)))))('$want'))"; }
+# (A terminal is as wide as the pane of the window that shows it, and wraps its lines there: the words are compared with
+# their spaces and line ends left out, a wrapped line joined to the one it continues.)
+words="(id => { const b = __ws.engines.get(id)?.term.buffer.active; if (!b) return null; let out = ''; for (let i = 0; i < b.length; i++) out += (b.getLine(i)?.isWrapped ? '' : ' ') + b.getLine(i)?.translateToString(true); return out.replace(/\\s+/g, ''); })"
+want="$(js workspace "btoa(unescape(encodeURIComponent(($words('$cur')?.slice(0, 40)) ?? '')))")"
+screen_has() { echo "eval String((w => ($words('$cur') ?? '').includes(decodeURIComponent(escape(atob(w)))))('$want'))"; }
 [ -n "$cur" ] && [ -n "$want" ] || fail "a terminal shown in the workspace has words on its screen" "terminal '$cur', its first line '$want'"
 js workspace "(__ws.call('host.window', { do: 'pop', project: '$project', w: 900, h: 600 }), 1)" >/dev/null
 until_has workspace "eval JSON.stringify([...__ws.ui.out])" 15 "$project" \
@@ -1752,7 +1755,8 @@ send "close ws-$project"
 until_has workspace "eval JSON.stringify([...__ws.ui.out]) + ' ' + __ws.ui.view" 10 "[] $project" \
   && pass "closing a workspace's window puts the workspace back into the main window, in view" || fail "closing a workspace's window"
 until_has workspace "$(screen_has)" 10 "true" && until_has workspace "eval document.querySelectorAll('.pane:not([hidden])').length" 5 "$panes" \
-  && pass "back in the main window the workspace shows its panes and the terminal's screen as it was" || fail "the workspace's terminal after its window closed" "$(js workspace "__ws.text('$cur')" | head -c 200)"
+  && until_has workspace "eval (e => String(e.term.cols === e.fit.proposeDimensions()?.cols && e.term.cols === __ws.records.terminals.get('$cur').cols))(__ws.engines.get('$cur'))" 10 "true" \
+  && pass "back in the main window the workspace shows its panes and the terminal's screen as it was, the terminal the size of its pane again" || fail "the workspace's terminal after its window closed" "$(js workspace "__ws.text('$cur')" | head -c 200)"
 js workspace "(__ws.call('host.window', { do: 'pop', project: '$project', w: 900, h: 600 }), 1)" >/dev/null
 until_has workspace "eval JSON.stringify([...__ws.ui.out])" 15 "$project" || fail "the workspace is out again before the quit"
 quit && pass "the app quits on request" || fail "the app quits on request"

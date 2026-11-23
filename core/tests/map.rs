@@ -2337,3 +2337,386 @@ fn a_folder_that_cannot_be_read_is_passed_by_and_the_search_goes_on() {
     assert_eq!((state, note), (LookState::Ready, None));
     assert_eq!(found, ["a/first", "m/deeper/down/lowest", "z/last"]);
 }
+
+// ——— Earlier tasks from an agent's history ———
+
+/// A Claude Code `user` line, as the terminal writes it.
+fn prompt(cwd: &Path, text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "user", "cwd": cwd, "entrypoint": "cli", "userType": "external",
+        "origin": { "kind": "human" }, "message": { "role": "user", "content": text }
+    })
+}
+
+fn jsonl(all: &[serde_json::Value]) -> String {
+    all.iter().map(|l| format!("{l}\n")).collect()
+}
+
+/// A Claude Code session of `name`'s project, last changed at `ms`.
+fn claude_session(home: &Path, name: &str, file: &str, ms: u64, all: &[serde_json::Value]) {
+    let at = home.join(format!(".claude/projects/-{name}/{file}.jsonl"));
+    write(&at, &jsonl(all));
+    touch(&at, ms);
+}
+
+/// What an agent's history says of the person's earlier tasks, newest first.
+fn tasks_of(agent: &str, home: &Path, files: usize) -> Vec<(PathBuf, String)> {
+    let history = tasktap_core::agents::find(agent)
+        .unwrap()
+        .history()
+        .unwrap();
+    let mut within = Within::new(map::HISTORY_TIME, files);
+    let mut all = history.tasks(home, &mut within);
+    all.sort_by_key(|t| std::cmp::Reverse(t.when));
+    all.into_iter().map(|t| (t.folder, t.text)).collect()
+}
+
+fn folder_in(home: &Path, rel: &str) -> PathBuf {
+    mkdir(&home.join(rel));
+    real(&home.join(rel))
+}
+
+#[test]
+fn claude_codes_typed_first_requests_are_the_projects_earlier_tasks_and_nothing_else_is() {
+    let t = Folder::new("seed-claude");
+    let (home, _) = home_of(&t);
+    let cuegrid = folder_in(&home, "projects/cuegrid");
+    let kiln = folder_in(&home, "projects/kiln");
+    // Seven typed sessions: the second line of a request is not kept, a long
+    // first line is cut at 80 characters, the newest first.
+    let long = format!("Make the cue list scroll {}", "smoothly ".repeat(20));
+    for i in 0..7u64 {
+        let text = match i {
+            6 => long.clone(),
+            _ => format!("Add the cue timer number {i}\nwith a second line"),
+        };
+        claude_session(
+            &home,
+            "cuegrid",
+            &format!("s{i}"),
+            1_000 + i,
+            &[prompt(&cuegrid, &text)],
+        );
+    }
+    let got = tasks_of("claude", &home, 100);
+    // Ten files of a project are looked into, and five found: the newest five.
+    assert_eq!(got.len(), 5);
+    assert_eq!(got[0].1, route::cut(&long, 80));
+    assert_eq!(got[0].1.chars().count(), 80);
+    assert_eq!(got[1].1, "Add the cue timer number 5");
+    assert!(got.iter().all(|t| t.0 == cuegrid));
+
+    // Machine text before the first typed request is skipped.
+    let with = |mut line: serde_json::Value, key: &str, value: serde_json::Value| {
+        line[key] = value;
+        line
+    };
+    let note = with(prompt(&kiln, "A note by the tool"), "isMeta", true.into());
+    let side = with(
+        prompt(&kiln, "A sub-agent's request"),
+        "isSidechain",
+        true.into(),
+    );
+    let hook = with(
+        prompt(&kiln, "Finished the build of everything"),
+        "origin",
+        serde_json::json!({ "kind": "task-notification" }),
+    );
+    let mut result = prompt(&kiln, "x");
+    result["message"]["content"] = serde_json::json!([{ "type": "tool_result", "content": "ok" }]);
+    let mut picture = prompt(&kiln, "x");
+    picture["message"]["content"] = serde_json::json!([
+        { "type": "image" }, { "type": "text", "text": "Fix the layout in this picture" }
+    ]);
+    let noisy = [
+        serde_json::json!({ "type": "summary" }),
+        note,
+        side,
+        hook,
+        result,
+        prompt(&kiln, "<command-name>/clear</command-name>"),
+        prompt(
+            &kiln,
+            "<local-command-caveat>Caveat: output</local-command-caveat>",
+        ),
+        prompt(&kiln, "/compact"),
+        prompt(&kiln, "/review the changes"),
+        prompt(&kiln, "Caveat: The messages below were generated"),
+        prompt(&kiln, "$ cargo test --all"),
+        prompt(&kiln, "\u{1b}[31merror\u{1b}[0m something broke here"),
+        prompt(&kiln, "   "),
+        prompt(&kiln, "{ } [ ] ( ) ; ; = = ="),
+        picture,
+        prompt(&kiln, "Never reached, the first one counts"),
+    ];
+    claude_session(&home, "kiln", "a", 2_000, &noisy);
+    let in_kiln = |all: Vec<(PathBuf, String)>| -> Vec<String> {
+        (all.into_iter().filter(|t| t.0 == kiln))
+            .map(|t| t.1)
+            .collect()
+    };
+    assert_eq!(
+        in_kiln(tasks_of("claude", &home, 100)),
+        ["Fix the layout in this picture"]
+    );
+
+    // A one-word first request, a program's session (`sdk-cli`) and one
+    // that names no entry point give nothing; the terminal's gives its task.
+    let mut sdk = prompt(&kiln, "Run the whole suite now");
+    sdk["entrypoint"] = "sdk-cli".into();
+    sdk["origin"] = serde_json::Value::Null;
+    let mut bare = sdk.clone();
+    bare["entrypoint"] = serde_json::Value::Null;
+    let mut terminal = sdk.clone();
+    terminal["entrypoint"] = "cli".into();
+    for (n, all) in [
+        vec![
+            prompt(&kiln, "continue"),
+            prompt(&kiln, "Then a real request"),
+        ],
+        vec![sdk],
+        vec![bare],
+        vec![terminal],
+    ]
+    .iter()
+    .enumerate()
+    {
+        claude_session(&home, "kiln", &format!("n{n}"), 3_000 + n as u64, all);
+    }
+    let now = in_kiln(tasks_of("claude", &home, 100));
+    assert_eq!(
+        now,
+        ["Run the whole suite now", "Fix the layout in this picture"]
+    );
+
+    // The budget: files, then bytes.
+    assert_eq!(tasks_of("claude", &home, 1).len(), 1);
+    assert!(tasks_of("claude", &home, 0).is_empty());
+    let padded = format!(
+        "{}\n{}\n",
+        " ".repeat(map::SEED_BYTES),
+        prompt(&kiln, "Too far down to read")
+    );
+    write(&home.join(".claude/projects/-far/c.jsonl"), &padded);
+    assert!(
+        !tasks_of("claude", &home, 1_000)
+            .iter()
+            .any(|t| t.1.contains("Too far"))
+    );
+    // A file that cannot be read is skipped, the rest read.
+    mkdir(&home.join(".claude/projects/-cuegrid/z.jsonl"));
+    std::fs::write(
+        home.join(".claude/projects/-kiln/bad.jsonl"),
+        [0xff, 0xfe, b'\n'],
+    )
+    .unwrap();
+    assert_eq!(tasks_of("claude", &home, 1_000).len(), 7);
+}
+
+/// A Codex session file: its meta line, then the lines given.
+fn codex_session(
+    home: &Path,
+    day: &str,
+    name: &str,
+    ms: u64,
+    source: serde_json::Value,
+    cwd: &Path,
+    rest: &[String],
+) {
+    // The folder and the source come before the long instructions, as Codex writes them.
+    let cwd = serde_json::to_string(cwd.to_str().unwrap()).unwrap();
+    let meta = format!(
+        r#"{{"type":"session_meta","payload":{{"cwd":{cwd},"originator":"codex-tui","source":{source},"base_instructions":"{}"}}}}"#,
+        "x".repeat(20_000)
+    );
+    let at = home.join(format!(
+        ".codex/sessions/2026/11/{day}/rollout-{name}.jsonl"
+    ));
+    write(
+        &at,
+        &format!(
+            "{meta}\n{}",
+            rest.iter().map(|l| format!("{l}\n")).collect::<String>()
+        ),
+    );
+    touch(&at, ms);
+}
+
+fn user_item(parts: &[&str]) -> String {
+    let content: Vec<_> = parts
+        .iter()
+        .map(|t| serde_json::json!({ "type": "text", "text": t }))
+        .collect();
+    serde_json::json!({ "type": "event_msg", "payload": { "type": "item_completed",
+        "item": { "type": "UserMessage", "content": content } } })
+    .to_string()
+}
+
+#[test]
+fn codexs_typed_first_requests_are_the_projects_earlier_tasks_and_nothing_else_is() {
+    let t = Folder::new("seed-codex");
+    let (home, _) = home_of(&t);
+    let kiln = folder_in(&home, "projects/kiln");
+    let cli = || serde_json::json!("cli");
+    // Eight sessions over two days; the environment note Codex adds in the
+    // same shape is skipped.
+    for i in 0..8u64 {
+        let day = if i < 4 { "17" } else { "18" };
+        let all = [
+            user_item(&["<environment_context>cwd</environment_context>"]),
+            user_item(&[&format!("Tune the kiln ramp number {i}\nsecond line")]),
+        ];
+        codex_session(&home, day, &format!("a{i}"), 1_000 + i, cli(), &kiln, &all);
+    }
+    let got = tasks_of("codex", &home, 100);
+    // Ten files of one folder are looked into, the newest first.
+    assert_eq!(got.len(), 8);
+    assert_eq!(got[0].1, "Tune the kiln ramp number 7");
+    assert!(got.iter().all(|t| t.0 == kiln));
+    // `exec`, a sub-agent's, one of several text parts, a one-word request
+    // and a session with none give nothing; `vscode`, and the older
+    // `user_message` event, a task.
+    let sub = serde_json::json!({ "subagent": { "thread_spawn": {} } });
+    let older = serde_json::json!({ "type": "event_msg", "payload": {
+        "type": "user_message", "message": "Describe the glaze schedule" } })
+    .to_string();
+    let ask = user_item(&["Check the burner pressure"]);
+    let started = r#"{"type":"event_msg","payload":{"type":"task_started"}}"#.to_owned();
+    for (n, (source, all)) in [
+        (serde_json::json!("exec"), vec![ask.clone()]),
+        (sub, vec![ask.clone()]),
+        (cli(), vec![user_item(&["Check the", "burner pressure"])]),
+        (cli(), vec![user_item(&["continue"]), ask.clone()]),
+        (cli(), vec![started]),
+        (serde_json::json!("vscode"), vec![older]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        codex_session(
+            &home,
+            "19",
+            &format!("b{n}"),
+            5_000 + n as u64,
+            source,
+            &kiln,
+            &all,
+        );
+    }
+    let now: Vec<String> = tasks_of("codex", &home, 100)
+        .into_iter()
+        .map(|t| t.1)
+        .collect();
+    assert_eq!(now[0], "Describe the glaze schedule");
+    // The ten newest files of the folder: six of this day, four of the one before.
+    assert_eq!(now.len(), 5, "{now:?}");
+    // The budget: files, then bytes (the typed request lies past them).
+    assert_eq!(tasks_of("codex", &home, 1).len(), 1);
+    assert!(tasks_of("codex", &home, 0).is_empty());
+    let far = [user_item(&[&"y".repeat(map::SEED_BYTES)]), ask];
+    codex_session(&home, "20", "far", 9_000, cli(), &kiln, &far);
+    // It takes a place among the ten, and gives nothing.
+    assert_eq!(tasks_of("codex", &home, 100).len(), 4);
+    // A file that cannot be read is skipped.
+    mkdir(&home.join(".codex/sessions/2026/11/20/dir.jsonl"));
+    assert_eq!(tasks_of("codex", &home, 100).len(), 4);
+}
+
+#[test]
+fn an_agent_whose_files_do_not_tell_typed_from_machine_text_gives_no_earlier_tasks() {
+    for agent in tasktap_core::agents::all() {
+        let Some(history) = agent.history() else {
+            continue;
+        };
+        if ["claude", "codex"].contains(&agent.id()) {
+            continue;
+        }
+        let mut within = Within::new(map::HISTORY_TIME, 100);
+        assert!(history.tasks(Path::new("/nowhere"), &mut within).is_empty());
+    }
+}
+
+#[test]
+fn a_look_keeps_the_newest_five_earlier_tasks_of_each_project_and_forgets_them_with_the_look() {
+    let t = Folder::new("seed-look");
+    let (home, data) = home_of(&t);
+    let cuegrid = folder_in(&home, "projects/cuegrid");
+    write(&cuegrid.join("package.json"), "{}");
+    // A folder inside the project counts for the project.
+    let web = folder_in(&home, "projects/cuegrid/web");
+    for i in 0..4u64 {
+        let cwd = if i % 2 == 0 { &cuegrid } else { &web };
+        let text = format!("Claude task number {i}");
+        claude_session(
+            &home,
+            "cuegrid",
+            &format!("c{i}"),
+            1_000 + 10 * i,
+            &[prompt(cwd, &text)],
+        );
+    }
+    for i in 0..4u64 {
+        let all = [user_item(&[&format!("Codex task number {i}")])];
+        codex_session(
+            &home,
+            "18",
+            &format!("x{i}"),
+            1_005 + 10 * i,
+            serde_json::json!("cli"),
+            &cuegrid,
+            &all,
+        );
+    }
+    let (mut store, _) = Store::open(&data.join("core.db"), time(wall_ms())).unwrap();
+    let codex = Look {
+        agent: Some("codex".into()),
+        ..agent_look(&home)
+    };
+    let claude = agent_look(&home);
+    read_into(&mut store, &home, &data, &[claude.clone(), codex.clone()]);
+    let seeds = store.begin().unwrap().seeds().unwrap();
+    let folder = cuegrid.to_str().unwrap().to_owned();
+    let texts: Vec<&str> = seeds.iter().map(|(_, t)| t.as_str()).collect();
+    assert!(seeds.iter().all(|(f, _)| *f == folder), "{seeds:?}");
+    assert_eq!(texts.len(), 8);
+    assert_eq!(texts[0], "Codex task number 3");
+    assert_eq!(texts[1], "Claude task number 3");
+    // Five at most of a project from one agent: a sixth session is not kept.
+    for i in 4..8u64 {
+        let text = format!("Claude task number {i}");
+        claude_session(
+            &home,
+            "cuegrid",
+            &format!("c{i}"),
+            1_000 + 10 * i,
+            &[prompt(&cuegrid, &text)],
+        );
+    }
+    let out = reads(&mut store, &home, &data, &[claude.clone(), codex.clone()]);
+    merged(&mut store, out);
+    let seeds = store.begin().unwrap().seeds().unwrap();
+    let claudes: Vec<&String> = seeds
+        .iter()
+        .map(|(_, t)| t)
+        .filter(|t| t.starts_with("Claude"))
+        .collect();
+    assert_eq!(claudes.len(), 5);
+    assert_eq!(claudes[0], "Claude task number 7");
+    // Read again with Claude's look off: its tasks are forgotten.
+    let mut tx = store.begin().unwrap();
+    for l in [
+        Look {
+            on: false,
+            ..claude
+        },
+        codex.clone(),
+    ] {
+        tx.put_look(&l).unwrap();
+    }
+    tx.commit().unwrap();
+    let out = reads(&mut store, &home, &data, &[codex]);
+    merged(&mut store, out);
+    let seeds = store.begin().unwrap().seeds().unwrap();
+    assert_eq!(seeds.len(), 4);
+    assert!(seeds.iter().all(|(_, t)| t.starts_with("Codex")));
+}

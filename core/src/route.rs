@@ -103,7 +103,7 @@ pub const SCHEMA: &str = concat!(
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
     "the task in your words, and the project or session open in Tasktap's window",
-    "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks and the folder names at the project's top",
+    "up to 8 likely projects, each with its names, one line about the project, 5 earlier tasks, which include requests you gave an agent outside Tasktap, and the folder names at the project's top",
     "the sessions in those projects, each with its name, first and last request, its agent, the agent's state, how long ago it last ran and the start of the agent's last answer",
     "your 3 most recent tasks in those sessions and how each ended",
     "a text that looks like a key, a token or a password is left out, also from the task",
@@ -1699,6 +1699,27 @@ fn earlier(tx: &Tx, r: &Request) -> store::Result<Vec<(Destination, Vec<String>)
             None => out.push((to, vec![title])),
         }
     }
+    // After the person's own, up to the same number: the requests the
+    // person gave an agent outside Tasktap (`map::Task`). Only here: they
+    // are no last task, no recent task and no session.
+    let seeds = tx.seeds()?;
+    for p in r.projects.iter().filter(|p| !p.folder.is_empty()) {
+        for (_, text) in seeds.iter().filter(|(folder, _)| *folder == p.folder) {
+            let text = cut(text, EARLIER_TITLE);
+            let at = match out.iter().position(|(d, _)| *d == p.to) {
+                Some(at) => at,
+                None => {
+                    out.push((p.to, Vec::new()));
+                    out.len() - 1
+                }
+            };
+            let titles = &mut out[at].1;
+            if titles.len() < EARLIER && !titles.contains(&text) {
+                titles.push(text);
+            }
+        }
+    }
+    out.retain(|(_, titles)| !titles.is_empty());
     Ok(out)
 }
 

@@ -51,9 +51,9 @@ function reasons(c: Card): string[] {
 // As the core says what it sends (core/src/route.rs, `SENDS`): of up to 8 projects, the name, the other names and one line.
 const MODEL = 'Only if you let a model place your tasks does that model get, of up to 8 likely projects, the name, the other names it goes by and one line about each.';
 const READS_AGENTS = (names: string[]) =>
-  `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when; never what was said there. Of each folder that is a project it reads the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL}`;
+  `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when. For Claude Code and Codex it also reads the first request you typed in each of a project’s latest runs, and nothing else that was said there. Of each folder that is a project it reads the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL}`;
 /** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */
-const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, never what was said there, and keeps what it learns on ${HERE}.`;
+const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, and for Claude Code and Codex the first request you typed in a project’s latest runs, nothing else that was said there, and keeps what it learns on ${HERE}.`;
 const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
 /** As many folders as one search in a folder goes through (core/src/map.rs, `ENTRIES`). */
 const BUDGET = 5000;

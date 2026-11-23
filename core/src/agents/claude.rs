@@ -521,6 +521,17 @@ fn output(decision: Value) -> String {
 /// the newest session file in it, read until that field and no further,
 /// and the date is that file's modified time. Nothing else of the file is
 /// kept, and `~/.claude.json`, which holds the account, is not read.
+///
+/// Earlier tasks ([`map::History::tasks`]): of a project's ten newest
+/// session files, the first typed request of each, as far as five are
+/// found. A line is a typed request when it is a `user` line, not a note
+/// (`isMeta`) and not a sub-agent's (`isSidechain`), made by a person: its
+/// `origin` says `human`, or it has none and `entrypoint` is the terminal,
+/// the desktop app or the editor's (`cli`, `claude-desktop`,
+/// `claude-vscode`); a session driven by a program (`sdk-cli`, or no
+/// entry point named) is left out whole. Its content is text (images
+/// beside it do not matter), never a tool's result, and [`map::said`] says
+/// it is no wrapper, slash command or output.
 pub struct History;
 
 impl crate::map::History for History {
@@ -563,4 +574,86 @@ impl crate::map::History for History {
         }
         Ok(worked)
     }
+
+    fn tasks(&self, home: &Path, within: &mut Within) -> Vec<map::Task> {
+        let Ok(entries) = std::fs::read_dir(self.folder(home)) else {
+            return Vec::new();
+        };
+        let mut projects: Vec<Vec<(u64, PathBuf)>> = Vec::new();
+        for entry in entries.filter_map(|e| e.ok()) {
+            let Ok(files) = std::fs::read_dir(entry.path()) else {
+                continue;
+            };
+            let mut sessions: Vec<(u64, PathBuf)> = (files.filter_map(|f| f.ok()))
+                .filter(|f| f.file_name().to_string_lossy().ends_with(".jsonl"))
+                .filter_map(|f| Some((map::modified(&f.metadata().ok()?), f.path())))
+                .collect();
+            sessions.sort_by_key(|s| std::cmp::Reverse(s.0));
+            if !sessions.is_empty() {
+                projects.push(sessions);
+            }
+        }
+        // The projects worked in last first, so that the budget keeps what is alive.
+        projects.sort_by_key(|p| std::cmp::Reverse(p[0].0));
+        let mut tasks = Vec::new();
+        for sessions in projects {
+            let mut found = 0;
+            for (when, file) in sessions.iter().take(map::SEED_WINDOW) {
+                if found == map::SEEDED {
+                    break;
+                }
+                if !within.more() {
+                    return tasks;
+                }
+                if let Some(Some((folder, text))) = map::head(file, map::SEED_BYTES, opening) {
+                    found += 1;
+                    tasks.push(map::Task {
+                        folder,
+                        when: *when,
+                        text,
+                    });
+                }
+            }
+        }
+        tasks
+    }
+}
+
+/// The folder and first typed request of a session, from its first bytes:
+/// none yet when more must be read, `Some(None)` when it has none.
+fn opening(bytes: &[u8]) -> Option<Option<(PathBuf, String)>> {
+    for line in map::json_lines(bytes) {
+        if line["type"] != "user" || line["isMeta"] == true || line["isSidechain"] == true {
+            continue;
+        }
+        match line["origin"]["kind"].as_str() {
+            Some("human") => {}
+            Some(_) => continue,
+            None => match line["entrypoint"].as_str() {
+                Some("cli" | "claude-desktop" | "claude-vscode") => {}
+                _ => return Some(None),
+            },
+        }
+        let text = match &line["message"]["content"] {
+            Value::String(text) => text.clone(),
+            Value::Array(parts)
+                if parts
+                    .iter()
+                    .all(|p| matches!(p["type"].as_str(), Some("text" | "image"))) =>
+            {
+                let texts = parts.iter().filter_map(|p| p["text"].as_str());
+                texts.collect::<Vec<_>>().join("\n")
+            }
+            _ => continue,
+        };
+        return match map::said(&text) {
+            map::Said::Machine => continue,
+            map::Said::Short => Some(None),
+            map::Said::Typed(text) => {
+                let cwd = line["cwd"].as_str().filter(|c| Path::new(c).is_absolute());
+                Some(cwd.map(|c| (PathBuf::from(c), text)))
+            }
+        };
+    }
+    None
 }

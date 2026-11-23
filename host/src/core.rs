@@ -401,10 +401,12 @@ impl Link {
                 link.call("sub", json!({"collections": WATCHED}), |_| {});
                 return Ok(stream);
             }
-            // Design §3: an older core with no terminals retires; one with terminals stays in use.
+            // Design §3: an older core with no terminals retires; one with terminals stays in use until its last
+            // terminal has ended, and then retires, so this app's core starts when the connection is made again.
             let mut reader = stream.try_clone()?;
             let status = link.wait(&mut reader, decoder, "core.status", json!({}))?;
             if status.get("terminals").and_then(Value::as_u64) != Some(0) {
+                link.call("core.retire", json!({"when": "idle"}), |_| {});
                 link.call("sub", json!({"collections": WATCHED}), |_| {});
                 return Ok(stream);
             }
@@ -568,6 +570,104 @@ impl Link {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    /// A connection of the test's own to the core of `core`'s folder, as the host's device, started from `core`'s copy
+    /// where none runs; a call on it.
+    fn ask(core: &Core, name: &str, args: Value) -> io::Result<Value> {
+        let (mut stream, first) = core.connect(Role::Host, "test")?;
+        let link = Link {
+            folders: Mutex::default(),
+            prefs: Mutex::default(),
+            questions: Mutex::default(),
+            writer: Mutex::new(Some(stream.try_clone()?)),
+            waiting: Mutex::default(),
+            next: Mutex::new(1),
+        };
+        let mut decoder = Decoder::new();
+        decoder.push(&first);
+        decoder.next_frame().map_err(io::Error::other)?;
+        link.wait(&mut stream, &mut decoder, name, args)
+    }
+
+    /// What `link`'s core answers to a call, within ten seconds.
+    fn answer(link: &Link, name: &str, args: Value) -> Option<Value> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        link.call(name, args, move |o| {
+            let _ = tx.send(o);
+        });
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Outcome::Ok(value)) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// The bundled core, where scripts/build-core.sh puts it.
+    fn bundled() -> Option<PathBuf> {
+        let name = format!("tasktap-{}{}", env!("TAURI_ENV_TARGET_TRIPLE"), std::env::consts::EXE_SUFFIX);
+        let core = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join(name);
+        core.exists().then_some(core)
+    }
+
+    /// A core the test started, ended with the test.
+    struct Started(Child);
+
+    impl Drop for Started {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// An update over a core that keeps a terminal (design §3): a core of another build, left running on the folder
+    /// with a terminal at work, meets this app's host. The host uses it while the terminal runs, and the terminal runs
+    /// on; once it has ended that core goes, and the host starts this app's. Both are the bundled core here, this app's
+    /// build named another than the one the core says, so this app's own core is retired once more as it starts.
+    #[test]
+    fn a_core_of_another_build_keeps_its_terminals_and_retires_once_they_have_ended() {
+        let Some(bundled) = bundled() else {
+            return eprintln!("skipped: no bundled core (scripts/build-core.sh)");
+        };
+        let data = std::env::temp_dir().join(format!("tasktap-host-update-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&data);
+        let core = Arc::new(Core::prepare(data.clone(), &bundled, "this-app".into()).unwrap());
+        let mut serve = Command::new(&bundled);
+        serve.arg("serve").arg("--data").arg(&data).stdout(Stdio::piped());
+        let mut earlier = Started(serve.spawn().unwrap());
+        let mut ready = String::new();
+        BufReader::new(earlier.0.stdout.take().unwrap()).read_line(&mut ready).unwrap();
+        assert_eq!(ready.trim_end(), "ready");
+        let terminal = tasktap_proto::TerminalId::mint();
+        let lasting = if cfg!(windows) { json!(["ping", "-n", "60", "127.0.0.1"]) } else { json!(["sleep", "60"]) };
+        let open = json!({"id": terminal, "start": {"argv": lasting}, "cols": 80, "rows": 24, "credit": 65536});
+        ask(&core, "terminal.open", open).unwrap();
+        let before = ask(&core, "core.status", json!({})).unwrap();
+        assert_eq!(before["terminals"], 1);
+
+        let link = Link::start(core, |_| {}, |_| {}, |_| {}).unwrap();
+        // The terminal keeps its core: the host uses it, and it does not end.
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(answer(&link, "core.status", json!({})), Some(before));
+        assert!(earlier.0.try_wait().unwrap().is_none(), "the earlier core runs on with its terminal");
+
+        // Once its last terminal has ended the earlier core goes, and the host has this app's.
+        assert!(answer(&link, "terminal.stop", json!({"id": terminal})).is_some());
+        let asked = Instant::now();
+        while earlier.0.try_wait().unwrap().is_none() {
+            assert!(asked.elapsed() < Duration::from_secs(10), "the earlier core still runs, with no terminal");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let after = loop {
+            match answer(&link, "core.status", json!({})) {
+                Some(status) => break status,
+                None => assert!(asked.elapsed() < Duration::from_secs(20), "the host has no core"),
+            }
+        };
+        assert_eq!(after["terminals"], 0);
+        // No core starts after this one.
+        abandon();
+        let _ = answer(&link, "core.retire", json!({"when": "now"}));
+        let _ = fs::remove_dir_all(&data);
+    }
 
     /// A program that runs until it is ended.
     fn lasting() -> io::Result<Child> {

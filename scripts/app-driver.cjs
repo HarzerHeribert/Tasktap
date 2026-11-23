@@ -196,7 +196,7 @@ async function launch({ exe = RELEASE, fixture = false, env = {}, display = 0, p
     } catch { return a; }
   }, 0) * 10) / 10;
   /** With the fixture agent: it is the agent thoughts run with, after a hold of two seconds; the project's folder is
-   *  open as a workspace and holds the steps the thought THOUGHT runs; Home is shown. */
+   *  open as a workspace and holds the steps the thought THOUGHT runs; Home is shown (the first start's welcome left). */
   const prepare = async () => {
     fs.writeFileSync(path.join(project, 'flow.steps'), STEPS.join('\n') + '\n');
     send('call put {"c":"prefs","id":"agent","patch":"fixture"}'), send('call put {"c":"prefs","id":"hold","patch":2}'), send('call agents.detect {}');
@@ -206,6 +206,9 @@ async function launch({ exe = RELEASE, fixture = false, env = {}, display = 0, p
     send('click workspace .sheet .sh-f .key');
     if (!(await until('workspace', `String([...__ws.records.projects.values()].some(p => p.kind === 'folder') && __ws.records.agents.has('fixture'))`, 'true', 10))) throw new Error('the folder did not open');
     await ask('workspace', `(__ws.show('home'), 1)`);
+    // A first start (this data folder is new) stands the welcome in Home's place until it is left, as a person leaves it.
+    await ask('workspace', `(document.querySelector('.welcome .wc')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)`);
+    if (!(await until('workspace', `String(!document.querySelector('.welcome') && !!document.querySelector('.home #capture-input'))`, 'true', 8))) throw new Error('Home did not show: the welcome is still there');
   };
   /** Home at rest again: the Composer empty and every result read. */
   const rest = async () => {

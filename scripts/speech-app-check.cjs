@@ -48,7 +48,7 @@ function page(app) {
   const row = () => ask(`[...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Where your speech becomes text')?.innerText.replace(/\\s+/g, ' ') ?? ''`);
   const press = (label) => ask(`([...document.querySelectorAll('.settings .set button')].find((b) => b.textContent === ${JSON.stringify(label)})?.click(), 1)`);
   const settings = async () => (await ask(`(__ws.ui.sheet = { kind: 'settings', at: 'voice' }, __motion.redraw(), 1)`), sleep(400));
-  const home = async () => (await ask(`(__ws.dismiss(), __ws.show('home'), 1)`), sleep(300));
+  const home = async () => (await ask(`(__ws.dismiss(), document.querySelector('.welcome .wc')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), __ws.show('home'), 1)`), sleep(300));
   // Never the real microphone: a press is refused unless a tone or a recording stands in for it.
   // While the check holds the control (`__holding`), the page losing the window counts (`watch`), whatever the
   // recorder has made of it by then.

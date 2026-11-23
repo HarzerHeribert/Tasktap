@@ -312,7 +312,10 @@ export class Engine {
       if (this.term.cols !== d.cols || this.term.rows !== d.rows) this.term.resize(d.cols, d.rows);
       return;
     }
-    if (want === this.asked) return;
+    // Another window may have asked for a size since (the workspace's own window, once it closes): what this one asked
+    // last is only the size it wants if the process still has it.
+    const has = records.terminals.get(this.id);
+    if (want === this.asked && has?.cols === d.cols && has.rows === d.rows) return;
     this.asked = want;
     void call('terminal.resize', { id: this.id, cols: d.cols, rows: d.rows }).catch(() => {});
   }

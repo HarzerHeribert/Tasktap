@@ -1176,32 +1176,36 @@ chip="[...document.querySelectorAll('.home #dest-chip > b, .home #dest-chip > sp
 home_says "Tidy the changelog a little"
 until_has workspace "text .home .cap-ask" 5 "Which project is this task for?" && [ "$(js workspace "String(document.activeElement?.id === 'capture-input' && !!document.querySelector('.home .capture .cap-ask') && !document.querySelector('.home .needs [data-question]') && !/(Thoughts|Tasks) can find|Its question is open/.test(document.querySelector('.home .ways').textContent))")" = true ] \
   && pass "the first thought that names no folder is asked about at the Composer, the field keeping the keyboard and its keys answering, not also in Needs you, and nothing else stands under the Composer" || fail "the question at the Composer" "$(ask workspace "text .home .capture" | tr '\n' '|' | cut -c1-200)"
-# Who finds the project for a task is agreed to in the welcome's third step, and in Settings, Projects, whose row for it opens
-# the sheet that says all of it.
-js workspace "(__ws.open({ kind: 'settings', at: 'projects' }), 1)" >/dev/null
-until_has workspace "text .set-pane" 5 "Finding the project for a task" || fail "Settings, Projects, has the row that finds the project for a task"
-js workspace "([...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === 'Finding the project for a task').querySelector('.btn').click(), 1)" >/dev/null
-until_has workspace "eval __ws.ui.sheet?.kind" 3 "placing" || fail "the row opens the placing sheet"
-js workspace "([...document.querySelectorAll('.sheet .disc')].find((d) => d.textContent.includes('What is sent')).click(), 1)" >/dev/null
-# The signed-in agents in Tasktap's order: what costs nothing more first, the fastest first among those.
+# Who finds the project for a task is agreed to in the welcome's third step, and in Settings, Placing (⌘3, after Agents): its
+# switch is the agreement, the placers are rows under it, and what is sent and the instructions open in place.
+js workspace "(__ws.open({ kind: 'settings', at: 'placing' }), 1)" >/dev/null
+master="[...document.querySelectorAll('.settings [role=switch]')].find((s) => s.getAttribute('aria-label') === 'Find the project for each task')"
+until_has workspace "text .set-pane" 5 "Find the project for each task" || fail "Settings has a section Placing with the switch that finds the project for each task"
+js workspace "([...document.querySelectorAll('.settings .disc')].find((d) => d.textContent.includes('What is sent')).click(), 1)" >/dev/null
+# The signed-in agents in Tasktap's order: what costs nothing more first, the fastest first among those; none on before the switch is.
 ranks="[...document.querySelectorAll('.sheet .rank:not(.sign)')].map(r => r.querySelector('.t').textContent + (r.querySelector('.switch').getAttribute('aria-checked') === 'true' ? '' : ' off')).join('|')"
 until_has workspace "text .sheet" 5 "goes to the first agent below that answers" && terms="$(ask workspace "text .sheet")" \
   && echo "$terms" | grep -q "Give a task without choosing its place, and one of your own agents decides where the task belongs: which project, and whether an agent already at work there continues" \
   && echo "$terms" | grep -q "the task in your words, and the project or session open in Tasktap's window" && echo "$terms" | grep -q "up to 8 likely projects" \
-  && [ "$(js workspace "$ranks")" = "fixture-silent|Fixture agent|fixture-probed" ] \
+  && [ "$(js workspace "$ranks")" = "fixture-silent off|Fixture agent off|fixture-probed off" ] \
   && [ "$(js workspace "String([...document.querySelectorAll('.sheet .rank:not(.sign)')].some(r => r.querySelector('.x.m')?.textContent === 'fixture-small' && /about 1 s/.test(r.textContent)))")" = true ] \
-  && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] && [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] \
-  && pass "its sheet says what the person gets, which signed-in agents would place the thoughts in Tasktap's order and why, with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(js workspace "$ranks") $(echo "${terms:-}" | tr '\n' '|' | cut -c1-200)"
-js workspace "([...document.querySelectorAll('.sheet .disc')].find((d) => d.textContent.includes('The instructions they follow')).click(), 1)" >/dev/null
+  && [ "$(js workspace "String(!document.querySelector('.instr') && $master.getAttribute('aria-checked') === 'false')")" = true ] && [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] \
+  && pass "Settings, Placing, says what the person gets, which signed-in agents would place the thoughts in Tasktap's order and why, with which model, and exactly what is sent, in place; the switch is off and nothing is stored yet" || fail "the placing section" "$(js workspace "$ranks") $(echo "${terms:-}" | tr '\n' '|' | cut -c1-200)"
+js workspace "([...document.querySelectorAll('.settings .disc')].find((d) => d.textContent.includes('The instructions they follow')).click(), 1)" >/dev/null
 until_has workspace "text .sheet .instr" 3 "You are the router of Tasktap" && pass "the instructions the model follows are there to read in full, behind one quiet line" || fail "the instructions"
 shot placing-terms workspace
-# The person's own order, by the keyboard: the fixture agent up to the first place, the two others switched off.
+# The switch is the agreement, written in Tasktap's order; then the person's own order, by the keyboard, each change written at
+# once: the fixture agent up to the first place, the two others switched off.
+js workspace "($master.click(), 1)" >/dev/null
+until_has workspace "eval $ranks" 5 "fixture-silent|Fixture agent|fixture-probed" || fail "the switch turns every placer on, in Tasktap's order" "$(js workspace "$ranks")"
+
 row_key() { js workspace "(()=>{const r=[...document.querySelectorAll('.sheet .rank:not(.sign)')].find(r=>r.querySelector('.t').textContent==='$1');r?.focus();r?.dispatchEvent(new KeyboardEvent('keydown',{key:'$2',altKey:${3:-false},bubbles:true,cancelable:true}));return !!r})()" >/dev/null; }
-row_key "Fixture agent" ArrowUp true && row_key fixture-silent " " && row_key fixture-probed " "
+row_key "Fixture agent" ArrowUp true
+until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent|fixture-probed" && row_key fixture-silent " "
+until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed" && row_key fixture-probed " "
 until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed off" || fail "the order by the keyboard" "$(js workspace "$ranks")"
-press workspace ".sheet" Enter >/dev/null
 until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(__ws.ui.sheet?.kind)" 5 '{"agents":[{"agent":"fixture","model":"fixture-small","on":true},{"agent":"fixture-silent","model":"fixture-small","on":false},{"agent":"fixture-probed","model":"fixture-small","on":false}],"terms":4}settings' \
-  && pass "Allow writes the agreement for those agents in that order, each with its model and switch, and the sheet returns to Settings, where it was opened from" || fail "Allow"
+  && pass "the switch writes the agreement, and each change of order and each switch is written at once, with its model and switch, while Settings stays where it is" || fail "the agreement"
 js workspace "(__ws.dismiss(), 1)" >/dev/null
 # The thought sent before is asked about at the Composer: kept for later by its row's number in the field, then dropped.
 press workspace ".home #capture-input" "$(js workspace "String([...document.querySelectorAll('.home .cap-ask .ans span')].findIndex(s => s.textContent === 'Keep for later') + 1)")" >/dev/null
@@ -1290,19 +1294,18 @@ shot router-question-home workspace
 js workspace "(document.querySelector('.cap-ask .ans').click(), 1)" >/dev/null
 until_has workspace "eval String(!!document.querySelector('.home .way-more'))" 5 "true" && ask workspace "click .home .way .act:not([data-offer])" >/dev/null
 until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought asked about is taken back"
-# Settings says what is on, and turns it off. (About, shown last: Settings opens there again; ⌘3 goes to Projects.)
+# Settings says what is on, and turns it off. (About, shown last: Settings opens there again; ⌘3 goes to Placing.)
 js workspace "(__ws.open({ kind: 'settings', at: 'about' }), 1)" >/dev/null
 until_has workspace "text .set-pane" 3 "Show again" || fail "Settings, About, shows the welcome again"
 js workspace "(__ws.dismiss(), __ws.command('settings'), 1)" >/dev/null
 # (A moment for the sheet to listen: behind a locked screen the page is hidden, and a hidden page takes its time.)
 until_has workspace "eval __ws.ui.sheet?.at" 3 "about" && sleep 1 && press workspace ".sheet" 3 true >/dev/null
-until_has workspace "eval __ws.ui.sheet?.at" 3 "projects" && foot_of "Finding the project for a task" | grep -q "Tasks you do not place go where they belong: Fixture agent decides from earlier tasks and what your agents last answered." && ask workspace "text .settings .ranks" | grep -q "fixture-small" \
-  && pass "Settings opens where it was last shown, and under Projects (⌘3) lists who decides where a task you do not place goes, in the person's order, and says in its foot what they decide from" || fail "Settings, Projects" "$(ask workspace "text .sheet .sh-hint")"
+until_has workspace "eval __ws.ui.sheet?.at" 3 "placing" && foot_of "Find the project for each task" | grep -q "Tasks you do not place go where they belong: Fixture agent decides from earlier tasks and what your agents last answered." && ask workspace "text .settings .ranks" | grep -q "fixture-small" \
+  && pass "Settings opens where it was last shown, and under Placing (⌘3) lists who decides where a task you do not place goes, in the person's order, and says in its foot what they decide from" || fail "Settings, Placing" "$(ask workspace "text .sheet .sh-hint")"
 shot settings-flows workspace
-js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What is sent')).click(), 1)" >/dev/null
-until_has workspace "text .sheet .sh-f" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null
-until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + ' ' + __ws.ui.sheet?.kind" 3 "null settings" && ask workspace "text .settings" | grep -q "Off: only tasks that name their project" \
-  && pass "Turn off ends it: the preference holds No, so it is not offered again, and Settings says only thoughts that name their project are placed" || fail "turning placing off"
+js workspace "($master.click(), 1)" >/dev/null
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + ' ' + __ws.ui.sheet?.kind" 3 "null settings" && foot_of "Find the project for each task" | grep -q "A task that names its project goes there" \
+  && pass "Turning the switch off ends it: the preference holds No, so it is not offered again, and Settings says only tasks that name their project are placed" || fail "turning placing off"
 js workspace "(__ws.dismiss(), 1)" >/dev/null
 fi
 

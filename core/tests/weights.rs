@@ -172,7 +172,14 @@ fn the_persons_own_command_that_names_a_model_wins() {
         assert_eq!(agents::command_refused(agent(id)), None, "{command}");
     };
     let high = Some("high".to_owned());
-    set("claude", "caffeinate -i claude --model opus");
+    // A program before claude (a Mac's caffeinate) is the person's own on a Mac and on Linux; Windows refuses one,
+    // so there the command is claude's own.
+    let wrapped = if cfg!(windows) {
+        "claude --model opus"
+    } else {
+        "caffeinate -i claude --model opus"
+    };
+    set("claude", wrapped);
     // The row says so, for Settings to say it in the foot.
     let says = agents::checks::found(agent("claude")).passes;
     let passes = tasktap_proto::Passes {
